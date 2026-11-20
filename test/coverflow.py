@@ -390,10 +390,10 @@ static theme_t shim_themes[3] = {
       .home_label_end = { HOME_SPLIT_LABEL_END, HOME_LABEL_END }, .cf = CF_STYLE0 },
     { .page_row = 32, .page_detail = 52, .page_title_h = 0, .page_x = 20, .page_cap_y = -1, .page_cap_h = 28, .page_det_y = 28, .page_det_h = 18, .home_label_end = { 20, 33 }, .home_text_x = 20, .home_full_row = 375,
       .home_pane =
-          { { 2, { 0, 100 }, { 0x1c1c1c, 0x1c1c1c } }, { 2, { 0, 100 }, { 0x63717b, 0x63717b } } }, .pane_shadow = 0,
+          { { 2, { 0, 100 }, { 0x1c1c1c, 0x1c1c1c } }, { 2, { 0, 100 }, { 0xf2f2f7, 0xf2f2f7 } } }, .pane_shadow = 0,
       .pane_shadow_w = 0,
       .pane_shadow_a = { 116, 100, 93, 86, 79, 73, 68, 62, 56, 50, 44, 39, 34, 28, 24, 19, 16, 13, 10, 8, 6, 4, 3, 2, 1 }, .pane_light_a = 0, .pane_note_x = 40, .pane_note_y = 57, .pane_count_y = 185, .pane_count_w = 182,
-      .pane_count_px = 27, .cf = CF_STYLE1 },
+      .pane_count_px = 17, .cf = CF_STYLE1 },
     { .page_row = 48, .page_detail = 64, .page_title_h = 48, .page_x = 36, .page_cap_y = 4, .page_cap_h = 32, .page_det_y = 36, .page_det_h = 24, .home_full_row = HOME_MODERN_ROW, .home_text_x = HOME_MODERN_TEXT_X,
       .home_label_end = { HOME_MODERN_LABEL_END, HOME_MODERN_LABEL_END }, .cf = CF_STYLE0 } };
 static short stub_bar_h = 30;
@@ -428,6 +428,15 @@ void draw_centred(void *c, const unsigned *s, unsigned n, const void *r, unsigne
     for (; i < n && i + 1 < sizeof centred_text; ++i) centred_text[i] = (char)s[i];
     centred_text[i] = 0, centred_color = color;
     memcpy(centred_box, r, sizeof centred_box), centred_px = px;
+}
+/* the pane's captions: navigation.c's final_text, in the flat pages' quiet colour (classic_pages.c) */
+const unsigned flat_quiet[2] = { 0x98989d, 0x6e6e73 };
+static const char *centred_face = "";
+void final_text(void *c, const char *face, const unsigned *s, const void *r, unsigned px, unsigned color) {
+    unsigned n = 0;
+    while (s[n]) ++n;
+    draw_centred(c, s, n, r, px, color);
+    centred_face = face;
 }
 int ipod_light(void) { return light; }
 static int square_art;
@@ -8368,8 +8377,8 @@ int main(void) {
     /* Classic (shim_themes[1]): no cover shows the pane instead of default_album_home. The art spans the
      * panel and paints the pane's stops over all of it, its light (white, alpha 40 at the left, 0 at the
      * right edge, a band per alpha), the shadow down its left edge (black, the theme's alpha per column),
-     * the note (its image, the theme's place) and the queue's count, "12 Songs", at 27 px, centred on its
-     * 24 px line box at the theme's place. Classic's own pane is flat (light and shadow 0): here they
+     * the note (its image, the theme's place) and the queue's count, "12 Songs", quiet in the system's face
+     * at the theme's 17 px, centred on its 24 px line box at the theme's place. Classic's own pane is flat (light and shadow 0): here they
      * are on, as a theme may state them. */
     shim_themes[1].pane_light_a = 40; shim_themes[1].pane_shadow_w = 25;
     unsigned queued = queue.n;
@@ -8392,11 +8401,11 @@ int main(void) {
     }
     assert(fills == 65 && !strcmp(centred_text, "12 Songs"));
     assert(!memcmp(note_drawn, (int[]){ 40, 57, 100, 115 }, 16));
-    assert(!memcmp(centred_box, (int[]){ 0, 185, 182, 24 }, 16) && centred_px == 27);
-    assert((centred_color & 0xffffff) == 0xffffff); /* light 0, the dark half: the count white, raw */
+    assert(!memcmp(centred_box, (int[]){ 0, 185, 182, 24 }, 16) && centred_px == 17 && !centred_face);
+    assert(centred_color == 0xff98989d); /* light 0, the dark half: the count in its quiet grey, final */
     assert(fill_color == 0x12345678); /* the LCD's fill back */
     light = 1; fills = 0; coverflow_home_clip(home_art, canvas, 0);
-    assert(!(centred_color & 0xffffff)); /* the light half: black, which ui_ink draws as the white paper */
+    assert(centred_color == 0xff6e6e73); /* the light half's quiet grey */
     assert(stops_arg == &shim_themes[1].home_pane[1]); /* and its own pane */
     light = 0;
     note_fail = 1; fills = 0; coverflow_home_clip(home_art, canvas, 0); note_fail = 0;

@@ -2446,7 +2446,7 @@ def parents(m,w):
     for c in m.nodes[w]['children']: m.word(c+O['W_PARENT'],w); parents(m,c)
 
 def dirty(m,win): return [c[2] and tuple(signed(m.get(c[2]+4*i)) for i in range(4)) for c in m.calls if c[0]=='widget_invalidate_force' and c[1]==win]  # each invalidate's rect
-def page_fill(m,y=0,rgb=0x63717b): return m.bands[0][:5]==(0,y,375,294,color_t(rgb))  # the page: one flat fill first, the half's Home pane colour, or the colour named
+def page_fill(m,y=0,rgb=0x63717b): return m.bands[0][:5]==(0,y,375,294,color_t(rgb))  # the page: one flat fill first, the lock screen's slate, or the colour named
 def art_at(m): return list(zip([m.text(c[2]) for c in m.calls if c[0]=='widget_load_image'],[d[1][:2] for d in m.image_draws]))
 
 from art import corner_cover

@@ -54,7 +54,7 @@ def test_classic_draws_its_images_and_the_others_none():
         assert set(art.images({**themes[0], **half})) == {'minimal_vol_lo', 'minimal_vol_hi'}
     full = art.images(themes[1])
     assert {k: v for k, v in full.items() if '_icon_' not in k} == classic()  # what the other tests draw
-    assert set(full) == {f'classic_light_{n}' for n in ('sort_bars', 'icon_note', 'icon_folder', 'icon_stack', 'icon_game', 'icon_wave', 'icon_gear', 'chevron', 'bolt', 'plug', 'note', 'play_l', 'play_d', 'pause_l', 'pause_d', 'vol_lo', 'vol_hi', *(f'spk_{v}_{h}' for v in ('quiet', 'loud') for h in 'ldw'), *(f'drop_{n}{k}' for n in QS_NAMES for k in QS_INKS), 'drop_dim', 'drop_dim_l', 'drop_bright', 'drop_bright_l', 'drop_bright_ql', 'drop_bright_qd', *(f'msg_{n}_{h}' for n in ('usb', 'note') for h in 'ld'), 'clock_face_l', 'clock_face_d', 'hint_shadow', 'clock_dark', 'kb_del', 'kb_shift', 'kb_back', 'field_glass', 'field', 'rate_shadow', 'heart_on_l', 'heart_on_d', 'heart_off_l', 'heart_off_d', 'station')}
+    assert set(full) == {f'classic_light_{n}' for n in ('sort_bars', *(f'icon_{n}{k}' for n in ('note', 'folder', 'stack', 'game', 'wave', 'gear') for k in ('', '_l')), 'chevron', 'bolt', 'plug', 'note', 'note_l', 'play_l', 'play_d', 'pause_l', 'pause_d', 'vol_lo', 'vol_hi', *(f'spk_{v}_{h}' for v in ('quiet', 'loud') for h in 'ldw'), *(f'drop_{n}{k}' for n in QS_NAMES for k in QS_INKS), 'drop_dim', 'drop_dim_l', 'drop_bright', 'drop_bright_l', 'drop_bright_ql', 'drop_bright_qd', *(f'msg_{n}_{h}' for n in ('usb', 'note') for h in 'ld'), 'clock_face_l', 'clock_face_d', 'hint_shadow', 'clock_dark', 'kb_del', 'kb_shift', 'kb_back', 'field_glass', 'field', 'rate_shadow', 'heart_on_l', 'heart_on_d', 'heart_off_l', 'heart_off_d', 'station')}
 
 
 # The approved rendered rows, within 1 per channel: the fill down column 272 of the pause bars
@@ -254,12 +254,14 @@ def test_set_time_s_face_and_the_hint_s_shadow():
     assert 0x20 < hint(8, 8)[3] <= 0x80 and hint(8, 1)[3] == 0
 
 
-def test_the_note_is_white_and_translucent():
-    w, h, at = pixels(classic()['classic_light_note'])
-    assert (w, h) == (100, 115)
-    assert at(0, 0) == (0, 0, 0, 0)  # outside the drawing
-    assert at(36, 30)[:3] == (255, 255, 255) and at(36, 30)[3] > 200  # the gloss at the stem's top
-    assert at(90, 60)[:3] == (255, 255, 255) and 60 < at(90, 60)[3] < 130  # the right stem: its fill alone
+def test_the_note_is_its_drawing_s_shape_flat_in_each_half_s_ink():
+    got = classic()
+    for k, rgb in (('', (255, 255, 255)), ('_l', (0x1c, 0x1c, 0x1e))):
+        w, h, at = pixels(got[f'classic_light_note{k}'])
+        assert (w, h) == (100, 115)
+        assert at(0, 0) == (0, 0, 0, 0)  # outside the drawing
+        assert at(36, 30) == (*rgb, 255) and at(90, 60) == (*rgb, 255)  # the left stem's top and the right stem: one opaque colour
+        assert {at(x, y)[:3] for x in range(w) for y in range(h) if at(x, y)[3]} == {rgb}
 
 
 def test_the_chevron_is_a_white_rounded_stroke_on_its_box():
@@ -295,6 +297,10 @@ def test_the_pane_icons_fit_their_box_and_keep_their_holes():
         w, h, at = pixels(got[f'classic_light_icon_{name}'])
         assert w == side
         ink = [(x, y) for x in range(w) for y in range(h) if at(x, y)[3]]
+        assert {at(x, y)[:3] for x, y in ink} == {(255, 255, 255)} and any(at(x, y)[3] == 255 for x, y in ink)  # flat white, opaque inside
+        _, _, light = pixels(got[f'classic_light_icon_{name}_l'])  # the light pane's: the same shape in the ink
+        assert all(light(x, y)[3] == at(x, y)[3] for x in range(w) for y in range(h)), name
+        assert {light(x, y)[:3] for x, y in ink if at(x, y)[3] == 255} == {(0x1c, 0x1c, 0x1e)}, name
         xs, ys = [p[0] for p in ink], [p[1] for p in ink]
         if name != 'note':  # 92 px on its longer side, centred on (278, 124)
             assert max(max(xs) - min(xs), max(ys) - min(ys)) in range(91, 96), name

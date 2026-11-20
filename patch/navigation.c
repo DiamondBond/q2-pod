@@ -4683,10 +4683,11 @@ static void slider_open(void *win) {
     widget_set_prop_str(c, "clickable", "true");
     widget_on(c, EVT_CLICK, slider_switch_hit, win);
 }
-/* The page at (0, y, 375, 294): flat in the half's Home pane colour (theme home_pane), final. */
+/* The lock screen's info page at (0, y, 375, 294): flat slate, or the dark bar's grey, final. Once
+ * Home's pane's colour, which is now the flat pages' own. */
 void paint_page(void *w, void *canvas, int y) {
     (void)w;
-    bar_rect(canvas, RGBA(theme()->home_pane[ipod_light()].rgb[0]), 0, y, 375, 294);
+    bar_rect(canvas, RGBA(ipod_light() ? 0x63717b : 0x1c1c1c), 0, y, 375, 294);
 }
 /* A nul-ended string centred in r in face (0: the system font) at px, in a final 0xAARRGGBB, never
  * flipped. Text colour and alignment are restored, the font is not. */

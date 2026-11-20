@@ -195,31 +195,10 @@ def png(w, h, rgba):
 BOLT = 'M301.67 6 298.56 11.24 300.85 11.24 300.2 15.16 303.64 9.76 301.35 9.76 302.49 6Z'
 PLUG = 'M295.45 8.78h2.78v1.23H295.45ZM295.45 10.99h2.78v1.23H295.45ZM298.07 7.47h3.52a3.03 3.03 0 0 1 0 6.05h-3.52ZM303.64 9.93h4.09v1.23h-4.09Z'
 BOLT_BOX = (290, 5, 24, 11)  # the battery's inside, the set's batt_w - 2 x batt_h - 2, in a frame of its own: classic_light_battery draws it at the inside's top-left
-def note(svg):
-    """The note's RGBA bytes from its drawing, note.svg: see that file."""
-    def linear(name):
-        """The gradient's stops [(pos %, alpha 0 to 1, grey 0 to 1)] and its axis's ends."""
-        g = need(re.search(rf'<linearGradient id="{name}"([^>]*)>(.*?)</linearGradient>', svg, re.S), f'Missing gradient {name}')
-        attr = dict(re.findall(r'(\w+)="([^"]*)"', g[1]))
-        stops = [(float(a['offset']) * 100, float(a.get('stop-opacity', 1)), int(a['stop-color'][1], 16) / 15)
-                 for a in map(lambda t: dict(re.findall(r'([\w-]+)="([^"]*)"', t)), re.findall(r'<stop ([^>]*)/>', g[2]))]
-        return stops, (float(attr['x1']), float(attr['x2'])) if attr['x1'] != attr['x2'] else (float(attr['y1']), float(attr['y2']))
-
-    def at(g, v, channel):
-        stops, (a, b) = g
-        p = (v - a) * 100 / (b - a)
-        if p <= stops[0][0]:
-            return stops[0][channel]
-        for s0, s1 in zip(stops, stops[1:]):
-            if p <= s1[0]:
-                return s0[channel] + (s1[channel] - s0[channel]) * (p - s0[0]) / (s1[0] - s0[0])
-        return stops[-1][channel]
+def note(svg, rgb):
+    """The note's RGBA bytes: its drawing's shape (note.svg), flat in rgb."""
     shape = path(need(re.search(r'id="shape" d="([^"]*)"', svg), 'Missing shape')[1])
-    gloss = path(need(re.search(r'id="gloss" d="([^"]*)"', svg), 'Missing gloss')[1])
-    fill, gfill, fade = linear('shape_fill'), linear('gloss_fill'), linear('gloss_fade')
-    return compose(NOTE_BOX, [(shape, lambda x, y: (0xffffff, at(fill, y, 1))),
-                              (gloss, lambda x, y: (0xffffff, at(gfill, y, 1) * at(fade, x, 2)), shape),
-                              (stroke(shape, 1), lambda x, y: (0xffffff, 0.42))])
+    return compose(NOTE_BOX, [(shape, lambda x, y: (rgb, 1))])
 
 
 SORT = 'M0 0H16V2H0ZM0 5H11V7H0ZM0 10H6V12H0Z'
@@ -255,30 +234,21 @@ PANE_ICONS = {
             'L279.4 91.6L289.8 83.3L297.4 87.4L296.3 100.7L300.4 105.7L313.7 107.2L316.2 115.4L306.0 124.0L305.4 130.4ZM273 108a16 16 0 1 0 .01 0Z'}
 PANE_CENTRE, PANE_FIT = (278, 124), 92
 ICON_BOX = (230, 76, 96, 96)  # the icons' image in the drawing's coordinates: home.pane.icon_x, icon_y place it
-ICON_GRADIENT = ((232, 74), (310, 168), ((0, 1), (.42, .9), (.52, .5), (1, .3)))  # across the drawing, white in these alphas
+PANE_INK = {'': 0xffffff, '_l': 0x1c1c1e}  # the pane's marks: white on the dark half's pane, the flat pages' ink on the light one's
 CHEVRON = 'M2.9 3 8.4 8.5 2.9 14'
 CHEVRON_STROKE = 3.2
 CHEVRON_BOX = (0, 0, 12, 16)  # the row's chevron (navigation.c paint_chevrons, paint_into)
-def icon(d, fit):
-    """A pane icon's RGBA bytes: its subpaths even-odd in the white gradient, stroked at .42, 1 px in its own scale."""
+def icon(d, fit, rgb):
+    """A pane icon's RGBA bytes: its subpaths even-odd, flat in rgb."""
     polys = path(d)
     xs, ys = [p[0] for poly in polys for p in poly], [p[1] for poly in polys for p in poly]
     k = min(PANE_FIT / (max(xs) - min(xs)), PANE_FIT / (max(ys) - min(ys))) if fit else 1
     cx, cy = (max(xs) + min(xs)) / 2, (max(ys) + min(ys)) / 2
     place = (lambda p: (PANE_CENTRE[0] + k * (p[0] - cx), PANE_CENTRE[1] + k * (p[1] - cy))) if fit else (lambda p: p)
-    local = (lambda x, y: (cx + (x - PANE_CENTRE[0]) / k, cy + (y - PANE_CENTRE[1]) / k)) if fit else (lambda x, y: (x, y))
-    (ax, ay), (bx, by), stops = ICON_GRADIENT
-
-    def paint(x, y):
-        x, y = local(x, y)
-        t = max(0, min(1, ((x - ax) * (bx - ax) + (y - ay) * (by - ay)) / ((bx - ax)**2 + (by - ay)**2)))
-        for (p0, a0), (p1, a1) in zip(stops, stops[1:]):
-            if t <= p1:
-                return 0xffffff, a0 + (a1 - a0) * (t - p0) / (p1 - p0)
     placed = [[place(p) for p in poly] for poly in polys]
     # one even-odd polygon: each subpath joined from the first's start and back, those seams crossed twice
     whole = [q for poly in placed for q in (*poly, poly[0], placed[0][0])]
-    return compose(ICON_BOX if fit else NOTE_BOX, [([whole], paint), (stroke(placed, k), lambda x, y: (0xffffff, 0.42))])
+    return compose(ICON_BOX if fit else NOTE_BOX, [([whole], lambda x, y: (rgb, 1))])
 
 
 NOTE_BOX = (222, 66, 100, 115)  # the drawing's viewBox
@@ -619,11 +589,11 @@ def images(t):
                     (stroke(shape, 1), lambda x, y: (edge(y), 1))]))
     drawing = ROOT/f'assets/themes/{t["id"]}/note.svg'
     if drawing.exists():
-        out[f'{prefix}_note'] = png(*NOTE_BOX[2:], note(drawing.read_text()))
+        out |= {f'{prefix}_note{k}': png(*NOTE_BOX[2:], note(drawing.read_text(), rgb)) for k, rgb in PANE_INK.items()}
     if t['pane_icon_x']:
         for name, d in PANE_ICONS.items():
             fit = name != 'note'
-            out[f'{prefix}_icon_{name}'] = png(*(ICON_BOX if fit else NOTE_BOX)[2:], icon(d, fit))
+            out |= {f'{prefix}_icon_{name}{k}': png(*(ICON_BOX if fit else NOTE_BOX)[2:], icon(d, fit, rgb)) for k, rgb in PANE_INK.items()}
     if t['painter[PAINT_VOLUME]']:
         for half, rgb in SPEAKER_INKS.items():
             out |= {f'{prefix}_spk_quiet_{half}': speaker(False, rgb), f'{prefix}_spk_loud_{half}': speaker(True, rgb)}

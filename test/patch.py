@@ -7939,20 +7939,20 @@ def pane_home(**config):
     assert m.call(address=HOOKS['home_page_init'][0],args=(m.top,0,0,0),gap=0)==0
     return m
 HOME_ROWS_PANE=('img_playing','img_library','img_folder','img_rockbox','img_services','img_settings','img_cover_flow')
-def pane_cases():
+def pane_cases():  # the light half's pane (LIGHT 1, classic_light's own): each image the ink's, _l
     # Row Preview off (ROWPREVIEW 0): every row shows Now Playing's pane, and nothing is counted or read from the card.
     m=pane_home(ROWPREVIEW='0'); view=named(m,m.top,'scroll_view_home'); pane_nocover(m); m.advance(1500); m.paint(view)
-    assert not m.closed_db and pane_shows(m)==(['classic_light_note'],['3 Songs'])
+    assert not m.closed_db and pane_shows(m)==(['classic_light_note_l'],['3 Songs'])
     for row in range(1,7):
-        m.call(); assert pane_shows(m)==(['classic_light_note'],['3 Songs']),row
+        m.call(); assert pane_shows(m)==(['classic_light_note_l'],['3 Songs']),row
     passed()
     m=pane_home(); view=named(m,m.top,'scroll_view_home'); m.call(address=payload_syms['coverflow_home_art'],args=(m.top,0,0,0),gap=0)
     m.advance(1500); m.paint(view); assert pane_shows(m)==([],[])  # a cover: Now Playing's and the Library's rows show it, and no caption
-    m.call(); assert pane_shows(m)==([],[]); m.call(); assert pane_shows(m)==(['classic_light_icon_stack'],['6 Albums']); passed()
+    m.call(); assert pane_shows(m)==([],[]); m.call(); assert pane_shows(m)==(['classic_light_icon_stack_l'],['6 Albums']); passed()
     m=pane_home(SHORTCUT='6'); view=named(m,m.top,'scroll_view_home'); pane_nocover(m)
     m.advance(1500); assert m.closed_db
-    m.paint(view); want=[(['classic_light_note'],['3 Songs']),(['classic_light_note'],['7 Songs']),(['classic_light_icon_stack'],['6 Albums']),(['classic_light_icon_folder'],[]),
-                         (['classic_light_icon_game'],['4 Games']),(['classic_light_icon_wave'],['5 Services']),(['classic_light_icon_gear'],['4.0 GB Free'])]
+    m.paint(view); want=[(['classic_light_note_l'],['3 Songs']),(['classic_light_note_l'],['7 Songs']),(['classic_light_icon_stack_l'],['6 Albums']),(['classic_light_icon_folder_l'],[]),
+                         (['classic_light_icon_game_l'],['4 Games']),(['classic_light_icon_wave_l'],['5 Services']),(['classic_light_icon_gear_l'],['4.0 GB Free'])]
     assert pane_shows(m)==want[0],pane_shows(m)
     for row in range(1,7):
         m.calls=[]; assert m.call()==11
@@ -7978,17 +7978,17 @@ def pane_cases():
     # unknown, and a row shows its icon alone.
     m=pane_home(SHORTCUT='0'); m.advance(1500); view=named(m,m.top,'scroll_view_home'); pane_nocover(m); m.paint(view)
     for _ in range(4): m.call()
-    assert pane_shows(m)==(['classic_light_icon_game'],[]); passed()
+    assert pane_shows(m)==(['classic_light_icon_game_l'],[]); passed()
     # Podcasts or Audiobooks as the Shortcut: Folder's icon alone, as the Library's song count leaves them out.
     m=pane_home(SHORTCUT='8'); m.advance(1500); view=named(m,m.top,'scroll_view_home'); pane_nocover(m); m.paint(view)
     for _ in range(4): m.call()
-    assert pane_shows(m)==(['classic_light_icon_folder'],[]); passed()
+    assert pane_shows(m)==(['classic_light_icon_folder_l'],[]); passed()
     # Library's list: Shuffle's note and the song count, under Search (library_search); its other rows the Library's; Settings' list the gear.
     m=pane_home(); m.advance(1500); art=named(m,m.top,'img_homeart'); lib=named(m,m.top,'list_view_homelib'); lview=named(m,m.top,'scroll_view_localmusic'); pane_nocover(m)
     m.nodes[lview]['children']=[m.entry(lview,i*28) for i in range(11)]
-    for i,want in ((1,'classic_light_icon_note'),(0,'classic_light_note'),(3,'classic_light_note')):
+    for i,want in ((1,'classic_light_icon_note_l'),(0,'classic_light_note_l'),(3,'classic_light_note_l')):
         m.call(address=payload_syms['coverflow_home_row'],args=(lview,m.nodes[lview]['children'][i],i,0),gap=0); assert pane_shows(m)==([want],['7 Songs']),i
-    sets=named(m,m.top,'scroll_view_homeset'); m.call(address=payload_syms['coverflow_home_row'],args=(sets,m.nodes[sets]['children'][0],0,0),gap=0); assert pane_shows(m)==(['classic_light_icon_gear'],['4.0 GB Free']); passed()
+    sets=named(m,m.top,'scroll_view_homeset'); m.call(address=payload_syms['coverflow_home_row'],args=(sets,m.nodes[sets]['children'][0],0,0),gap=0); assert pane_shows(m)==(['classic_light_icon_gear_l'],['4.0 GB Free']); passed()
 pane_cases()
 
 def home_back(full):
@@ -9919,21 +9919,21 @@ cost=[0]; hook=m.u.hook_add(UC_HOOK_CODE,lambda *a: cost.__setitem__(0,cost[0]+1
 stream_shows(m); m.u.hook_del(hook); assert cost[0]<100000,cost
 cost_line('classic pane streaming',cost[0])
 print(f'Classic pane on Streaming: {cost[0]} instructions'); passed()
-# Row Art off and the dark half: the same rows and pane, the caption white on the pane in either half.
+# Row Art off and the dark half: the same rows and pane, the caption in the half's quiet grey.
 for rowart,light in (('0','1'),('1','0'),('0','0')):
     k=split_stream('0',rowart,light); kview=named(k,k.top,'scroll_view_streamsset'); stock_tidal(k,kview); stream_open(k)
     krows=k.nodes[kview]['children']; kb=k.nodes[krows[0]]['children'][0]
     assert [k.get(kb+O[o]) for o in ('W_X','W_Y','W_W','W_H')]==[0,0,O['HOME_SPLIT_W'],32],(rowart,light)
     k.art_size=(40,40); k.paint(kview); k.advance(10); k.paint(kview)
     loaded,draws,caption=stream_shows(k); assert loaded==['classic_light_list_tidal'] and draws==[((0,0,40,40),PANE)] and caption==['TIDAL'],(rowart,light,loaded,draws,caption)
-    assert k.letters[0]['color']==color_t(0xffffff),(rowart,light,k.letters[0]['color'])
+    assert k.letters[0]['color']==color_t(0x6e6e73 if light=='1' else 0x98989d) and k.letters[0]['font'][1]==17,(rowart,light,k.letters[0])
     k.calls=[]; assert k.call()==11; loaded,draws,caption=stream_shows(k); assert loaded==['classic_light_stream_spotify'] and caption==['Spotify'],(rowart,light,loaded,caption)
 passed()
 # A name a little too wide shrinks to fit, no further than three quarters of the count's size, and only then loses its end.
-m.char_em=14/27; m.call(address=payload_syms['coverflow_home_row'],args=(sview,m.nodes[srows[4]]['children'][0],4,0),gap=0)
-assert stream_shows(m)[2]==['Tidal Downloads'] and m.font[1]==23,(m.letters,m.font)
+m.char_em=14/16; m.call(address=payload_syms['coverflow_home_row'],args=(sview,m.nodes[srows[4]]['children'][0],4,0),gap=0)
+assert stream_shows(m)[2]==['Tidal Downloads'] and m.font[1]==13,(m.letters,m.font)
 m.call(address=payload_syms['coverflow_home_row'],args=(sview,m.nodes[srows[2]]['children'][0],2,0),gap=0)
-assert stream_shows(m)[2]==['A long name for \u2026'] and m.font[1]==20,(m.letters,m.font); m.char_em=0
+assert stream_shows(m)[2]==['A long name for \u2026'] and m.font[1]==12,(m.letters,m.font); m.char_em=0
 # Touch: a row's press opens what the page's does; a row's tap selects as on the page.
 m.calls=[]; f,ctx=m.handler(m.nodes[srows[1]]['children'][0],O['EVT_CLICK']); assert f==payload_syms['spot_open'],f; passed()
 # A missing or broken card icon: the app's fallback. The list going, Return: the main list, the pane back to Streaming's row.
@@ -9955,7 +9955,7 @@ hb_home=hb.top; hb_main,hb_list=[named(hb,hb_home,n) for n in ('list_view_home',
 hb_bar=hb.node('window','system_bar'); hb.word(syms['system_bar'],hb_bar); hb_page=hb.node('window','mostplayed_page'); hb.nodes[hb.wm]={'children':[hb_bar,hb_home,hb_page]}; hb.top=hb_page; hb.calls=[]
 assert long_return(hb)==0 and destinations(hb)[0][0]=='navigator_back_to_home' and hb.nodes[hb_main]['visible'] and not hb.nodes[hb_list]['visible']; passed()
 # Open it again: the list is rebuilt, and no old row is read.
-stock_tidal(m,sview); m.calls=[]; assert stream_open(m)==0 and len(m.nodes[sview]['children'])==8 and m.nodes[slist]['visible']; assert stream_shows(m)[0]==['classic_light_icon_wave']; passed()
+stock_tidal(m,sview); m.calls=[]; assert stream_open(m)==0 and len(m.nodes[sview]['children'])==8 and m.nodes[slist]['visible']; assert stream_shows(m)[0]==['classic_light_icon_wave_l']; passed()
 # The list's rows are Home's, not the page's: the list layouter, which matches the view by name, maps none of them to settings rows.
 sbefore=[(geometry(m,b),[geometry(m,c) for c in m.nodes[b]['children']]) for b in (m.nodes[r]['children'][0] for r in m.nodes[sview]['children'])]
 m.handlers[O['LIST_VIEW_LAYOUT']]='stock_layout'; assert m.call(address=payload_syms['ipod_list_layout'],args=(0x1234,sview,0,0),gap=0)==0 and sbefore==[(geometry(m,b),[geometry(m,c) for c in m.nodes[b]['children']]) for b in (m.nodes[r]['children'][0] for r in m.nodes[sview]['children'])]; passed()

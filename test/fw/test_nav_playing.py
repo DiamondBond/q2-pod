@@ -2717,14 +2717,14 @@ def test_the_switch_lights_its_value_s_cell(fw, st, ui, image, on):
 
 
 @pytest.mark.parametrize('light', [0, 1])
-def test_a_page_is_flat_in_its_halfs_home_pane_colour(fw, st, light):
+def test_the_lock_screen_s_page_is_flat_slate_or_the_dark_bar_s_grey(fw, st, light):
     theme(fw, st, CLASSIC, light)
     canvas = Canvas(fw)
     bar = SETS[GEOM['Classic']].bar
     fw.fn('paint_page', None, C.c_void_p, C.c_void_p, C.c_int)(0, canvas.p, bar)
     (x, y, w, h, color), = canvas.rects
     assert (x, y, w, y + h) == (0, bar, 375, 320)  # under the bar to the screen's foot
-    assert (color == rgba(CLASSIC['home_pane'][0][1])) == (not light)
+    assert color == rgba(0x63717b if light else 0x1c1c1c)  # not Home's pane's, which is the flat pages' grey in light
 
 
 def test_final_text_is_never_flipped_and_leaves_the_ink_as_it_found_it(fw, st):
