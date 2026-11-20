@@ -89,10 +89,11 @@ def shipping_record():
             if made: path.parent.rmdir()
 
 def start_publisher(executable, env, transport=None):
-    """Use the production supervisor, adapting its executable and host mount check.
+    """Use the production supervisor, adapting its executable, mount and owner checks.
 
     Container /tmp need not be tmpfs. This exercises the exact wait/restart/exit-2
     lifecycle, not target startup mount provenance (separately checked on stock).
+    The host fixture belongs to the test user; production requires root ownership.
     """
     tree = ast.parse((ROOT/'tools/build.py').read_text())
     startup = next(ast.literal_eval(n.value)[1].decode() for n in tree.body
@@ -101,6 +102,8 @@ def start_publisher(executable, env, transport=None):
     assert script.rstrip().endswith('done) &')
     script = script.rstrip()[:-1]
     script = script.replace("grep -q ' /tmp tmpfs ' /proc/mounts", 'true')
+    assert 'drwx------:0' in script
+    script = script.replace('drwx------:0', f'drwx------:{os.geteuid()}')
     import shlex
     if transport is not None: script = script.replace('/tmp/q2-bt', shlex.quote(str(transport)))
     script = script.replace('/usr/bin/q2mpris', shlex.quote(str(executable)))
