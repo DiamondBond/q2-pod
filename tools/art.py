@@ -173,14 +173,10 @@ def laid(w, h, layers):
 
 
 def compose(box, layers):
-    """box's RGBA bytes: layers (polygons, paint(x, y) -> (0xRRGGBB, alpha 0 to 1)[, clip polygons]) source-over,
-    straight alpha."""
+    """box's RGBA bytes: layers (polygons, paint(x, y) -> (0xRRGGBB, alpha 0 to 1)) source-over, straight alpha."""
     x0, y0, w, h = box
-    def layer(polys, paint, *clip):
-        cov = coverage(polys, box)
-        if clip:
-            cov = [a * b for a, b in zip(cov, coverage(clip[0], box))]
-        return cov, lambda x, y: paint(x0 + x, y0 + y)
+    def layer(polys, paint):
+        return coverage(polys, box), lambda x, y: paint(x0 + x, y0 + y)
     return laid(w, h, [layer(*l) for l in layers])
 
 
