@@ -3126,35 +3126,35 @@ assert 38<wbox(tm,tcancel)[0] and sum(wbox(tm,tenter)[::2])<38+299 and tm.second
 assert [l['text'] for l in letters]==['Cancel','Delete'] and {l['color'] for l in letters}=={color_t(0xffffff)}
 # ... and the flag ends with the call: the next prompt, a question, is the page.
 tm.top=dq=tm.node('dialog','confirminfo_dialog'); tm.word(dq+O['W_PARENT'],tm.wm); place(tm,dq,0,0,375,320); ce=cl_cells(tm,dq); tm.nodes[dq]['children']=ce; parents(tm,dq); tm.paint(dq); assert wbox(tm,ce[0])[1]==250 and tm.nodes[ce[1]]['text']=='OK'; passed()
-# Hold menu under Classic: Cover Flow's flip panel, centred under the bar and clear of the glass: a 44-row header holding the title, then
-# the theme's 32 px rows, six at most; opaque, with no dim. Its title loops as Now Playing's, with every label's holds.
+# Hold menu under Classic: a round card as wide as Cover Flow's flip panel, centred under the bar and clear of the glass: a 44-row header holding the title, then
+# the theme's 32 px rows, six at most, and 10 rows of paper; opaque, with no dim. Its title loops as Now Playing's, with every label's holds.
 def hold_cl(light='1'):
     CONFIG['LIGHT']=light; m=classic_light_new(QueueMachine); del CONFIG['LIGHT']; classic_light_boot(m)
     m.press(6000); assert m.hold()==11; d=m.top; m.word(d+O['W_PARENT'],m.wm); place(m,d,0,0,375,320); parents(m,d); m.clip=(0,0,375,320); m.calls=[]
     lst=named(m,d,'list_view'); place(m,m.view,0,0,294,wbox(m,lst)[3]); m.word(m.view+O['VIEW_CONTENT_H'],32*len(m.nodes[m.view]['children'])); return m,d,lst
 hm,hd,hl=hold_cl(); items=hm.nodes[hm.view]['children'][:]; nav=named(hm,hd,'view_navbar'); title=named(hm,nav,'scrlabel_title')
-assert wbox(hm,hl)==(40,99,294,192) and wbox(hm,nav)==(40,55,294,44) and len(items)==6
+assert wbox(hm,hl)==(40,94,294,192) and wbox(hm,nav)==(40,50,294,44) and len(items)==6
 assert [wbox(hm,i) for i in items]==[(0,32*k,294,32) for k in range(len(items))] and hm.nodes[nav].get('visible',1) and hm.nodes[named(hm,nav,'img_return')]['visible']==0
 assert hm.nodes[hd]['style:normal:bg_color']==0 and hm.nodes[hd]['highlight']=='' and hm.nodes[hl]['style:normal:bg_color']==0 and hm.nodes[nav]['style:normal:bg_color']==0
-assert wbox(hm,title)==(12,5,270,33) and (hm.nodes[title]['style:normal:font_name'],hm.nodes[title]['style:normal:font_size'])==(CL_FONT,31) and hm.nodes[title]['_final']&0xffffffff==0xffffffff
+assert wbox(hm,title)==(12,5,270,33) and (hm.nodes[title]['style:normal:font_name'],hm.nodes[title]['style:normal:font_size'])==(CL_FONT,25) and hm.nodes[title]['style:normal:text_color']&0xffffffff==0xffffffff and '_final' not in hm.nodes[title]
 assert hm.nodes[title]['loop']==1 and 'delay' not in hm.nodes[title] and 'lull' not in hm.nodes[title]  # every label's holds, not its own
-assert hold_panel(hm,hd,None)==55
+assert hold_panel(hm,hd,0xffffffff)==50
 lab=[c for c in hm.nodes[items[0]]['children'] if hm.nodes[c]['type']=='hscroll_label'][0]
 assert wbox(hm,lab)==(12,0,270,32) and (hm.nodes[lab]['style:normal:font_name'],hm.nodes[lab]['style:normal:font_size'])==(CL_FONT,25) and 'style:normal:text_align_h' not in hm.nodes[lab] and '_final' not in hm.nodes[lab]
 hm.paint(hm.view); assert [b[1] for b in hm.bands if b[2]==294 and b[4]>>24==0xff][:1]==[0] and hm.lcd_colors()==LCD_COLORS
 assert not [b for b in hm.bands if b[4] in (0x24000000,0x33000000,0x21ffffff)]
-hd0,hd1,hl0=hold_cl(light='0'); assert hold_panel(hd0,hd1,0xff000000,'0')==55; passed()
-# ... a failed boot reads as Minimal: the menu keeps stock's own box, with none of the panel.
+hd0,hd1,hl0=hold_cl(light='0'); assert hold_panel(hd0,hd1,0xff000000,'0')==50; passed()
+# ... a failed boot reads as Minimal: the menu keeps stock's own box, with none of the card.
 CONFIG['LIGHT']='1'; fm=classic_light_new(QueueMachine); del CONFIG['LIGHT']; classic_light_boot(fm,fail=lambda page:True); fm.press(6000); assert fm.hold()==11; fd=fm.top; fm.word(fd+O['W_PARENT'],fm.wm); place(fm,fd,0,0,375,320); parents(fm,fd); fm.clip=(0,0,375,320); fl=named(fm,fd,'list_view')
-assert wbox(fm,fl)[:2]!=(40,99); fm.paint(fd); assert not [b for b in fm.bands if b[4]>>24==0xf0]
+assert wbox(fm,fl)[:2]!=(40,94); fm.paint(fd); assert not [b for b in fm.bands if b[4]==color_t(0xd1d1d6)]
 ft=named(fm,fd,'scrlabel_title'); assert fm.nodes[ft]['loop']==1 and 'delay' not in fm.nodes[ft] and 'lull' not in fm.nodes[ft]; passed()  # its title as Now Playing's too
 # ... more than six rows: the list stops at 192 and scrolls; the sort list keeps its tick at the row's right.
 em=classic_light_new(QueueMachine,page='playing_page',pos=1); classic_light_boot(em); em.press(6000); assert em.hold()==11; ed=em.top; eitems=em.nodes[em.view]['children']
-assert len(eitems)>6 and wbox(em,named(em,ed,'list_view'))==(40,99,294,192) and [wbox(em,i)[1] for i in eitems]==[32*k for k in range(len(eitems))] and em.nodes[em.view]['virtual_h']==32*len(eitems)
+assert len(eitems)>6 and wbox(em,named(em,ed,'list_view'))==(40,94,294,192) and [wbox(em,i)[1] for i in eitems]==[32*k for k in range(len(eitems))] and em.nodes[em.view]['virtual_h']==32*len(eitems)
 em.word(ed+O['W_PARENT'],em.wm); parents(em,ed); em.top=ed; place(em,em.view,0,0,294,192); em.word(em.view+O['VIEW_CONTENT_H'],32*len(eitems)); em.paint(em.view)
 for _ in range(7): assert em.call()==11
 top=em.get(em.view+O['SCROLL_Y']); assert em.selected(em.view)==7 and top>0; em.paint(em.view); assert [b[1] for b in em.bands if b[2]==294 and b[4]>>24==0xff][:1]==[224-top]
-em.release(); em.pick(8); em.advance(0); cd=em.top; citems=em.nodes[em.view]['children']; assert em.labels()[0]=='Play One Song' and [wbox(em,i)[1::2] for i in citems]==[(32*k,32) for k in range(6)] and wbox(em,named(em,cd,'list_view'))==(40,99,294,192)
+em.release(); em.pick(8); em.advance(0); cd=em.top; citems=em.nodes[em.view]['children']; assert em.labels()[0]=='Play One Song' and [wbox(em,i)[1::2] for i in citems]==[(32*k,32) for k in range(6)] and wbox(em,named(em,cd,'list_view'))==(40,94,294,192)
 tick=[c for i in citems for c in em.nodes[i]['children'] if em.nodes[c]['type']=='image']; assert [em.nodes[c]['image'] for c in tick]==['select'] and wbox(em,tick[0])==(259,0,24,32); passed()
 # A toast: #2b2b2bee in both halves, 22 px, its box holding its font; 24 rows a further line.
 def toast_cl(light,name='msginfo_dialog',text='Update Library first'):
@@ -3184,9 +3184,9 @@ for light,grey in (('1',0xffcccccc),('0',0xff333333)):
     pm=Machine(); pm.config['LIGHT']=light; classic_light_boot(pm); row=pm.node('list_item'); pm.word(row+O['W_W'],375); pm.word(row+O['W_H'],28); b=pm.node('button','',style='s_btn_listitem',state_for_style='pressed'); pm.nodes[row]['children']=[b]; pm.word(b+O['W_PARENT'],row); pm.word(b+O['W_W'],375); pm.word(b+O['W_H'],28)
     bg(pm,row); assert [(r['rect'],r['radius'],r['color']) for r in pm.rounded if r['kind']=='fill']==[((0,0,375,28),0,grey)]
 passed()
-# Nothing crosses the glass, read from what was painted: the tray's box and its cells, Form A's cells, the toast, the hold menu's panel and its ring at its tallest.
+# Nothing crosses the glass, read from what was painted: the tray's box and its cells, Form A's cells, the toast, the hold menu's card and its ring at its tallest.
 t,td,_=toast_cl('1'); bg(t,td)
-for x,y,w,h in (tm.tray_box[0]['rect'],wbox(tm,tcancel),wbox(tm,tenter),wbox(cm,cancel),wbox(cm,enter),[r['rect'] for r in t.rounded if r['kind']=='fill'][0],(39,54,296,238)):
+for x,y,w,h in (tm.tray_box[0]['rect'],wbox(tm,tcancel),wbox(tm,tenter),wbox(cm,cancel),wbox(cm,enter),[r['rect'] for r in t.rounded if r['kind']=='fill'][0],(39,49,296,248)):
     assert corner_inset(y)<=x and corner_inset(y+h-1)<=x and x+w<=375-max(corner_inset(y),corner_inset(y+h-1)),(x,y,w,h)
 passed()
 # Minimal: confirm rows, QM_ROW 66, the toast and the press as today, no images.
@@ -3308,7 +3308,7 @@ assert uinks()==msg_inks(1); half_turn(ub,19); assert uinks()==msg_inks(0); half
 um2,u2win,*_,u2btn=msg_dialog(light='2'); binks=lambda: (bg(um2,u2win),{um2.nodes[u2btn][f'style:{s}:text_color']&0xffffffff for s in ('normal','pressed','over','disable','focused')})[1]
 assert binks()=={msg_inks(1)[0]}; half_turn(um2,19); assert binks()=={msg_inks(0)[0]}
 passed()
-# ... the hold menu's title.
+# ... the hold menu's title is no final ink: the same white in its style in every half, for Light Mode to turn.
 ha,had,_=hold_cl('2'); assert hold_inks(ha,had)==hold_inks(*hold_cl('1')[:2]); half_turn(ha,19); assert hold_inks(ha,had)==hold_inks(*hold_cl('0')[:2]); passed()
 # Nothing here crosses the glass, and Minimal keeps stock's dialogs: no images, no moved widgets, stock's labels shown.
 for x,y,w,h in ((127,248,121,36),(16,146,343,32),(16,180,343,22),(88,222,200,4),(145,46,84,84),(145,82,84,84),(16,182,343,32),(16,216,343,22)):

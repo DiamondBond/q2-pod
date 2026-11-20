@@ -332,6 +332,7 @@ enum { SLIDER_LIGHT, SLIDER_MAX, SLIDER_BALANCE, SLIDER_BOOT }; /* st.slider_kin
 int clamp_step(int offset, int maximum, int delta);
 unsigned put_num(unsigned *s, unsigned v);
 void paint_panel(void *w, void *canvas, const rect_t *r, const char *shadow, int flat);
+#define HOLD_FOOT 10 /* paper under the hold menu's rows: its card's corners clear the last row */
 #define TOAST_RGBA 0xee2b2b2bu /* the toast's box, and the volume's: the same in both halves */
 #define PANEL_PAD 8
 #define PANEL_DROP 2

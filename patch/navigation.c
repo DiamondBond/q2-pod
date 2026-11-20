@@ -2262,16 +2262,27 @@ static void confirm_labels(void *w, void *canvas) {
                      RGBA(flip_if(light, k == lit ? over : plain)));
     }
 }
-/* The hold menu's panel, Cover Flow's flip panel (coverflow_panel_paint): the navbar its header,
- * the list its rows. over: 0 before the dialog's children, 1 after them. */
+/* The hold menu's card under Classic: the navbar its header, the list its rows, then HOLD_FOOT rows
+ * of paper, the height of its corners, so the last row's band stays inside them. over: 0 before the
+ * dialog's children (the card, and a line under its header), 1 after them (a hairline round the
+ * card, a pixel outside it, over whatever lies there). Flat and opaque, in final colours. */
 static void hold_paint(void *w, void *canvas, int over) {
     void *nav = w && w == st.qm_dialog && dialogs_painted() ? widget_lookup(w, "view_navbar", 1)
                                                             : (void *)0,
          *list = nav ? widget_lookup(w, "list_view", 1) : (void *)0;
     if (!list || !P(canvas, CANVAS_LCD)) return;
     unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR);
-    coverflow_panel_paint(canvas, I(nav, W_X), I(nav, W_Y), I(nav, W_H), I(nav, W_H) + I(list, W_H),
-                          over);
+    int light = ipod_light(), head = I(nav, W_H);
+    unsigned line = light ? 0xd1d1d6 : 0x38383a, paper = light ? scheme()->paper : 0;
+    rect_t card = { I(nav, W_X), I(nav, W_Y), BACK_W, head + I(list, W_H) + HOLD_FOOT },
+           ring = { card.x - 1, card.y - 1, card.w + 2, card.h + 2 };
+    if (over) {
+        round_ring(canvas, &ring, 11, 0xff000000u | line);
+    } else {
+        stops_t face = { 2, { 0, 100 }, { paper, paper } };
+        paint_round_rows(canvas, &card, &face, 10);
+        bar_rect(canvas, RGBA(line), card.x, card.y + head - 1, card.w, 1);
+    }
     stock_canvas_set_fill_color(canvas, fill);
 }
 /* The toast (msginfo_dialog) and the update's dialog: stock's full-screen dialog, clear, under a

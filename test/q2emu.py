@@ -2520,11 +2520,12 @@ def panel_frame(bands,x,y,w,h,light):  # the flip panel's border (coverflow_pane
     c=color_t(0xb4b9c0 if light=='1' else 0x333333); sides=[b[:4] for b in bands if b[4]==c]  # so its left and right columns and its top and bottom rows match
     assert sorted(sides)==sorted([(x-1,y-1,w+2,1),(x-1,y+h,w+2,1),(x-1,y,1,h),(x+w,y,1,h)]),sides
     inside=[b for b in bands if b[4]!=c]; assert {b[0] for b in inside}=={x} and {b[0]+b[2] for b in inside}=={x+w},inside  # paper, header, shadow: edge to edge, nothing a column short on one side
-def hold_panel(m,d,paper,light='1'):
-    m.paint(d); L=wbox(m,named(m,d,'list_view'))[3]; H=44+L; y=26+(294-H)//2; rows=[b[:5] for b in m.bands]
-    assert rows[0][:4]==(40,y,294,H) and rows[0][4]>>24==0xff and (paper is None or rows[0][4]==paper) and [b[:4] for b in rows[1:45]]==[(40,y+j,294,1) for j in range(44)] and rows[1][4]>>24==0xf0
-    assert [b[:4] for b in rows[45:53]]==[(40,y+42+j,294,1) for j in range(8)] and rows[46][4]==28<<24; panel_frame(rows[:57],40,y,294,H,light)
-    assert corner_x(y-1,H+1)<=39; return y
+def hold_panel(m,d,paper,light='1'):  # the hold menu's card (hold_paint): paper with corners of 10, 10 rows of it under the list, a line under its header; then a hairline round it, a pixel outside
+    m.paint(d); L=wbox(m,named(m,d,'list_view'))[3]; H=44+L+10; y=26+(294-H)//2; line=color_t(0xd1d1d6 if light=='1' else 0x38383a)
+    rows,rest=round_box(m.bands,40,y,294,H,10); assert len(set(rows))==1 and (paper is None or rows[0]==paper) and rest[0][:5]==(40,y+43,294,1,line)
+    ring=rest[1:]; assert {b[4]&0xffffff for b in ring}=={line&0xffffff} and span(ring)==(39,y-1,296,H+2) and all(b[3]==1 for b in ring)
+    assert not [b for b in ring if (y+10<=b[1]<y+H-10 and 39<b[0]<334) or (y<=b[1]<y+H and b[0]<324 and b[0]+b[2]>50)]  # none of it on the card inside its corners
+    assert corner_x(y-1,H+2)<=39; return y
 
 def span(rows): x,y=min(b[0] for b in rows),min(b[1] for b in rows); return x,y,max(b[0]+b[2] for b in rows)-x,max(b[1]+b[3] for b in rows)-y
 
@@ -2567,7 +2568,7 @@ def msg_bar(m):  # the scan's bar: None with none, else its colour at rest, how 
 
 def half_turn(m,hour): m.clock=(hour,0); m.call(address=payload_syms['clock_due'],args=(0,0,0,0),gap=0)
 
-def hold_inks(m,d):  # its title's white, final in either half
+def hold_inks(m,d):  # its title's white: its rows' ink, which Light Mode turns as it draws
     m.nodes[m.wm]={'children':[d]}; return m.nodes[named(m,d,'scrlabel_title')]['style:normal:text_color']
 
 from ipod import corner_inset

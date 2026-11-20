@@ -2572,7 +2572,7 @@ static void panel_ink(void) {
 /* The panel BACK_W wide from (x, y), h rows, its header head: before its rows (over 0) its paper
  * and the header's fill, after them (over 1) the header's shadow over the rows and a 1 px border
  * just outside it, flat and opaque, so its four sides are one colour whatever lies under them
- * (a translucent ring took Cover Flow's sides under it). Shared with navigation.c's hold menu. */
+ * (a translucent ring took Cover Flow's sides under it). */
 void coverflow_panel_paint(void *canvas, int x, int y, int head, int h, int over) {
     if (!over) {
         stock_canvas_set_fill_color(canvas, (ipod_light() ? scheme()->paper : 0) | 0xff000000u);

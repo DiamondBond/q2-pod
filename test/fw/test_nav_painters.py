@@ -1580,9 +1580,9 @@ def test_a_paint_off_a_carousel_ends_homes_slide(fw, st):
 
 
 @pytest.mark.parametrize('over', [0, 1])
-def test_the_hold_menus_panel_has_its_header_and_rows(fw, st, over):
-    """The navbar its header, the list its rows: before the dialog's children the panel, after them its
-    frame; Cover Flow's flip panel is the same paint."""
+def test_the_hold_menus_card_has_its_header_its_rows_and_a_foot(fw, st, over):
+    """The navbar its header, the list its rows, HOLD_FOOT of paper under them: before the dialog's children
+    the card, its corners round, and the line under its header; after them a hairline a pixel outside it."""
     ui = classic(fw, st)
     dialog = ui.window('sortselect_dialog', kind='dialog')
     nav = ui.add('view', dialog, (40, 60, 295, 30), 'view_navbar')
@@ -1591,11 +1591,16 @@ def test_the_hold_menus_panel_has_its_header_and_rows(fw, st, over):
     canvas = Canvas(fw)
     fw.fn('ringnav_paint' if over else 'ringnav_paint_bg', C.c_int, C.c_void_p, C.c_void_p)(dialog.addr, canvas.addr)
     rows = sorted({y for _, y in canvas.px})
-    top, bottom = nav.box[1], nav.box[1] + nav.box[3] + listed.box[3]
-    if over:  # the frame: a line above the header and below the rows
-        assert {top - 1, bottom} <= set(rows)
-    else:  # the panel from the header's top over header and rows
+    left, top, bottom = nav.box[0], nav.box[1], nav.box[1] + nav.box[3] + listed.box[3] + 10
+    if over:  # the hairline: round the card, none of it on the card inside its corners
+        assert (rows[0], rows[-1]) == (top - 1, bottom) and {x for x, _ in canvas.px} >= {left - 1, left + 294}
+        assert not [(x, y) for x, y in canvas.px if left <= x < left + 294 and top + 10 <= y < bottom - 10]
+        assert not [(x, y) for x, y in canvas.px if left + 10 <= x < left + 284 and top <= y < bottom]
+    else:  # the card from the header's top to the foot's end, its first row short of its corners
         assert (rows[0], rows[-1] + 1) == (top, bottom)
+        assert (left, top) not in canvas.px and (left + 20, top) in canvas.px and (left, top + 20) in canvas.px
+        under = {canvas.px[x, top + nav.box[3] - 1] for x in range(left, left + 294)}
+        assert len(under) == 1 and under != {canvas.px[left + 20, top]}  # the line under the header
     assert canvas.restored()
 
 

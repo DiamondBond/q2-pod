@@ -384,18 +384,18 @@ static int qm_pick(void *action, void *event) {
 /* Hold menu rows: stock sortselect's list is 210, so three whole rows and the reading margin
  * (SCROLL_MARGIN) show at every scroll, never a half row under the title. */
 #define QM_ROW 66
-/* Under Classic (dialogs_painted) the hold menu is Cover Flow's flip panel
- * (docs/ipod.md#cover-flow) centred under the bar, opaque: QM_HEAD rows of header holding the
- * navbar's title, then the theme's page rows, QM_ROWS at most (past them it scrolls), all clear of
- * the glass. No dim; hold_paint draws the panel. */
+/* Under Classic (dialogs_painted) the hold menu is a card as wide as Cover Flow's flip panel,
+ * centred under the bar, opaque: QM_HEAD rows of header holding the navbar's title, then the
+ * theme's page rows, QM_ROWS at most (past them it scrolls), then HOLD_FOOT of paper, all clear of
+ * the glass. No dim; hold_paint draws the card. */
 #define QM_HEAD 44
 #define QM_ROWS 6
 static void hold_open(void *dialog, int n) {
     void *nav = widget_lookup(dialog, "view_navbar", 1),
          *list = widget_lookup(dialog, "list_view", 1);
     if (!nav || !list) return;
-    int row = theme()->page_row, rows = n < QM_ROWS ? n : QM_ROWS, h = QM_HEAD + rows * row,
-        y = BAR_ROWS + (320 - BAR_ROWS - h) / 2;
+    int row = theme()->page_row, rows = n < QM_ROWS ? n : QM_ROWS,
+        h = QM_HEAD + rows * row + HOLD_FOOT, y = BAR_ROWS + (320 - BAR_ROWS - h) / 2;
     void *title = widget_lookup(nav, "scrlabel_title", 1);
     widget_set_prop_str(dialog, "highlight", "");
     widget_set_prop_int(dialog, "style:normal:bg_color", 0);
@@ -403,8 +403,8 @@ static void hold_open(void *dialog, int n) {
     widget_move_resize(nav, PANEL_X, y, BACK_W, QM_HEAD);
     widget_set_visible(widget_lookup(nav, "img_return", 1), 0, 0);
     widget_move_resize(title, 12, (QM_HEAD - 33) / 2, BACK_W - 24, 33);
-    panel_font(title, 31, 1);
-    text_ink(title, 0xffffffffu, INK_LABEL); /* white on the header in either half */
+    panel_font(title, 25, 1); /* its rows' size, in their ink: white, which Light Mode turns */
+    widget_set_prop_int(title, "style:normal:text_color", (int)0xffffffffu);
     widget_set_prop_int(list, "style:normal:bg_color", 0);
     widget_move_resize(list, PANEL_X, y + QM_HEAD, BACK_W, rows * row);
     widget_set_prop_str(widget_lookup(list, "scroll_view", 1), "self_layout",

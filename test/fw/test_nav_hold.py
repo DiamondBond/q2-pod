@@ -1846,7 +1846,7 @@ def test_a_choice_picked_is_played_and_ticked_next_time(hold, recs, ui, fw):
     assert ticked_rows(ui, hold.view()) == ['Repeat All']
 
 
-def test_classic_draws_the_menu_as_the_flip_panel_centred_under_the_bar(fw, ui, st, recs, mcl):
+def test_classic_draws_the_menu_as_a_card_centred_under_the_bar(fw, ui, st, recs, mcl):
     geometry = use_set(st, CLASSIC)
     hold = Hold(fw, ui, st, recs, mcl).now_playing([song(recs, i) for i in range(3)])
     hold.hold()
@@ -1856,12 +1856,12 @@ def test_classic_draws_the_menu_as_the_flip_panel_centred_under_the_bar(fw, ui, 
     lx, ly, lw, lh = ui.nodes[lv].rect()
     row = THEMES[st('theme').value]['page_row']
     assert (lx, ly, lw) == (nx, ny + nh, nw) and lh == min(len(rows), 6) * row  # past six rows it scrolls
-    assert abs((ny - geometry.bar) - (320 - ly - lh)) <= 1  # as much clear above as below
+    assert abs((ny - geometry.bar) - (320 - ly - lh - 10)) <= 1  # as much clear above as below its foot
     assert not ui.nodes[ui.lookup(nav, 'img_return', 1)].visible
     assert all(ui.nodes[item].rect()[3] == row for item in ui.kids(hold.view()))
 
 
-def test_classic_draws_a_choice_as_the_panel_too(fw, ui, st, recs, mcl):
+def test_classic_draws_a_choice_as_the_card_too(fw, ui, st, recs, mcl):
     use_set(st, CLASSIC)
     hold = Hold(fw, ui, st, recs, mcl).now_playing([song(recs, i) for i in range(3)])
     hold.hold()
