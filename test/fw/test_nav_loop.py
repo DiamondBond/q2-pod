@@ -2328,7 +2328,7 @@ class Canvas:
         if lcd:
             struct.pack_into('<Q', self.raw, CANVAS_LCD, C.addressof(self.lcd))
         struct.pack_into('<II', self.lcd, LCD_FILL_COLOR, 0xff123456, 0xff654321)
-        self.p, self.texts, self.art, self.drawn, self.placed = C.addressof(self.raw), [], [], [], []
+        self.p, self.texts, self.art, self.drawn, self.placed, self.fills = C.addressof(self.raw), [], [], [], [], []
         fw.mock('canvas_set_fill_color', lambda c, color, *_: struct.pack_into('<I', self.lcd, LCD_FILL_COLOR, color & 0xffffffff))
         fw.mock('canvas_set_stroke_color', lambda c, color, *_: struct.pack_into('<I', self.lcd, LCD_STROKE_COLOR, color & 0xffffffff))
         fw.mock('canvas_draw_text_in_rect', self.text)
@@ -2336,6 +2336,17 @@ class Canvas:
         fw.mock('canvas_draw_image', self.place)
         for name in ('canvas_stroke_rounded_rect', 'canvas_fill_rounded_rect', 'canvas_stroke_rect', 'canvas_fill_rect'):
             fw.mock(name, lambda *a, name=name: self.drawn.append(name) and 0)
+        fw.mock('canvas_fill_rounded_rect', self.box)
+
+    def box(self, c, r, bg, color, radius, *_):
+        self.drawn.append('canvas_fill_rounded_rect')
+        self.fills.append((*struct.unpack_from('<4i', C.string_at(r, 16)), C.c_uint.from_address(color).value))
+        return 0
+
+    def over(self, w):
+        """The colour of the last rounded box over the middle of w's box."""
+        x, y, ww, h = w.box()
+        return [c for fx, fy, fw_, fh, c in self.fills if fx <= x + ww // 2 < fx + fw_ and fy <= y + h // 2 < fy + fh][-1]
 
     def text(self, c, s, n, r, *_):
         self.texts.append((''.join(map(chr, (C.c_uint * n).from_address(s))), struct.unpack_from('<4i', C.string_at(r, 16))))
@@ -2577,12 +2588,9 @@ def test_classic_paints_the_date_page(fw, keys, classic, edited):
     cells = [top.find(n) for n in DATE]
     assert [[int(t) for t in in_box(canvas, w)] for w in cells] == [[w.int(SELECTOR_INDEX) + first] for w, first in zip(cells, DATE.values())]
     assert calendar.month_abbr[held(top)[0]] in [t for t, _ in canvas.texts]  # the tile's month
-    lit = [(art, x) for art, x, _ in canvas.placed if art and '_lit_' in art]
-    assert len(lit) == 1
-    art, x = lit[0]
-    assert min(cells, key=lambda w: abs(w.box()[0] - x)) is cells[edited]  # over the edited field
-    assert art.endswith('_%d' % cells[edited].box()[2])  # its art cut to the field's width
-    assert canvas.fill() == 0xff123456
+    faces = [canvas.over(w) for w in cells]
+    assert len(set(faces)) == 2 and faces.count(faces[edited]) == 1  # the edited field's cell alone holds
+    assert canvas.art == [] and canvas.fill() == 0xff123456  # the tile and the cells are boxes, not images
 
 
 @pytest.mark.parametrize('twelve, hour, shown', [(True, 21, ['9', '05', 'PM']), (True, 0, ['12', '05', 'AM']), (True, 12, ['12', '05', 'PM']),
@@ -2598,7 +2606,9 @@ def test_classic_paints_the_time_page(fw, keys, classic, twelve, hour, shown):
     assert [t for w in boxes for t in in_box(canvas, w)] == shown
     ok = top.find(b'btn_enter')
     assert in_box(canvas, ok) == [ok.utf8.decode()]  # the hidden button's label, painted in its box
-    assert ':' in [t for t, _ in canvas.texts] and len([a for a in canvas.art if '_lit_' in a]) == 1
+    faces = [canvas.over(w) for w in boxes]
+    assert ':' in [t for t, _ in canvas.texts] and len(set(faces)) == 2 and faces.count(faces[0]) == 1  # the hour's cell alone holds
+    assert canvas.art == ['classic_light_clock_face_d'] and canvas.over(ok) == faces[1]  # the dark half's face; Save's pill, a cell at rest
 
 
 def test_classic_paints_nothing_without_an_lcd(fw, keys, classic):

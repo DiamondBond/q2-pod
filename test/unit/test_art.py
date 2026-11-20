@@ -54,7 +54,7 @@ def test_classic_draws_its_images_and_the_others_none():
         assert set(art.images({**themes[0], **half})) == {'minimal_vol_lo', 'minimal_vol_hi'}
     full = art.images(themes[1])
     assert {k: v for k, v in full.items() if '_icon_' not in k} == classic()  # what the other tests draw
-    assert set(full) == {f'classic_light_{n}' for n in ('sort_bars', 'icon_note', 'icon_folder', 'icon_stack', 'icon_game', 'icon_wave', 'icon_gear', 'chevron', 'bolt', 'plug', 'note', 'play_l', 'play_d', 'pause_l', 'pause_d', 'vol_lo', 'vol_hi', *(f'spk_{v}_{h}' for v in ('quiet', 'loud') for h in 'ldw'), *(f'drop_{n}{k}' for n in QS_NAMES for k in QS_INKS), 'drop_dim', 'drop_dim_l', 'drop_bright', 'drop_bright_l', 'drop_bright_ql', 'drop_bright_qd', *(f'msg_{n}_{h}' for n in ('usb', 'note') for h in 'ld'), 'tray_108', 'tray_165', 'tray_164', 'cell_45', 'cell_60', 'cell_lit_45', 'cell_lit_60', 'tile', 'clock_chrome', 'clock_shadow', 'hint_shadow', 'clock_dark', 'kb_del', 'kb_shift', 'kb_back', 'field_glass', 'field', 'rate_shadow', 'heart_on_l', 'heart_on_d', 'heart_off_l', 'heart_off_d', 'station')}
+    assert set(full) == {f'classic_light_{n}' for n in ('sort_bars', 'icon_note', 'icon_folder', 'icon_stack', 'icon_game', 'icon_wave', 'icon_gear', 'chevron', 'bolt', 'plug', 'note', 'play_l', 'play_d', 'pause_l', 'pause_d', 'vol_lo', 'vol_hi', *(f'spk_{v}_{h}' for v in ('quiet', 'loud') for h in 'ldw'), *(f'drop_{n}{k}' for n in QS_NAMES for k in QS_INKS), 'drop_dim', 'drop_dim_l', 'drop_bright', 'drop_bright_l', 'drop_bright_ql', 'drop_bright_qd', *(f'msg_{n}_{h}' for n in ('usb', 'note') for h in 'ld'), 'clock_face_l', 'clock_face_d', 'hint_shadow', 'clock_dark', 'kb_del', 'kb_shift', 'kb_back', 'field_glass', 'field', 'rate_shadow', 'heart_on_l', 'heart_on_d', 'heart_off_l', 'heart_off_d', 'station')}
 
 
 # The approved rendered rows, within 1 per channel: the fill down column 272 of the pause bars
@@ -237,35 +237,21 @@ def test_the_keyboard_glyphs_and_the_field():
     assert at(16, 30)[:3] == (255, 255, 255) and 0x50 <= at(16, 30)[3] <= 0x60  # the row below
 
 
-def test_set_time_and_set_date_images():
+def test_set_time_s_face_and_the_hint_s_shadow():
     got = classic()
-    w = {'tray_108': (122, 64), 'tray_165': (179, 64), 'tray_164': (178, 64), 'cell_45': (53, 50), 'cell_lit_45': (53, 50), 'cell_60': (68, 50), 'cell_lit_60': (68, 50), 'tile': (130, 112), 'clock_chrome': (110, 110), 'clock_shadow': (86, 26)}
-    for n, wh in w.items():
-        assert pixels(got[f'classic_light_{n}'])[:2] == wh, n
-    near = lambda p, rgb: p[3] == 255 and all(abs(p[i] - (rgb >> s & 255)) <= 1 for i, s in enumerate((16, 8, 0)))
-    _, _, face = pixels(got['classic_light_clock_chrome'])
-    assert face(55, 55) == (255, 255, 255, 255) and face(0, 0)[3] == 0  # the middle of the face; outside the ring
-    assert any(face(x, y)[:3] != (255, 255, 255) and face(x, y)[3] for x in range(50, 60) for y in range(13, 26))  # the 12, from the font's outlines
-    assert any(face(x, 55) == (255, 255, 255, 255) for x in range(14, 20)) and any(face(x, 55)[:3] != (255, 255, 255) for x in range(14, 20))  # the 9's ink and its open counter
-    _, _, tile = pixels(got['classic_light_tile'])
-    row = lambda stops, y, h: art.gradient(stops, 0, h)(y + .5)  # a row's stop: its middle
-    over = lambda rgb, a: sum(round((rgb >> s & 255) + (255 - (rgb >> s & 255)) * a / 255) << s for s in (16, 8, 0))
-    assert near(tile(65, 6), over(row(art.TILE_TOP, 0, 22), 0x55)) and near(tile(65, 27), row(art.TILE_TOP, 21, 22)) and near(tile(65, 28), row(art.TILE_PAGE, 22, 100))
-    assert tile(65, 106)[:3] == (0, 0, 0) and tile(65, 106)[3] >= 0x66  # the row under it, over the soft shadow
-    assert tile(0, 0)[3] == 0
-    _, _, sh = pixels(got['classic_light_clock_shadow'])
-    assert abs(sh(43, 13)[3] - 0x70) <= 4 and sh(0, 0)[3] == 0 and sh(0, 13)[3] < 10
+    rgba = lambda v: (v >> 16, v >> 8 & 255, v & 255, 255)
+    for half, (rest, quiet) in art.CLOCK_FACE.items():
+        w, h, face = pixels(got[f'classic_light_clock_face_{half}'])
+        assert (w, h) == (110, 110) and face(55, 55) == rgba(rest) and face(0, 0)[3] == 0  # a flat disc; nothing outside it
+        assert {face(x, 55) for x in range(20, 91)} == {rgba(rest)} and {face(55, y) for y in range(20, 91)} == {rgba(rest)}  # the hands' ground is clear
+        inked = {(x, y) for x in range(110) for y in range(110) if face(x, y)[3] == 255 and face(x, y) != rgba(rest)}
+        assert any(50 <= x < 60 and 6 <= y < 20 for x, y in inked) and any(6 <= x < 18 and 50 <= y < 60 for x, y in inked)  # the 12 and the 9, from the font's outlines
+        assert all(30 * 1.1 < math.hypot(x - 54.5, y - 54.5) < 48 * 1.1 for x, y in inked)  # in a ring the hands end short of
+        mix = lambda p: all(min(a, b) - 1 <= c <= max(a, b) + 1 for a, b, c in zip(rgba(rest), rgba(quiet), p))
+        assert all(mix(face(x, y)) for x, y in inked)  # the quiet ink over the disc, nothing else
     w, h, hint = pixels(got['classic_light_hint_shadow'])  # stock's marks, a row down, blurred: 0 1px 2px #00000080
     assert (w, h) == (29, 15) and hint(0, 0)[3] == 0 and hint(28, 14)[3] == 0 and hint(8, 8)[:3] == (0, 0, 0)
     assert 0x20 < hint(8, 8)[3] <= 0x80 and hint(8, 1)[3] == 0
-    _, _, lit = pixels(got['classic_light_cell_lit_45'])
-    assert near(lit(26, 4), over(row(art.CELL_LIT, 0, 42), 0x66)) and near(lit(26, 45), row(art.CELL_LIT, 41, 42))
-    assert lit(26, 46)[:3] == (0, 0, 0) and lit(26, 46)[3] > 0x40  # the row below: black, soft
-    _, _, off = pixels(got['classic_light_cell_45'])
-    assert off(26, 46)[:3] == (255, 255, 255) and abs(off(26, 46)[3] - 0x24) <= 1 and off(26, 4)[3] == 255
-    _, _, tray = pixels(got['classic_light_tray_108'])
-    assert near(tray(60, 7), row(art.TRAY_STOPS, 0, 48)) and tray(60, 55)[0] > 80 and tray(60, 55)[3] > 0x26  # the light row under it, over the shadow
-    assert tray(0, 0)[3] < 12
 
 
 def test_the_note_is_white_and_translucent():

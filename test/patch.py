@@ -2901,19 +2901,20 @@ def tm_on_time(m): m.nodes[m.slide]['value']=1; return time_shown(m)
 tm_idx=lambda m,f: m.get(m.sels[f]+O['SELECTOR_INDEX'])
 tm_field=lambda m: m.nodes[m.win].get('_edit_field',0)
 tm_fire=lambda m,w: [m.call(address=f,args=(c,m.event,0,0),gap=0) for t,f,c in m.nodes[w]['handlers'] if t==O['EVT_VALUE_CHANGED']]
-TM_WHITE=color_t(0xffffff)
-# Set Time, 24-hour: the flat page, the clock's shadow and tm_art, the tray, two cells, the hour lit; Save in tm_place of OK. Window-local: the window is at y 26.
-tm=time_form(); tm_shown=tm_on_time(tm); tm_art=[tm.text(c[2]) for c in tm.calls if c[0]=='widget_load_image']
-assert page_fill(tm) and [d[1][:2] for d in tm.image_draws[0:2]]==[(58,166),(46,73)]
-assert tm_art[:4]==[f'classic_light_{n}' for n in ('clock_shadow','clock_chrome','tray_108','cell_lit_45')] and [d[1][:2] for d in tm.image_draws[2:5]]==[(204,97),(210,103),(267,103)]
-assert wbox(tm,tm.sels[3])==(214,107,45,42) and wbox(tm,tm.sels[4])==(271,107,45,42) and wbox(tm,tm.ok)==(0,244,375,26) and tm.nodes[tm.ok]['text']=='Save'
-assert tm_shown[(214,107,45,42)]['text']=='16' and tm_shown[(271,107,45,42)]['text']=='42' and tm_shown[(259,107,12,42)]['text']==':' and tm_shown[(0,244,375,26)]['text']=='Save'
-assert tm_shown[(0,245,375,26)]['color']==0x59000000 and tm_shown[(0,244,375,26)]['color']==(0xb8000000|TM_WHITE&0xffffff)
-assert tm_shown[(214,107,45,42)]['color']==TM_WHITE and all(tm.get(w+0x34)&255==0 for w in (*tm.sels,tm.ok))
+TM_WHITE=color_t(0xffffff); TM_INK=color_t(0x1c1c1e); TM_REST=color_t(0xe9e9ec); TM_ON=color_t(0x207cde)  # the light half's, and Classic Blue's blue
+tm_boxes=lambda m: {r['rect']:(r['radius'],r['color']) for r in m.rounded if r['kind']=='fill'}  # the page's flat boxes: each one's corners and colour
+# Set Time, 24-hour: the flat page, the face, two cells, the hour holding; Save's pill in place of OK. Window-local: the window is at y 26.
+tm=time_form(); tm_shown=tm_on_time(tm)
+assert page_fill(tm,0,0xffffff) and art_at(tm)==[('classic_light_clock_face_l',(46,73))]
+assert tm_boxes(tm)=={(214,107,45,42):(10,TM_ON),(271,107,45,42):(10,TM_REST),(127,224,121,36):(18,TM_REST)}  # the hour holds
+assert wbox(tm,tm.sels[3])==(214,107,45,42) and wbox(tm,tm.sels[4])==(271,107,45,42) and wbox(tm,tm.ok)==(127,224,121,36) and tm.nodes[tm.ok]['text']=='Save'
+assert tm_shown[(214,107,45,42)]['text']=='16' and tm_shown[(271,107,45,42)]['text']=='42' and tm_shown[(259,107,12,42)]['text']==':' and tm_shown[(127,224,121,36)]['text']=='Save'
+assert [tm_shown[r]['color'] for r in ((214,107,45,42),(271,107,45,42),(259,107,12,42),(127,224,121,36))]==[TM_WHITE,TM_INK,TM_INK,TM_INK] and len(tm_shown)==4  # white on the cell that holds; no shadow under a word
+assert all(tm.get(w+0x34)&255==0 for w in (*tm.sels,tm.ok))
 assert not tm.nodes[named(tm,tm.win,'img_dot')]['visible'] and not tm.nodes[named(tm,tm.win,'slide_indicator')]['visible'] and [n['visible'] for n in tm.nodes.values() if n.get('name')=='view_back']==[0,0]
 assert wbox(tm,named(tm,tm.win,'slide_view_view'))==(0,0,375,294) and tm.lcd_colors()==LCD_COLORS; passed()
 # The hands: at 16:42, hour 141 degrees, minute 252; nothing past the centre; the pivot over them; the fill's colour restored. Repainted only on a change.
-tm_ink=[b for b in tm.bands if b[4]&0xffffff==color_t(0x161b22)&0xffffff]; tm_runs=[[]]
+tm_ink=[b for b in tm.bands if b[4]&0xffffff==TM_INK&0xffffff]; tm_runs=[[]]
 for b in tm_ink:
     if tm_runs[-1] and b[1]<tm_runs[-1][-1][1]: tm_runs.append([])
     tm_runs[-1].append(b)
@@ -2921,7 +2922,7 @@ assert len(tm_runs)==3,len(tm_runs)  # hour, minute, the pivot's ring
 for tm_run,deg,tip in ((tm_runs[0],141,19*1.1),(tm_runs[1],252,28*1.1)):
     back,far,wide=tm_hand(tm_run,deg); assert back>=-2 and abs(far-tip)<=1.2 and wide<=3.2,(deg,back,far,wide)
 assert all(b[3]==1 for b in tm_ink) and any(b[2]>1 for b in tm_runs[1]) and any(b[4]>>24 not in (0,255) for b in tm_runs[1])  # rows of end spans and a tm_run
-tm_white=[b for b in tm.bands if b[4]==TM_WHITE and b[0]>=96 and b[0]<=106 and 123<=b[1]<=133]; assert tm_white and tm.bands.index(tm_white[0])>tm.bands.index(tm_runs[2][0])
+tm_dot=[b for b in tm.bands if b[4]==TM_REST and b[0]>=96 and b[0]<=106 and 123<=b[1]<=133]; assert tm_dot and tm.bands.index(tm_dot[0])>tm.bands.index(tm_runs[2][0])
 bare(tm); tm.word(tm.sels[4]+O['SELECTOR_INDEX'],59); tm.nodes[tm.win]['_edit_field']=4; tm.calls=[]; assert tm.call()==11 and not [c for c in tm.calls if c[0] in ('widget_invalidate_force','timer_add')]  # at the end of its options
 tm.word(tm.sels[4]+O['SELECTOR_INDEX'],42); assert tm.call(O['KEY_PREV'])==11 and [c[1] for c in tm.calls if c[0]=='widget_invalidate_force']==[tm.win] and tm_idx(tm,4)==41; passed()
 tm.calls=[]; tm_on_time(tm); assert not [c for c in tm.calls if c[0] in ('timer_add','widget_invalidate_force','widget_set_text_utf8')]; passed()  # a paint writes nothing and asks for no other
@@ -2931,8 +2932,8 @@ assert tm.confirm()==11 and tm_field(tm)==4 and not tm.clicks
 assert tm.confirm()==11 and tm.clicks==[tm.ok] and [c[0] for c in tm.calls].count('navigator_back')==1 and tm_field(tm)==4
 tm=time_form(); tm.nodes[tm.slide]['value']=1; tm.nodes[tm.win]['_edit_field']=3; [tm.call(O['KEY_FWD_BTN']) for _ in range(3)]; assert tm_field(tm)==4 and not tm.clicks; assert tm.call(O['KEY_BACK_BTN'])==11 and tm_field(tm)==3; passed()
 # Twelve-hour: six fields; hour 16 shows 4 and PM; the wheel on the hour keeps the half; AM/PM toggles 16 to 4 either way; the selector stays 0..23; Centre on AM/PM saves.
-tm=time_form(0); tm_shown=tm_on_time(tm); tm_art=[tm.text(c[2]) for c in tm.calls if c[0]=='widget_load_image']
-assert 'classic_light_tray_165' in tm_art and wbox(tm,tm.sels[3])==(186,107,45,42) and wbox(tm,tm.sels[4])==(243,107,45,42)
+tm=time_form(0); tm_shown=tm_on_time(tm)
+assert tm_boxes(tm)=={(186,107,45,42):(10,TM_ON),(243,107,45,42):(10,TM_REST),(300,107,45,42):(10,TM_REST),(127,224,121,36):(18,TM_REST)} and wbox(tm,tm.sels[3])==(186,107,45,42) and wbox(tm,tm.sels[4])==(243,107,45,42)
 assert tm_shown[(186,107,45,42)]['text']=='4' and tm_shown[(243,107,45,42)]['text']=='42' and tm_shown[(300,107,45,42)]['text']=='PM' and tm_shown[(231,107,12,42)]['text']==':'
 tm_hit=[c for c in tm.nodes[tm.pt]['children'] if tm.nodes[c]['type']=='image' and tm.nodes[c]['name']!='img_dot'][0]; assert wbox(tm,tm_hit)==(300,107,45,42)
 assert tm.call()==11 and tm_idx(tm,3)==17
@@ -2957,12 +2958,12 @@ tm.nodes[tm.win]['_edit_field']=3; assert tm.call()==11 and tm_idx(tm,3)==5; tm_
 tm.word(tm.sels[1]+O['SELECTOR_INDEX'],1); tm.word(tm.sels[2]+O['SELECTOR_INDEX'],27); tm_fire(tm,tm.sels[2]); assert tm_field(tm)==1; tm_fire(tm,tm.sels[1]); assert tm_field(tm)==1  # stock clamps the day under a dragged month: the month keeps it
 tm_fire(tm,tm.slide); assert tm_field(tm)==1; passed()  # a swipe between the pages is no drag
 tm=time_form(1,vals=(4,10,4,23,0)); tm.nodes[tm.slide]['value']=1; tm.word(tm.sels[3]+O['SELECTOR_INDEX'],4); tm_fire(tm,tm.sels[3]); assert tm_idx(tm,3)==4 and tm_field(tm)==3; passed()  # 24-hour has no half
-# Set Date: the tile, the tray, year 60 wide; Centre on day turns to the time page; the bar's title follows the selectors, written on a change and not in a paint.
-tm=time_form(); tm_shown=time_shown(tm); tm_art=[tm.text(c[2]) for c in tm.calls if c[0]=='widget_load_image']
-assert page_fill(tm) and tm_art[:4]==[f'classic_light_{n}' for n in ('tile','tray_164','cell_lit_60','cell_45')] and [d[1][:2] for d in tm.image_draws[0:5]]==[(34,72),(176,97),(182,103),(246,103),(295,103)]
-assert wbox(tm,tm.sels[0])==(186,107,60,42) and wbox(tm,tm.sels[1])==(250,107,45,42) and wbox(tm,tm.sels[2])==(299,107,45,42)
-assert tm_shown[(186,107,60,42)]['text']=='2026' and tm_shown[(250,107,45,42)]['text']=='11' and tm_shown[(299,107,45,42)]['text']=='05'
-assert tm_shown[(40,76,118,30)]['text']=='Nov' and tm_shown[(40,98,118,82)]['text']=='05' and tm_shown[(40,98,118,82)]['color']==color_t(0x1b2030) and tm_shown[(40,76,118,30)]['font'][1]==28 and tm_shown[(40,98,118,82)]['font'][1]==79
+# Set Date: the tile, three cells 6 px apart, year 60 wide and holding; Centre on day turns to the time page; the bar's title follows the selectors, written on a change and not in a paint.
+tm=time_form(); tm_shown=time_shown(tm)
+assert page_fill(tm,0,0xffffff) and len(tm.bands)==1 and not art_at(tm) and tm_boxes(tm)=={(40,78,118,100):(13,TM_REST),(182,107,60,42):(10,TM_ON),(248,107,45,42):(10,TM_REST),(299,107,45,42):(10,TM_REST),(127,224,121,36):(18,TM_REST)}
+assert wbox(tm,tm.sels[0])==(182,107,60,42) and wbox(tm,tm.sels[1])==(248,107,45,42) and wbox(tm,tm.sels[2])==(299,107,45,42)
+assert tm_shown[(182,107,60,42)]['text']=='2026' and tm_shown[(248,107,45,42)]['text']=='11' and tm_shown[(299,107,45,42)]['text']=='05' and tm_shown[(182,107,60,42)]['color']==TM_WHITE
+assert tm_shown[(40,84,118,26)]['text']=='Nov' and tm_shown[(40,84,118,26)]['color']==TM_ON and tm_shown[(40,104,118,70)]['text']=='05' and tm_shown[(40,104,118,70)]['color']==TM_INK and tm_shown[(40,84,118,26)]['font'][1]==21 and tm_shown[(40,104,118,70)]['font'][1]==64
 assert tm.nodes[tm.lab]['text']=='Nov 5, 2026'
 for f in (1,2): assert tm.confirm()==11 and tm_field(tm)==f
 assert tm.nodes[tm.slide]['value']==0 and tm.confirm()==11 and tm_field(tm)==3 and tm.nodes[tm.slide]['value']==1
@@ -2970,29 +2971,31 @@ tm.nodes[tm.slide]['value']=0; assert tm.call()==11 and tm_field(tm)==0 and tm_i
 # ... a drag on a selector: month 2 with day 31, stock's own option change has clamped it; the title and tile take the clamped day.
 tm=time_form(vals=(4,1,27,16,42)); tm.nodes[tm.lab]['text']='old'; tm.calls=[]; tm_fire(tm,tm.sels[1])
 assert tm.nodes[tm.lab]['text']=='Feb 28, 2026' and [c[1] for c in tm.calls if c[0]=='widget_invalidate_force']==[tm.win]
-assert time_shown(tm)[(40,98,118,82)]['text']=='28'; passed()
+assert time_shown(tm)[(40,104,118,70)]['text']=='28'; passed()
 # ... stock's init comes first: the label it rebuilt is the one written, and the handlers follow stock's own.
 tm=time_form(); order=[c[0] for c in tm.calls]; assert order.index('stock_manualtime')<order.index('widget_set_text_utf8',order.index('stock_manualtime'))
 for w in (*tm.sels,tm.slide): assert any(t==O['EVT_VALUE_CHANGED'] for t,_,_ in tm.nodes[w]['handlers'])
-f,ctx=next((f,c) for t,f,c in tm.nodes[tm.win]['handlers'] if t==O['EVT_DESTROY']); tm.call(address=f,args=(ctx,tm.event,0,0),gap=0); bare(tm); bg(tm,tm.win); assert not tm.image_draws; passed()
+f,ctx=next((f,c) for t,f,c in tm.nodes[tm.win]['handlers'] if t==O['EVT_DESTROY']); tm.call(address=f,args=(ctx,tm.event,0,0),gap=0); bare(tm); bg(tm,tm.win); assert not tm.letters and not tm.image_draws; passed()
 # A paint fits one call's budget at the dearest minutes, its hands included, and finds nothing by name: no lookup, and no compare the hook wouldn't make for any window.
 for tm_flag,tm_h,tm_m in ((1,6,33),(0,0,33)): tm=time_form(tm_flag,vals=(4,10,4,tm_h,tm_m)); tm_on_time(tm); assert tm.bands and tm.budget==100000
 tm_named=lambda m: [c[0] for c in m.calls if c[0] in ('widget_lookup','tk_strcmp')]
 for tm_flag,tm_page in ((1,1),(0,1),(1,0)):
-    tm=time_form(tm_flag); tm.nodes[tm.slide]['value']=tm_page; bare(tm); bg(tm,tm.win); tm_seen=tm_named(tm); assert tm.image_draws and 'widget_lookup' not in tm_seen
-    f,ctx=next((f,c) for t,f,c in tm.nodes[tm.win]['handlers'] if t==O['EVT_DESTROY']); tm.call(address=f,args=(ctx,tm.event,0,0),gap=0); bare(tm); bg(tm,tm.win); assert not tm.image_draws and tm_named(tm)==tm_seen
+    tm=time_form(tm_flag); tm.nodes[tm.slide]['value']=tm_page; bare(tm); bg(tm,tm.win); tm_seen=tm_named(tm); assert tm.letters and 'widget_lookup' not in tm_seen
+    f,ctx=next((f,c) for t,f,c in tm.nodes[tm.win]['handlers'] if t==O['EVT_DESTROY']); tm.call(address=f,args=(ctx,tm.event,0,0),gap=0); bare(tm); bg(tm,tm.win); assert not tm.letters and not tm.image_draws and tm_named(tm)==tm_seen
 passed()
-# Light and dark: the same page, final colours.
-for light in '01':
-    tm=time_form(light=light); tm_shown=tm_on_time(tm); assert tm_shown[(214,107,45,42)]['color']==TM_WHITE and tm_shown[(0,245,375,26)]['color']==0x59000000 and tm_shown[(0,244,375,26)]['color']==(0xb8000000|TM_WHITE&0xffffff)
+# Light and dark: each half's own page, face, grey and ink, all final; what holds is the same in both.
+for light,page,rest,ink in (('1',0xffffff,0xe9e9ec,0x1c1c1e),('0',0,0x2c2c2e,0xffffff)):
+    tm=time_form(light=light); tm_shown=tm_on_time(tm); assert page_fill(tm,0,page) and art_at(tm)==[('classic_light_clock_face_'+'dl'[light=='1'],(46,73))]
+    assert tm_boxes(tm)=={(214,107,45,42):(10,TM_ON),(271,107,45,42):(10,color_t(rest)),(127,224,121,36):(18,color_t(rest))}
+    assert tm_shown[(214,107,45,42)]['color']==TM_WHITE and tm_shown[(271,107,45,42)]['color']==color_t(ink)==tm_shown[(127,224,121,36)]['color'] and [b for b in tm.bands[1:] if b[4]&0xffffff==color_t(ink)&0xffffff]  # its hands
     assert tm.lcd_colors()==LCD_COLORS
 passed()
-# Boxes hold their fonts and nothing crosses the glass: on screen, y + 26. Save's box spans the screen: its tm_ink, centred, is what clears it.
-for x,y,w,h in ((211,130,108,48),(183,130,165,48),(183,130,164,48),(186,133,60,42),(300,133,45,42),(46,99,110,110),(58,192,86,26),(40,104,118,100),(162,270,50,26)):
+# Boxes hold their fonts and nothing crosses the glass: on screen, y + 26.
+for x,y,w,h in ((182,133,60,42),(300,133,45,42),(46,99,110,110),(40,104,118,100),(127,250,121,36)):
     assert corner_inset(y)<=x and corner_inset(y+h-1)<=x and x+w<=375-max(corner_inset(y),corner_inset(y+h-1)),(x,y,w,h)
 for tm_flag,tm_page in ((1,1),(0,1),(1,0)):
     tm=time_form(tm_flag); tm.nodes[tm.slide]['value']=tm_page; tm_shown=time_shown(tm); assert all(r[3]>t['font'][1] for r,t in tm_shown.items())
-    assert {t['font'] for r,t in tm_shown.items() if r[3]==42}<={('classic-light',35),('classic-light',32),('classic-light',30)} and tm_shown[(0,244,375,26)]['font']==('classic-light',24)
+    assert {t['font'] for r,t in tm_shown.items() if r[3]==42}<={('classic-light',27),('classic-light',23)} and tm_shown[(127,224,121,36)]['font']==('classic-light',21)
 passed()
 # Minimal: five fields, the outline, the OK stop, stock's selectors and btn_enter where they were; nothing painted, no title written.
 for theme_ in '0':

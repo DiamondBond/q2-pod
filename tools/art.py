@@ -393,19 +393,9 @@ QS_QUIET = {'_ql': 0x6e6e73, '_qd': 0x98989d}
 # The message screens' mark (classic_pages.c msg_paint): a glyph at MSG_SCALE on a MSG_BOX px square, in the half's ink.
 MSG_BOX, MSG_SCALE = 84, 2.8
 MSG_INK = {'l': 0x1c1c1e, 'd': 0xffffff}
-# Set Time and Set Date. A box's soft shadow as CSS's box-shadow draws it, clear under the box. Each image reaches past
-# its box by its PAD; navigation.c's TIME_*_PAD say the same.
-TRAY_H, TRAY_R, TRAY_PAD, TRAY_WIDTHS = 48, 7, 7, (108, 165, 164)
-TRAY_STOPS = ((0, 0x565c66), (20, 0x3a3f47), (44, 0x22252c), (50, 0x121419), (100, 0x0f1014))
-CELL_H, CELL_R, CELL_PAD, CELL_WIDTHS = 42, 6, 4, (45, 60)
-CELL_LIT = ((0, 0x7cc3f8), (22, 0x4aa3ee), (49, 0x2f8de4), (50, 0x0d68cc), (100, 0x0a5ab8))
-CELL_OFF = ((0, 0x454c56), (22, 0x353b44), (49, 0x2a2f37), (50, 0x0e1116), (100, 0x13161b))
-TILE_W, TILE_H, TILE_PAD, TILE_HEAD = 118, 100, 6, 22
-TILE_PAGE = ((0, 0xffffff), (100, 0xf4f5f7))
-TILE_TOP = ((0, 0xef6a72), (55, 0xe0444e), (100, 0xcf2a35))
-CLOCK_PX, CLOCK_SHADOW = 110, (86, 26)
-CLOCK_RING = ((0, 0xffffff), (24, 0xf4f6f8), (46, 0xb4bbc3), (58, 0x7f8892), (72, 0xa9b0b9), (100, 0xe8ecf0))
-CLOCK_RIM = ((0, 0x6d7680), (100, 0xd5dae0))
+# Set Time's face (clock.c time_paint): a flat disc in the half's resting grey, its numerals quiet. The hands are the payload's.
+CLOCK_PX = 110
+CLOCK_FACE = {'l': (0xe9e9ec, 0x6e6e73), 'd': (0x2c2c2e, 0x98989d)}
 def blurred(cov, w, h, sigma):
     """cov under a Gaussian of sigma, its edge values carried on past the image."""
     r = math.ceil(3 * sigma)
@@ -574,51 +564,6 @@ def rate_heart(on, rgb):
     return png(32, 30, compose((0, 0, 32, 30), [((shape if on else []) + stroke(shape, 2.4), lambda x, y: (rgb, 1))]))
 def ink(rgb, alpha):
     return lambda x, y: (rgb, alpha / 255)
-@functools.lru_cache(maxsize=None)
-def tray(bw):
-    """A tray: rows, a light row under it, 0 2px 5px black at 0x66. The box's top-left is at TRAY_PAD, TRAY_PAD."""
-    p = TRAY_PAD
-    w, h = bw + 2 * p, TRAY_H + 2 * p + 2
-    box = rounded(w, h, p, p, bw, TRAY_H, TRAY_R)
-    soft = blurred(rounded(w, h, p, p + 2, bw, TRAY_H, TRAY_R), w, h, 2.5)
-    rows = gradient(TRAY_STOPS, p, p + TRAY_H)
-    return png(w, h, laid(w, h, [(outside(soft, box), ink(0, 0x66)),
-                                 (outside(rounded(w, h, p, p + 1, bw, TRAY_H, TRAY_R), box), ink(0xffffff, 0x26)),
-                                 (box, lambda x, y: (rows(y), 1))]))
-@functools.lru_cache(maxsize=None)
-def cell(bw, lit):
-    """A cell. Lit: inset 0 1px white at 0x66, 0 1px 2px black at 0xaa. Unlit: inset 0 1px 1px black at 0xaa, a 1 px ring
-    inside at 0x77, a light row under it. The box's top-left is at CELL_PAD, CELL_PAD."""
-    p = CELL_PAD
-    w, h = bw + 2 * p, CELL_H + 2 * p
-    box, lower = (rounded(w, h, p, p + d, bw, CELL_H, CELL_R) for d in (0, 1))
-    rows = gradient(CELL_LIT if lit else CELL_OFF, p, p + CELL_H)
-    fill = (box, lambda x, y: (rows(y), 1))
-    if lit:
-        top = [b * (1 - c) for b, c in zip(box, lower)]
-        layers = [(outside(blurred(lower, w, h, 1), box), ink(0, 0xaa)), fill, (top, ink(0xffffff, 0x66))]
-    else:
-        inner = rounded(w, h, p + 1, p + 1, bw - 2, CELL_H - 2, CELL_R - 1)
-        layers = [(outside(lower, box), ink(0xffffff, 0x24)), fill, ([b * (1 - c) for b, c in zip(box, inner)], ink(0, 0x77)),
-                  ([b * (1 - c) for b, c in zip(box, blurred(lower, w, h, .5))], ink(0, 0xaa))]
-    return png(w, h, laid(w, h, layers))
-@functools.lru_cache(maxsize=None)
-def tile():
-    """The calendar tile: its page, its 22-row header (a light top row), R 6 above and 7 below; black at 0x66 on the row
-    under it, 0 3px 4px black at 0x59. The box's top-left is at TILE_PAD, TILE_PAD."""
-    p, bw, bh = TILE_PAD, TILE_W, TILE_H
-    w, h = bw + 2 * p, bh + 2 * p
-    def shape(dy):
-        x0, x1, y0, y1 = p, p + bw, p + dy, p + bh + dy
-        d = (f'M{x0 + 6} {y0}H{x1 - 6}A6 6 0 0 1 {x1} {y0 + 6}V{y1 - 7}A7 7 0 0 1 {x1 - 7} {y1}'
-             f'H{x0 + 7}A7 7 0 0 1 {x0} {y1 - 7}V{y0 + 6}A6 6 0 0 1 {x0 + 6} {y0}Z')
-        return [min(c, 1) for c in coverage(path(d), (0, 0, w, h))]
-    box = shape(0)
-    page, head = gradient(TILE_PAGE, p, p + bh), gradient(TILE_TOP, p, p + TILE_HEAD)
-    rows = lambda a, b: [c if a <= i // w - p < b else 0 for i, c in enumerate(box)]
-    return png(w, h, laid(w, h, [(outside(blurred(shape(3), w, h, 2), box), ink(0, 0x59)), (outside(shape(1), box), ink(0, 0x66)),
-                                 (box, lambda x, y: (page(y), 1)), (rows(0, TILE_HEAD), lambda x, y: (head(y), 1)),
-                                 (rows(0, 1), ink(0xffffff, 0x55))]))
 def numeral(text, size, cx, cy):
     """text's outlines in the theme's font as one even-odd polygon each glyph, centred on cx, its baseline 3.3 / 9.5 of size under cy."""
     font = classic_light_font()
@@ -633,32 +578,17 @@ def numeral(text, size, cx, cy):
         out.append([q for one in contours for q in (*one, one[0], contours[0][0])])  # the bridges cancel: counters stay open
         x += glyph.width * s
     return out
-@functools.lru_cache(maxsize=None)
-def clock_chrome():
-    """The clock without its hands, drawn on a -50..50 box."""
+def clock_face(half):
+    """Set Time's face without its hands, drawn on a -50..50 box: the disc, and 1 to 12 at r 39."""
     k = CLOCK_PX / 100
     fit = lambda polys: [[(CLOCK_PX / 2 + x * k, CLOCK_PX / 2 + y * k) for x, y in poly] for poly in polys]
-    disc = lambda r: path(f'M{-r} 0A{r} {r} 0 1 1 {r} 0A{r} {r} 0 1 1 {-r} 0Z')
-    ramp = lambda stops, r: gradient(stops, CLOCK_PX / 2 - r * k, CLOCK_PX / 2 + r * k)
-    ring, rim = ramp(CLOCK_RING, 49.5), ramp(CLOCK_RIM, 44)
     a = [i * math.pi / 6 for i in range(1, 13)]
-    numerals = [q for i in range(12) for q in numeral(str(i + 1), 9.5, 34 * math.sin(a[i]), -34 * math.cos(a[i]))]
-    box = (0, 0, CLOCK_PX, CLOCK_PX)
-    return png(CLOCK_PX, CLOCK_PX, compose(box, [
-        (fit(disc(49.5)), lambda x, y: (ring(y), 1)),
-        (fit(stroke(path('M-41 -22A46.5 46.5 0 0 1 41 -22'), 1.6, closed=False)), ink(0xffffff, .95 * 255)),
-        (fit(disc(44)), ink(0xffffff, 255)),
-        (fit(stroke(disc(44), 1.2)), lambda x, y: (rim(y), 1)),
-        (fit(numerals), ink(0x5a6068, 255))]))
-@functools.lru_cache(maxsize=None)
-def clock_shadow():
-    """The shadow under the face: a radial ramp out to the corners' ellipse, as CSS's, inside the box's own ellipse."""
-    w, h = CLOCK_SHADOW
-    def paint(x, y):
-        d = math.hypot((x - w / 2) / (w / 2), (y - h / 2) / (h / 2)) / math.sqrt(2)
-        a = 0x70 + (0x40 - 0x70) * d / .45 if d < .45 else 0x40 * max(0, .72 - d) / .27
-        return 0, a / 255
-    return png(w, h, compose((0, 0, w, h), [(path(f'M0 {h / 2}A{w / 2} {h / 2} 0 1 1 {w} {h / 2}A{w / 2} {h / 2} 0 1 1 0 {h / 2}Z'), paint)]))
+    numerals = [q for i in range(12) for q in numeral(str(i + 1), 10, 39 * math.sin(a[i]), -39 * math.cos(a[i]))]
+    rest, quiet = CLOCK_FACE[half]
+    return png(CLOCK_PX, CLOCK_PX, compose((0, 0, CLOCK_PX, CLOCK_PX), [
+        (fit(path('M-49.5 0A49.5 49.5 0 1 1 49.5 0A49.5 49.5 0 1 1 -49.5 0Z')), ink(rest, 255)),
+        (fit(numerals), ink(quiet, 255))]))
+
 
 
 def images(t):
@@ -709,10 +639,8 @@ def images(t):
         out[f'{prefix}_field'] = png(FIELD_W, FIELD_H, field())
         for half, rgb in RATE_HEART_INKS.items():
             out |= {f'{prefix}_heart_on_{half}': rate_heart(True, rgb), f'{prefix}_heart_off_{half}': rate_heart(False, rgb)}
-        out |= {f'{prefix}_tray_{w}': tray(w) for w in TRAY_WIDTHS}
-        for w in CELL_WIDTHS:
-            out |= {f'{prefix}_cell_{w}': cell(w, False), f'{prefix}_cell_lit_{w}': cell(w, True)}
-        out |= {f'{prefix}_tile': tile(), f'{prefix}_clock_chrome': clock_chrome(), f'{prefix}_clock_shadow': clock_shadow(), f'{prefix}_hint_shadow': hint_shadow()}
+        out |= {f'{prefix}_clock_face_{half}': clock_face(half) for half in CLOCK_FACE}
+        out[f'{prefix}_hint_shadow'] = hint_shadow()
     if t['station_stops']:  # Internet Radio's Now Playing art, as large as the slanted art (navigation.c stream_ipod)
         px = inc('NP_IPOD_ART')
         out[f'{prefix}_station'] = png(px, px, station(t['station_stops'], t['station_mast'], t['station_band_a'], t['station_shadow_a'], px))
