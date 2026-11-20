@@ -458,80 +458,69 @@ void search_tabs_paint(void *group, void *canvas) {
     stock_canvas_set_fill_color(canvas, fill);
 }
 
-/* Classic's slider pages, one shape over stock's four windows: under Classic's own bar,
- * the page image, a band holding the slider between its ends, the caption. Only the painter reads
- * these tables. */
-static const stops_t slider_band = { 8,
-                                     { 0, 8, 22, 38, 49, 50, 92, 100 },
-                                     { 0x6a707a, 0x565c66, 0x464b54, 0x343840, 0x23262d, 0x0e1014,
-                                       0x0b0d11, 0x181b21 } },
-                     slider_track = { 4,
-                                      { 0, 40, 80, 100 },
-                                      { 0x2f4052, 0x42566a, 0x3b4d60, 0x26333f } },
-                     slider_lit = { 3, { 0, 45, 100 }, { 0xf7ffff, 0xeceeef, 0xc6cbcf } };
+/* Classic's flat pages (the slider pages, the message screens), final colours, [0] dark, [1] light:
+ * the page, a control at rest, the ink and a quiet line's. */
+static const unsigned flat_page[2] = { 0x000000, 0xffffff }, flat_rest[2] = { 0x2c2c2e, 0xe9e9ec },
+                      flat_ink[2] = { 0xffffff, 0x1c1c1e }, flat_quiet[2] = { 0x98989d, 0x6e6e73 };
+/* Classic's slider pages, one shape over stock's four windows: under Classic's own bar, the half's
+ * paper, a bar as Quick Settings' with the page's marks in its ends, and the caption. */
+/* Off and On, the two halves of one pill at rest: the one that holds is in what is on, its word
+ * white (the ink on a bright accent), the other's in the ink. */
+void slider_switch(void *w, void *canvas, void *sw) {
+    static const unsigned off[] = { 'O', 'f', 'f', 0 }, on[] = { 'O', 'n', 0 };
+    (void)w;
+    int light = ipod_light();
+    unsigned lit = quick_on(), ink = 0xff000000u | flat_ink[light];
+    unsigned over = bright_tone(lit) ? 0xff000000u | flat_ink[1] : 0xffffffffu;
+    rect_t track = { 128, 32, 120, 36 }, left = { 128, 32, 60, 36 }, right = { 188, 32, 60, 36 };
+    const char *image = widget_get_prop_str(sw, "image", "");
+    /* stock's two names, switch_on and switch_off, first differ at [8] */
+    int held = image[0] && image[8] == 'n';
+    stops_t rest = { 2, { 0, 100 }, { flat_rest[light], flat_rest[light] } },
+            cell = { 2, { 0, 100 }, { lit, lit } };
+    paint_round_rows(canvas, &track, &rest, 18);
+    paint_round_rows(canvas, held ? &right : &left, &cell, 18);
+    final_text(canvas, "classic-light", off, &left, 19, held ? ink : over);
+    final_text(canvas, "classic-light", on, &right, 19, held ? over : ink);
+}
 /* The page, in the window's coordinates, under its children. */
 void slider_paint(void *w, void *canvas) {
-    void *lcd = P(canvas, CANVAS_LCD), *s = st.slider_w, *sw = st.slider_sw;
+    void *lcd = P(canvas, CANVAS_LCD), *sw = st.slider_sw;
     if (!lcd) return;
     unsigned fill = (unsigned)I(lcd, LCD_FILL_COLOR);
-    int maxvol = st.slider_kind == SLIDER_MAX, px;
+    int px;
     void *number = widget_lookup(w, "label_balance", 1); /* stock writes its text after the load */
     if (number && number_face(number, &px) != st.number_face) slider_number(number);
     if (!sw && st.slider_kind == SLIDER_BOOT)
         sw = st.slider_sw = widget_lookup(w, "img_bootswitch", 1);
-    paint_page(w, canvas, 0);
+    bar_rect(canvas, RGBA(flat_page[ipod_light()]), 0, 0, 375, 294);
     if (sw && widget_get_visible(sw)) slider_switch(w, canvas, sw);
-    if (widget_get_visible(
-            P(s, W_PARENT))) { /* stock hides it while Default Volume's switch is off */
-        rect_t band = { 28, 129, 322, 46 };
-        paint_art(w, canvas, "classic_light_band_shadow", 21, 124);
-        paint_round_rows(canvas, &band, &slider_band, 8);
-        paint_art(w, canvas, "classic_light_band_top", 28, 129);
-        paint_art(w, canvas, "classic_light_band_foot", 28, 167);
-        if (maxvol || (st.slider_kind == SLIDER_BOOT && !xfade_page(w))) {
-            paint_art(w, canvas, "classic_light_spk_quiet_w", 50, maxvol ? 139 : 145);
-            paint_art(w, canvas, "classic_light_spk_loud_w", 311, maxvol ? 139 : 145);
-        } else if (st.slider_kind == SLIDER_LIGHT) {
-            paint_art(w, canvas, "classic_light_sun_small", 48, 144);
-            paint_art(w, canvas, "classic_light_sun_big", 311, 141);
-        }
-        for (int i = 0; maxvol && i < 6; ++i) { /* a triangle at the fill's end, tip up */
-            int half = i ? i : 1;
-            bar_rect(canvas, 0xffffffffu, 81 + slider_part(s, 204) - half, 155 + i, 2 * half, 1);
-        }
-    }
-    text_shadow(canvas, "classic-light", (const unsigned *)st.slider_hint,
-                &(rect_t){ 0, 229, 375, 32 }, 31, 0x59);
     stock_canvas_set_fill_color(canvas, fill);
 }
-/* ringnav_paint, after stock's slider: the bar's 8 rows over its own, inset a pixel at each end on
- * the first and last. */
+/* ringnav_paint, after stock's slider: the bar on its rows 17 to 52, its fill never less than its
+ * own round end: Brightness's suns, the volumes' speakers, none on Balance, Crossfade and the
+ * rest. Stock hides the slider's view while Default Volume's switch is off, and the bar with it. */
 void slider_scrub(void *w, void *canvas) {
     if (!w || w != st.slider_w || !P(canvas, CANVAS_LCD)) return;
     unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR);
-    int ww = I(w, W_W), part = slider_part(w, ww);
-    for (int j = 0; j < 8; ++j) {
-        int in = !j || j == 7;
-        bar_rect(canvas, RGBA(stops_row(&slider_track, j, 8)), in, 31 + j, ww - 2 * in, 1);
-    }
-    for (int j = 0; part > 2 && j < 8; ++j) {
-        int in = !j || j == 7;
-        bar_rect(canvas, RGBA(stops_row(&slider_lit, j, 8)), in, 31 + j, part - 2 * in, 1);
-    }
+    int ww = I(w, W_W), kind = st.slider_kind;
+    int marks = kind == SLIDER_LIGHT ? BAR_SUNS
+                : kind == SLIDER_MAX || (kind == SLIDER_BOOT && !xfade_page(st.slider_win))
+                    ? BAR_SPEAKERS
+                    : BAR_PLAIN;
+    rect_t r = { 0, 17, ww, 36 };
+    flat_bar(w, canvas, &r, 36 + slider_part(w, ww - 36), flat_rest[ipod_light()], marks);
     stock_canvas_set_fill_color(canvas, fill);
 }
 
 /* Classic's message screens, over stock's two windows: Update Library's dialog
  * (full-screen, so it paints the status bar itself, paint_bar) and USB mode's page: the half's
  * paper, a mark in its ink over a heading and a quiet line, and for the scan a thin bar and Cancel.
- * Screen rows; each window's own origin is read when it paints. Final colours, [0] dark, [1] light:
- * the page, Cancel's box and the bar at rest, the mark's and the heading's ink, the line's. */
+ * Screen rows; each window's own origin is read when it paints. */
 #define MSG_BAR_X 88
 #define MSG_BAR_Y 222
 #define MSG_BAR_W 200
 #define MSG_BAR_H 4
-static const unsigned msg_page[2] = { 0x000000, 0xffffff }, msg_rest[2] = { 0x2c2c2e, 0xe9e9ec },
-                      msg_ink[2] = { 0xffffff, 0x1c1c1e }, msg_quiet[2] = { 0x98989d, 0x6e6e73 };
 static int msg_gone(void *win, void *event) {
     if (win == st.usb_win) st.usb_win = (void *)0;
     if (win == st.msg_win) {
@@ -655,9 +644,9 @@ void msg_paint(void *w, void *canvas) {
     if (scan) msg_sync();
     bar_place(heading, 16, top + 100, 343, MSG_HEAD_H);
     bar_place(below, 16, top + 134, 343, MSG_LINE_H);
-    msg_text(heading, msg_ink[light], INK_LABEL);
-    msg_text(below, msg_quiet[light], INK_LABEL);
-    bar_rect(canvas, RGBA(msg_page[light]), 0, 26 - dy, 375, 294);
+    msg_text(heading, flat_ink[light], INK_LABEL);
+    msg_text(below, flat_quiet[light], INK_LABEL);
+    bar_rect(canvas, RGBA(flat_page[light]), 0, 26 - dy, 375, 294);
     if (dy < 26) paint_bar(w, canvas); /* over the bar: bar_title_of has the scan's title */
     tk_snprintf(name, sizeof name, "classic_light_msg_%s_%s", scan ? "note" : "usb",
                 light ? "l" : "d");
@@ -665,9 +654,9 @@ void msg_paint(void *w, void *canvas) {
     if (scan) {
         unsigned on = quick_on();
         rect_t cancel = { 127, 248, 121, 36 }, bar = { MSG_BAR_X, MSG_BAR_Y, MSG_BAR_W, MSG_BAR_H };
-        stops_t rest = { 2, { 0, 100 }, { msg_rest[light], msg_rest[light] } },
+        stops_t rest = { 2, { 0, 100 }, { flat_rest[light], flat_rest[light] } },
                 lit = { 2, { 0, 100 }, { on, on } };
-        msg_text(cp.msg_btn, msg_ink[light], INK_BUTTON);
+        msg_text(cp.msg_btn, flat_ink[light], INK_BUTTON);
         if (cp.msg_part >= 0) {
             paint_round_rows(canvas, &bar, &rest, 2);
             /* the least it shows is its own round ends */

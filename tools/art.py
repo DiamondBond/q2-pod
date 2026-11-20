@@ -315,19 +315,10 @@ STATE_BOX = (266, 0, STATE_W, 22)  # the frame the state art is drawn in, on the
 STATE_Y = (4, 19)  # the fill's and edge's first and last rows
 
 
-# The volume's speakers and the slider pages' suns, their boxes the image; drawn on the bar and page in these colours.
+# The volume's and the slider pages' speakers, their boxes the image; drawn on the bar and page in these colours.
 SPEAKER = 'M0 4.5h3.5L9 .5v13L3.5 9.5H0Z'
 SPEAKER_ARCS = ('M12 4.5a3.5 3.5 0 0 1 0 5', 'M14.5 2.5a7 7 0 0 1 0 9', 'M17 .8a10 10 0 0 1 0 12.4')
 SPEAKER_INKS = {'l': 0x393c39, 'd': 0xc6c3c6, 'w': 0xffffff}
-SUNS = {'small': (16, 3.5, 5.5, 7.5), 'big': (22, 4.5, 7, 10)}  # box, then in a 22 unit square scaled to it: disc's radius, a ray's first and last radius
-def sun(box, disc, r0, r1):
-    """A white disc and its 8 rays at 45 degrees, stroked 1.6 with round caps, in 22 units scaled to a box px square."""
-    c, k = box / 2, box / 22
-    disc, r0, r1 = disc * k, r0 * k, r1 * k
-    at = lambda r, a: (c + r * math.cos(a * math.pi / 4), c + r * math.sin(a * math.pi / 4))
-    circle = [(c + disc * math.cos(a * math.pi / 24), c + disc * math.sin(a * math.pi / 24)) for a in range(48)]
-    rays = [q for a in range(8) for q in stroke([[at(r0, a), at(r1, a)]], 1.6 * k, closed=False)]
-    return png(box, box, compose((0, 0, box, box), [([circle, *rays], lambda x, y: (0xffffff, 1))]))
 def speaker(loud, rgb):
     """The speaker, with its three arcs when loud."""
     w = 22 if loud else 12
@@ -335,12 +326,11 @@ def speaker(loud, rgb):
     return png(w, 14, compose((0, 0, w, 14), [(path(SPEAKER) + arcs, lambda x, y: (rgb, 1))]))
 
 
-# The soft shadows and edges of the slider pages' and panels' boxes, as CSS's box-shadow draws them: name, the box's
-# w, h and corner radius, the shadow's blur, its drop and alpha, a 1 px ring's alpha. The image reaches blur + 2 past
-# the shadow's box on every side and is clear under the box itself.
-SHADOWS = {'band_shadow': (322, 46, 8, 5, 2, 0x66, 0), 'panel_shadow': (319, 48, 12, 6, 2, 0x33, 0),
-           'rate_shadow': (304, 110, 12, 6, 2, 0x33, 0), 'tray_shadow': (125, 44, 9, 6, 2, 0x77, 0x66)}
-BLACK, WHITE = 0, 255
+# The soft shadows of the panels' boxes, as CSS's box-shadow draws them: name, the box's w, h and corner radius, the
+# shadow's blur, its drop and alpha. The image reaches blur + 2 past the shadow's box on every side and is clear under
+# the box itself.
+SHADOWS = {'panel_shadow': (319, 48, 12, 6, 2, 0x33), 'rate_shadow': (304, 110, 12, 6, 2, 0x33)}
+BLACK = 0
 @functools.cache
 def classic_light_font():
     """The theme face's source, opened once a build."""
@@ -441,33 +431,13 @@ def inked(w, h, layers):
 def outside(cov, box):
     return [c * (1 - b) for c, b in zip(cov, box)]
 @functools.lru_cache(maxsize=None)
-def shadow(bw, bh, r, blur, drop, alpha, ring):
-    """box-shadow: 0 drop blur black at alpha, under 0 0 0 1px black at ring; the image's first row is the shadow's less blur + 2."""
+def shadow(bw, bh, r, blur, drop, alpha):
+    """box-shadow: 0 drop blur black at alpha; the image's first row is the shadow's less blur + 2."""
     pad = blur + 2
     w, h = bw + 2 * pad, bh + 2 * pad
     box = rounded(w, h, pad, pad - drop, bw, bh, r)
     soft = blurred(rounded(w, h, pad, pad, bw, bh, r), w, h, blur / 2)
-    rim = outside(rounded(w, h, pad - 1, pad - drop - 1, bw + 2, bh + 2, r + 1), box)
-    return png(w, h, inked(w, h, [(rim, ring, BLACK), (outside(soft, box), alpha, BLACK)]))
-@functools.lru_cache(maxsize=None)
-def track_inset():
-    """The switch's 100 x 26, R 6 track: inset 0 2px 2px at 0xdd, inset 0 0 0 1px at 0x88, 0 1px white at 0x29 under it."""
-    w, h, r, p = 100, 26, 6, 3
-    open_ = [1 - c for c in rounded(w + 2 * p, h + 2 * p + 1, p, p + 2, w, h, r)]
-    soft = blurred(open_, w + 2 * p, h + 2 * p + 1, 1)
-    soft = [soft[(y + p) * (w + 2 * p) + x + p] for y in range(h + 1) for x in range(w)]
-    box = rounded(w, h + 1, 0, 0, w, h, r)
-    rim = [b * (1 - c) for b, c in zip(box, rounded(w, h + 1, 1, 1, w - 2, h - 2, r - 1))]
-    return png(w, h + 1, inked(w, h + 1, [([b * s for b, s in zip(box, soft)], 0xdd, BLACK), (rim, 0x88, BLACK),
-                                          (outside(rounded(w, h + 1, 0, 1, w, h, r), box), 0x29, WHITE)]))
-@functools.lru_cache(maxsize=None)
-def lit_edge():
-    """The lit cell's 50 x 26, R 6 edges, the image a pixel larger each way: inset 0 1px white at 0x73, inset 0 -1px at 0x59, 0 0 0 1px at 0x77."""
-    w, h = 52, 28
-    box = rounded(w, h, 1, 1, 50, 26, 6)
-    inner = lambda dy: [b * (1 - c) for b, c in zip(box, rounded(w, h, 1, 1 + dy, 50, 26, 6))]
-    return png(w, h, inked(w, h, [(inner(1), 0x73, WHITE), (inner(-1), 0x59, BLACK),
-                                  (outside(rounded(w, h, 0, 0, w, h, 7), box), 0x77, BLACK)]))
+    return png(w, h, inked(w, h, [(outside(soft, box), alpha, BLACK)]))
 def holed(d):
     """d's subpaths as one even-odd polygon: each joined from the first's start and back, those seams crossed twice."""
     subs = path(d)
@@ -600,16 +570,6 @@ def field():
     soft = [sum(a * at(across, x, y + i - 3) for i, a in enumerate(kernel)) / sum(kernel) for y in range(h) for x in range(w)]
     return compose(box, [([[(x, y + 1) for x, y in body]], lambda x, y: (0xffffff, 0x59 / 255)), ([body], lambda x, y: (0xffffff, 1)),
                          ([body], lambda x, y: (0, (1 - soft[int(y) * w + int(x)]) * 0x4d / 255)), ([ring], lambda x, y: (0, 0x2e / 255))])
-
-# The band's rim as images, as its corners bend it: inset 0 1px white at 0x59 along its top, 0 1px white at 0x1f under its
-# foot; a strip each of the corner's rows and the rim's, for the band's 322 x 46, R 8.
-@functools.lru_cache(maxsize=None)
-def band_rim():
-    w, h = 322, 47
-    box, down = rounded(w, h, 0, 0, w, 46, 8), rounded(w, h, 0, 1, w, 46, 8)
-    rgba = inked(w, h, [([b * (1 - d) for b, d in zip(box, down)], 0x59, WHITE), (outside(down, box), 0x1f, WHITE)])
-    return png(w, 9, rgba[:9 * 4 * w]), png(w, 9, rgba[(h - 9) * 4 * w:])
-
 
 # A coverage table per radius of the round boxes the painter draws a row at a time (navigation.c paint_round_rows): their
 # corners' pixels take the row's colour at this alpha, so they stay the scheme's.
@@ -757,10 +717,8 @@ def images(t):
         for half, rgb in SPEAKER_INKS.items():
             out |= {f'{prefix}_spk_quiet_{half}': speaker(False, rgb), f'{prefix}_spk_loud_{half}': speaker(True, rgb)}
     if t['painter[PAINT_PAGES]']:
-        out |= {f'{prefix}_sun_{name}': sun(*a) for name, a in SUNS.items()}
         out |= {f'{prefix}_msg_{name}_{half}': qs_mark(name, 1, rgb, MSG_BOX, MSG_SCALE) for name in ('usb', 'note') for half, rgb in MSG_INK.items()}
         out |= {f'{prefix}_{name}': shadow(*a) for name, a in SHADOWS.items()}
-        out |= {f'{prefix}_track_inset': track_inset(), f'{prefix}_lit_edge': lit_edge()}
         for name, (glyph, lit, opacity) in QS_BUTTONS.items():
             out |= {f'{prefix}_drop_{name}{k}': qs_mark(glyph, opacity, rgb) for k, rgb in QS_INK.items()}
         for name, (px, k) in QS_SUNS.items():
@@ -768,7 +726,6 @@ def images(t):
         out[f'{prefix}_clock_dark'] = png(CLOCK_DARK_PX, CLOCK_DARK_PX, clock_dark())
         out |= {f'{prefix}_{name}': kb_glyph(name) for name in KB_GLYPHS}
         out[f'{prefix}_field'] = png(FIELD_W, FIELD_H, field())
-        out[f'{prefix}_band_top'], out[f'{prefix}_band_foot'] = band_rim()
         for half, rgb in RATE_HEART_INKS.items():
             out |= {f'{prefix}_heart_on_{half}': rate_heart(True, rgb), f'{prefix}_heart_off_{half}': rate_heart(False, rgb)}
         out |= {f'{prefix}_tray_{w}': tray(w) for w in TRAY_WIDTHS}

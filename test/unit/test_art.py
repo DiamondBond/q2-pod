@@ -54,7 +54,7 @@ def test_classic_draws_its_images_and_the_others_none():
         assert set(art.images({**themes[0], **half})) == {'minimal_vol_lo', 'minimal_vol_hi'}
     full = art.images(themes[1])
     assert {k: v for k, v in full.items() if '_icon_' not in k} == classic()  # what the other tests draw
-    assert set(full) == {f'classic_light_{n}' for n in ('sort_bars', 'icon_note', 'icon_folder', 'icon_stack', 'icon_game', 'icon_wave', 'icon_gear', 'chevron', 'bolt', 'plug', 'note', 'play_l', 'play_d', 'pause_l', 'pause_d', 'vol_lo', 'vol_hi', *(f'spk_{v}_{h}' for v in ('quiet', 'loud') for h in 'ldw'), *(f'drop_{n}{k}' for n in QS_NAMES for k in QS_INKS), 'drop_dim', 'drop_dim_l', 'drop_bright', 'drop_bright_l', 'drop_bright_ql', 'drop_bright_qd', 'sun_small', 'sun_big', *(f'msg_{n}_{h}' for n in ('usb', 'note') for h in 'ld'), 'tray_108', 'tray_165', 'tray_164', 'cell_45', 'cell_60', 'cell_lit_45', 'cell_lit_60', 'tile', 'clock_chrome', 'clock_shadow', 'hint_shadow', 'clock_dark', 'kb_del', 'kb_shift', 'kb_back', 'field_glass', 'field', 'band_shadow', 'panel_shadow', 'rate_shadow', 'tray_shadow', 'confirm_shadow', 'track_inset', 'lit_edge', 'band_top', 'band_foot', 'heart_on_l', 'heart_on_d', 'heart_off_l', 'heart_off_d', 'station')}
+    assert set(full) == {f'classic_light_{n}' for n in ('sort_bars', 'icon_note', 'icon_folder', 'icon_stack', 'icon_game', 'icon_wave', 'icon_gear', 'chevron', 'bolt', 'plug', 'note', 'play_l', 'play_d', 'pause_l', 'pause_d', 'vol_lo', 'vol_hi', *(f'spk_{v}_{h}' for v in ('quiet', 'loud') for h in 'ldw'), *(f'drop_{n}{k}' for n in QS_NAMES for k in QS_INKS), 'drop_dim', 'drop_dim_l', 'drop_bright', 'drop_bright_l', 'drop_bright_ql', 'drop_bright_qd', *(f'msg_{n}_{h}' for n in ('usb', 'note') for h in 'ld'), 'tray_108', 'tray_165', 'tray_164', 'cell_45', 'cell_60', 'cell_lit_45', 'cell_lit_60', 'tile', 'clock_chrome', 'clock_shadow', 'hint_shadow', 'clock_dark', 'kb_del', 'kb_shift', 'kb_back', 'field_glass', 'field', 'panel_shadow', 'rate_shadow', 'confirm_shadow', 'heart_on_l', 'heart_on_d', 'heart_off_l', 'heart_off_d', 'station')}
 
 
 # The approved rendered rows, within 1 per channel: the fill down column 272 of the pause bars
@@ -99,9 +99,9 @@ def test_the_bolt_and_the_plug_fill_the_batterys_inside():
     assert plug(300 - x0, 10 - y0) == (0x3c, 0x4a, 0x34, 255) and plug(290 - x0, 11 - y0)[3] == 0
 
 
-def test_the_volume_and_slider_page_images():
+def test_the_volume_s_and_slider_pages_speakers():
     got = classic()
-    size = {'spk_quiet': (12, 14), 'spk_loud': (22, 14), 'sun_small': (16, 16), 'sun_big': (22, 22)}
+    size = {'spk_quiet': (12, 14), 'spk_loud': (22, 14)}
     for name, wh in size.items():
         for n in ([f'{name}_{h}' for h in 'ldw'] if name.startswith('spk') else [name]):
             w, h, at = pixels(got[f'classic_light_{n}'])
@@ -113,14 +113,6 @@ def test_the_volume_and_slider_page_images():
             w, h, at = pixels(got[f'classic_light_spk_{n}_{half}'])
             assert at(5, 7) == (*rgb, 255) and {at(x, y)[:3] for x in range(w) for y in range(h) if at(x, y)[3]} == {rgb}  # the cone; no other colour
             assert any(at(x, y)[3] for x in range(11, w) for y in range(h)) == (n == 'loud')  # only loud has arcs
-    for n in ('sun_small', 'sun_big'):
-        w, h, at = pixels(got[f'classic_light_{n}'])
-        assert {at(x, y)[:3] for x in range(w) for y in range(h) if at(x, y)[3]} == {(255, 255, 255)}
-    assert pixels(got['classic_light_sun_big'])[2](11, 11)[3] == 255 and pixels(got['classic_light_sun_small'])[2](8, 8)[3] == 255
-    for n, side in (('sun_small', 12), ('sun_big', 22)):  # the ink's bounding box, a quarter's alpha or more
-        w, h, at = pixels(got[f'classic_light_{n}'])
-        inked = [(x, y) for x in range(w) for y in range(h) if at(x, y)[3] >= 64]
-        assert max(p[0] for p in inked) - min(p[0] for p in inked) + 1 == side and max(p[1] for p in inked) - min(p[1] for p in inked) + 1 == side, n
 
 
 def test_the_confirm_shadow_falls_soft_and_black_under_the_tray():
@@ -152,20 +144,16 @@ def test_the_message_marks_are_the_glyphs_enlarged_in_the_halfs_ink():
 def test_the_soft_shadows_are_their_boxes_blurred():
     got = classic()
     tail = lambda d, sigma: .5 * math.erfc(d / (sigma * 2**.5))  # a straight edge's blur, d past it
-    for name, (bw, bh, blur, alpha) in {'band_shadow': (322, 46, 5, 0x66), 'panel_shadow': (319, 48, 6, 0x33), 'rate_shadow': (304, 110, 6, 0x33), 'tray_shadow': (125, 44, 6, 0x77)}.items():
+    for name, (bw, bh, blur, alpha) in {'panel_shadow': (319, 48, 6, 0x33), 'rate_shadow': (304, 110, 6, 0x33)}.items():
         w, h, at = pixels(got[f'classic_light_{name}'])
         pad = blur + 2
         assert (w, h) == (bw + 2 * pad, bh + 2 * pad)
         assert {at(x, y)[:3] for x in range(w) for y in range(h) if at(x, y)[3]} == {(0, 0, 0)}  # black in either half
         assert max(at(x, y)[3] for x in range(w) for y in (0, h - 1)) <= 1 and max(at(x, y)[3] for x in (0, w - 1) for y in range(h)) <= 1  # nothing cut at the image's edge
-        for y in range(pad + bh - 2 + (name == 'tray_shadow'), h):  # under the box's foot (its y offset is 2) and any ring, down the middle
+        for y in range(pad + bh - 2, h):  # under the box's foot (its y offset is 2), down the middle
             assert abs(at(w // 2, y)[3] - alpha * tail(y + .5 - pad - bh, blur / 2)) <= 1, (name, y)
         assert at(w // 2, pad + bh // 2)[3] == 0 and at(w // 2, pad + bh - 3)[3] == 0  # none under the box, as CSS clips it
         assert at(w // 2, pad - 4)[3] < at(w // 2, h - pad + 1)[3] and at(pad - 1, h // 2)[3] == at(w - pad, h // 2)[3]  # the foot darker than the head; the sides alike
-    # the tray's ring, over its shadow
-    w, h, at = pixels(got['classic_light_tray_shadow'])
-    under = 0x77 / 255 * tail(2.5, 3)
-    assert abs(at(w // 2, 8 - 2 - 1)[3] - 255 * (1 - (1 - 0x66 / 255) * (1 - under))) <= 1
 
 
 def test_blurred_spreads_a_point_by_its_kernel_and_carries_the_edges_on():
@@ -176,19 +164,6 @@ def test_blurred_spreads_a_point_by_its_kernel_and_carries_the_edges_on():
     assert art.blurred(point, 7, 5, 2) == [k[y + 4] * k[x + 2] for y in range(5) for x in range(7)]
     ends = art.blurred([1.0] + [0.0] * 11 + [1.0], 13, 1, 2)  # each end's value carried on past it, six taps a side
     assert abs(ends[0] - sum(k[:7])) < 1e-12 and abs(ends[12] - sum(k[6:])) < 1e-12 and abs(ends[6] - 2 * k[0]) < 1e-12
-
-
-def test_the_switch_edges():
-    got = classic()
-    w, h, at = pixels(got['classic_light_track_inset'])
-    assert (w, h) == (100, 27) and at(50, 13)[3] == 0
-    top = 0xdd / 255 * (1 - .5 * math.erfc(1.5 / 2**.5))
-    assert at(50, 0)[:3] == (0, 0, 0) and abs(at(50, 0)[3] - 255 * (1 - (1 - top) * (1 - 0x88 / 255))) <= 1  # the inset's blur over its 1 px ring
-    assert at(50, 26) == (255, 255, 255, 0x29) and at(0, 26)[3] == 0  # the light row under it, rounded
-    w, h, at = pixels(got['classic_light_lit_edge'])
-    assert (w, h) == (52, 28) and at(26, 14)[3] == 0
-    assert at(26, 0) == (0, 0, 0, 0x77) and at(26, 27) == (0, 0, 0, 0x77) and at(0, 14) == (0, 0, 0, 0x77)  # its ring
-    assert at(26, 1) == (255, 255, 255, 0x73) and at(26, 26) == (0, 0, 0, 0x59)  # its light top row, dark last
 
 
 def test_quick_settings_glyphs_are_flat_marks_on_clear():
@@ -443,17 +418,6 @@ def test_the_round_corners_cover_their_arcs():
         for y, x, drawn in ((y, x, v) for y in range(r) for x, v in enumerate(art.rounded(r, r, 0, 0, 2 * r, 2 * r, r)[y * r:(y + 1) * r])):
             assert abs(cover[y * r + x] - drawn * 255) <= 16, (r, x, y)  # the images' own corners, their sampling apart
     assert all(f'[{r}] = ' in art.corner_table() for r in art.CORNERS)
-
-
-def test_the_bands_rim_follows_its_corners():
-    got = classic()
-    w, h, top = pixels(got['classic_light_band_top'])
-    assert (w, h) == (322, 9)
-    assert top(100, 0) == (255, 255, 255, 0x59) and top(100, 1)[3] == 0  # inset 0 1px, white at 0x59, its own row
-    assert 0 < top(1, 3)[3] <= 0x59 and top(0, 0)[3] == 0 and top(320, 3) == top(1, 3)  # on the arc, mirrored
-    w, h, foot = pixels(got['classic_light_band_foot'])
-    assert (w, h) == (322, 9) and foot(100, 8) == (255, 255, 255, 0x1f) and foot(100, 7)[3] == 0  # 0 1px under the band, white at 0x1f
-    assert foot(0, 8)[3] == 0 and 0 < foot(1, 5)[3] <= 0x1f and foot(320, 5) == foot(1, 5)
 
 
 def test_the_rating_hearts_are_the_panels_size_and_ink():

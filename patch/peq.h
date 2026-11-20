@@ -690,6 +690,8 @@ void final_text(void *canvas, const char *face, const unsigned *s, const void *r
 unsigned bar_battery_key(void);
 int clock_minutes(void), bar_status(void);
 void slider_label(void *w, int x, int y, int ww, int h, int px, const char *face);
+#define PAGE_QUIET 0x98989d /* a quiet line on the half's paper, as page_label takes it */
+void page_label(void *w, int x, int y, int ww, int h, int px, const char *face, unsigned rgb);
 void text_ink(void *w, unsigned color, int n); /* a label's final 0xAARRGGBB, in either half */
 void slider_number(void *label), slider_tray_dirty(void *page),
     slider_centre_hint(void *page, int night);

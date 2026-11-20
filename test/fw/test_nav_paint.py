@@ -398,7 +398,7 @@ def test_a_card_app_s_other_files_keep_their_colours(fw, bitmaps):
 def test_classic_s_own_images_are_final(fw, bitmaps, light):
     theme(fw, CLASSIC, LIGHT=light)
     bm = bitmaps(fw, [[RED_PX, WHITE]])
-    image_add(fw, b'classic_light_band_top', bm)
+    image_add(fw, b'classic_light_chevron', bm)
     assert bm.rows() == [[RED_PX, WHITE]]
 
 
@@ -2665,63 +2665,65 @@ def on_page(world, w):
     return x + px_, y + py, ww, h
 
 
-@pytest.mark.parametrize('value', [0, 25, 100])
-def test_max_volume_s_triangle_points_at_the_fill_s_end(fw, world, st, value):
-    """Tip up, a row wider each row down, centred on the fill's end, inside the band."""
-    win, slider = slider_page(fw, world, st, SLIDER_MAX, value)
-    canvas = slider_paint(fw, win)
-    tip = sorted((y, x, w) for x, y, w, h, c in canvas.fills if h == 1 and c == 0xffffffff)
-    ys, widths = [y for y, _, _ in tip], [w for *_, w in tip]
-    assert len(ys) > 1 and ys == list(range(ys[0], ys[0] + len(ys)))  # rows one under another
-    assert widths == sorted(widths) and widths[0] < widths[-1]
-    x, _, w, _ = on_page(world, slider)
-    assert all(fx + fw_ / 2 == x + w * value // 100 for _, fx, fw_ in tip)
-    (top,), (foot,) = canvas.art('classic_light_band_top'), canvas.art('classic_light_band_foot')
-    assert top[1] <= ys[0] and ys[-1] < foot[1]
+def slider_scrub(fw, slider):
+    canvas = Canvas(fw)
+    fw.fn('slider_scrub', None, C.c_void_p, C.c_void_p)(slider, canvas.p)
+    return canvas
 
 
-@pytest.mark.parametrize('kind, ends', [(SLIDER_MAX, ('spk_quiet_w', 'spk_loud_w')), (SLIDER_BOOT, ('spk_quiet_w', 'spk_loud_w')),
-                                        (SLIDER_LIGHT, ('sun_small', 'sun_big')), (SLIDER_BALANCE, ())])
-def test_each_slider_page_s_band_has_its_ends(fw, world, st, kind, ends):
+@pytest.mark.parametrize('kind, ends', [(SLIDER_MAX, ('spk_quiet_w', 'spk_loud_d')), (SLIDER_BOOT, ('spk_quiet_w', 'spk_loud_d')),
+                                        (SLIDER_LIGHT, ('drop_dim', 'drop_bright_qd')), (SLIDER_BALANCE, ())])
+def test_each_slider_page_s_bar_has_its_marks(fw, world, st, kind, ends):
+    """In the bar's ends, the near one on the fill and the far one quiet (the dark half's, here); none on Balance.
+    The page under it draws no image."""
     win, slider = slider_page(fw, world, st, kind)
-    canvas = slider_paint(fw, win)
-    assert canvas.art('classic_light_band_top') and canvas.art('classic_light_band_foot')
-    drawn = [n for n, _ in canvas.arts if n and n.startswith(('classic_light_spk', 'classic_light_sun'))]
-    assert drawn == ['classic_light_' + e for e in ends]
+    canvas = slider_scrub(fw, slider)
+    assert [n for n, _ in canvas.arts] == ['classic_light_' + e for e in ends]
     if ends:
-        x, _, w, _ = on_page(world, slider)
-        (low,), (high,) = canvas.art('classic_light_' + ends[0]), canvas.art('classic_light_' + ends[1])
-        assert low[0] < x and high[0] >= x + w - 1  # outside the slider, either end
+        w = world.at(slider)[2]
+        (_, low), (_, high) = canvas.arts
+        assert 0 < low[0] < w / 2 < high[0] < w and min(low[1], high[1]) >= 17  # one in each end, on the bar's rows
+    assert slider_paint(fw, win).arts == []
 
 
-def test_a_slider_page_s_caption_has_its_shadow_a_pixel_under_it(fw, world, st):
-    win, _ = slider_page(fw, world, st, SLIDER_MAX)
+def test_a_slider_page_s_caption_is_a_quiet_line_that_turns_with_the_half(fw, world, st):
+    win, slider = slider_page(fw, world, st, SLIDER_MAX)
     canvas = slider_paint(fw, win)
     caption = named(world, win, 'caption')
-    x, y, w, h = world.at(caption)
     props = world[caption].props
-    (text, r, color, font), = canvas.texts
-    assert text == world[caption].text and r == (x, y + 1, w, h)
-    assert font == (props['style:normal:font_name'], props['style:normal:font_size'])  # in its face and size
-    assert color & 0xffffff == 0 and 0 < color >> 24 < 255  # black, faint
+    assert canvas.texts == [] and len(canvas.fills) == 1  # the page alone: no shadow, the caption its own widget
+    assert (props['style:normal:font_name'], props['_final_n']) == ('default', 0)  # not final: Light Mode's hook flips it
+    r, g, b = channels(rgb_of(props['style:normal:text_color'] & 0xffffffff))
+    assert max(r, g, b) - min(r, g, b) <= O['LIGHT_SPREAD'] and 0x60 < g < 0xc0  # a grey, which the hook flips
+    assert on_page(world, caption)[1] >= sum(on_page(world, slider)[1::2])  # under the slider
 
 
-def test_a_hidden_band_draws_no_band(fw, world, st):
+@pytest.mark.parametrize('light', ['0', '1'])
+def test_a_slider_page_is_the_half_s_paper(fw, world, st, light):
+    win, _ = slider_page(fw, world, st, SLIDER_LIGHT)
+    theme(fw, CLASSIC, LIGHT=light)
+    canvas = slider_paint(fw, win)
+    (x, y, w, h, c), = canvas.fills
+    assert (x, y, w) == (0, 0, 375) and rgb_of(c) in (0, 0xffffff) and canvas.fill == 0xff123456
+
+
+def test_a_hidden_band_draws_no_bar(fw, world, st):
+    """Stock hides the slider's view while Default Volume is off: the slider never paints, and the page has none of it."""
     win, _ = slider_page(fw, world, st, SLIDER_MAX, band=False)
     canvas = slider_paint(fw, win)
-    assert canvas.art('classic_light_band_top') == [] and not [f for f in canvas.fills if f[4] == 0xffffffff]
-    assert canvas.texts  # the caption still
+    assert canvas.arts == [] and len(canvas.fills) == 1 and world[named(world, win, 'caption')].visible  # the caption still
 
 
 def test_the_value_s_label_takes_the_page_s_number_box_once(fw, world, st):
     """Across the page, over the band; stock writes its text after the load, and its face is checked again."""
-    win, _ = slider_page(fw, world, st, SLIDER_BALANCE, number='')
+    win, slider = slider_page(fw, world, st, SLIDER_BALANCE, number='')
     label = named(world, win, 'label_balance')
     world.set_text(label, 'L 3')
-    canvas = slider_paint(fw, win)
+    slider_paint(fw, win)
     x, y, w, h = world.at(label)
-    (top,) = canvas.art('classic_light_band_top')
-    assert (x, w) == (0, world.at(win)[2]) and y + h <= top[1] and world[label].visible
+    _, sy, _, sh = on_page(world, slider)
+    assert (x, w) == (0, world.at(win)[2]) and y + h <= sy + (sh - 36) // 2 and world[label].visible  # over the bar
+    assert world[label].props['_final_n'] == 0  # its ink turns with the half
     moves = len(fw.calls('widget_move_resize'))
     slider_paint(fw, win)
     assert len(fw.calls('widget_move_resize')) == moves
@@ -2732,40 +2734,22 @@ def test_boot_volume_finds_its_switch(fw, world, st):
     switch = world.add(win, 'img_bootswitch', 'image', image='switch_on')
     canvas = slider_paint(fw, win)
     assert st('slider_sw', C.c_void_p).value == switch
-    assert canvas.art('classic_light_tray_shadow')  # its tray drawn, as the switch is shown
+    assert [t for t, *_ in canvas.texts] == ['Off', 'On'] and canvas.arts == []  # its two cells drawn, as the switch is shown
     world[switch].visible = 0
-    assert slider_paint(fw, win).art('classic_light_tray_shadow') == []
+    assert slider_paint(fw, win).texts == []
 
 
-def slider_scrub(fw, slider):
-    canvas = Canvas(fw)
-    fw.fn('slider_scrub', None, C.c_void_p, C.c_void_p)(slider, canvas.p)
-    return canvas
-
-
-def bar_rows(width):
-    """The slider's bar, w wide: its rows 31 to 38 of the slider's touch (slider_open's comment), the first and
-    last inset a pixel at each end (slider_scrub's)."""
-    return [(1, 31, width - 2)] + [(0, y, width) for y in range(32, 38)] + [(1, 38, width - 2)]
-
-
-@pytest.mark.parametrize('value', [50, 80])
-def test_the_slider_s_bar_is_a_track_and_its_lit_part(fw, world, st, value):
-    _, slider = slider_page(fw, world, st, SLIDER_LIGHT, value)
+@pytest.mark.parametrize('value', [0, 50, 100])
+def test_the_slider_s_bar_is_quick_settings_bar_on_its_own_rows(fw, world, st, value):
+    """The slider's width, 36 rows in the middle of its touch; its fill never less than its round end."""
+    _, slider = slider_page(fw, world, st, SLIDER_BALANCE, value)
     canvas = slider_scrub(fw, slider)
-    w = world.at(slider)[2]
-    part = w * value // 100
-    track = [f for f in canvas.fills if f[2] in (w, w - 2)]
-    lit = [f for f in canvas.fills if f[2] in (part, part - 2)]
-    assert [(x, y, fw_) for x, y, fw_, *_ in track] == bar_rows(w)
-    assert [(x, y, fw_) for x, y, fw_, *_ in lit] == bar_rows(part)  # the value's share, from the start
-    assert all(luma(rgb_of(l[4])) > luma(rgb_of(t[4])) for l, t in zip(lit, track))  # lit over the dark track
+    w, h = world.at(slider)[2:]
+    x, bw, rows = bar_of(canvas)
+    assert (x, bw) == (0, w) and len(rows) == 36 and 2 * min(rows) + 36 == h
+    lit = [f for f in canvas.fills if hued(f)]
+    assert max(f[0] + f[2] for f in lit) == 36 + (w - 36) * value // 100 and {f[1] for f in lit} == rows
     assert canvas.fill == 0xff123456
-
-
-def test_an_almost_empty_slider_has_no_lit_part(fw, world, st):
-    _, slider = slider_page(fw, world, st, SLIDER_LIGHT, 1)
-    assert len(slider_scrub(fw, slider).fills) == 8
 
 
 def test_another_slider_is_stock_s(fw, world, st):
@@ -3158,7 +3142,7 @@ def test_a_set_date_page_is_painted_as_the_time_form(fw, world, st):
     st('slider_win', C.c_void_p).value = win
     canvas = Canvas(fw)
     paint_bg(fw, win, canvas)
-    assert 'Save' in [t for t, *_ in canvas.texts] and canvas.art('classic_light_band_top') == []
+    assert 'Save' in [t for t, *_ in canvas.texts]
 
 
 # The theme's boot, at the system bar's load (application_init's first window).

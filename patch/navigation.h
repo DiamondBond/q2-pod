@@ -184,8 +184,7 @@ typedef struct {
     /* Classic (classic_pages): the rating panel, the slider page and its slider; the volume in the
      * time row's place. */
     void *rate_box, *slider_win, *slider_w, *slider_sw;
-    const __WCHAR_TYPE__ *slider_hint; /* its caption */
-    void *t9_page, *t9_back;           /* t9_box's page and chevron, while its box lives */
+    void *t9_page, *t9_back; /* t9_box's page and chevron, while its box lives */
     /* Classic's message screens (msg_open; classic_pages.c keeps the rest): USB's page and the
      * scan's dialog. usb_lun: USB Storage's card has read open (usb_poll). */
     void *usb_win, *msg_win;
@@ -442,6 +441,8 @@ int quick_dispatch(void *target, void *event);
 void quick_fill(void *w);
 void quick_page(void *win, void *canvas);
 unsigned quick_on(void); /* what is on under Classic, final: its buttons' and bars' fill */
+enum { BAR_PLAIN, BAR_SUNS, BAR_SPEAKERS }; /* flat_bar's marks */
+void flat_bar(void *w, void *canvas, const rect_t *r, int part, unsigned rest, int marks);
 void quick_scrub(void *w, void *canvas);
 void quick_poll(void);
 int quick_volume(void);

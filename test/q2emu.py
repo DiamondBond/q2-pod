@@ -2464,11 +2464,9 @@ def round_box(bands,x,y,w,h,R):  # a round box's fills at the head of bands: eac
         rows.append(bands[i][4]); i+=1
     return rows,bands[i:]
 def corner_in(R,row=0): return next((n for n in range(R) if corner_cover(R)[row*R+n]==255),R)  # where a corner's row turns opaque
-def triangle(m): return [b for b in m.bands if 1<b[2]<=10]  # Max Volume's, the only narrow rows; a corner's pixels are 1 wide
 def art_size(name): return struct.unpack('>II',(B/f'{name}.png').read_bytes()[16:24])
-def shadows(m): return [(t['text'],t['rect'],t['font'],t['color']) for t in m.letters]
-def slider_paint_calls(m):  # what slider_paint called: from the page's image to the caption's shadow
-    names=[c[0] for c in m.calls]; return set(names[names.index('widget_load_image'):len(names)-names[::-1].index('canvas_draw_text_in_rect')])
+def slider_paint_calls(m):  # what slider_paint called: from the page's fill to its restore of the fill colour, the hook's last
+    names=[c[0] for c in m.calls]; return set(names[names.index('canvas_fill_rect'):len(names)-names[::-1].index('canvas_set_fill_color')])
 
 def vol_closed(q):
     q.nodes[q.wm]['children']=[q.win]; q.top=q.win; q.calls=[]; q.advance(O['VOL_POLL_MS'])

@@ -94,7 +94,7 @@ def has(runs, text):
 
 
 PTRS = set('''msg_win bar_bt bar_wifi bar_pct bar_slot bar_icon bar_idle bar_state bar_eq bar_title np_win np_pos
-    np_album np_slider np_remain np_elapsed np_cover np_title np_slide np_lrc slider_win slider_w slider_sw slider_hint
+    np_album np_slider np_remain np_elapsed np_cover np_title np_slide np_lrc slider_win slider_w slider_sw
     t9_page t9_back kb_win search_win search_tabs pl_box stream_art stream_bar genre_label number_face'''.split())
 BYTES = {'slider_kind'}
 UNSIGNED = set('''codec_timer batt_key bar_timer np_hash np_art np_marquee np_remain_timer np_fit_timer np_press
@@ -2603,10 +2603,12 @@ def test_a_slider_page_takes_classics_shape_and_every_stock_name_still_finds_its
     assert view == (0, 0, 375, 320 - SETS[GEOM['Classic']].bar)  # the whole page under the bar
     slider, caption = ui.box(page.slider), page.caption(ui)
     assert within(slider, view) and within(ui.box(caption), view)
-    assert slider[1] + slider[3] <= ui.box(caption)[1] and ui.box(caption)[::2] == (0, 375)  # under it, centred across
+    cap = ui.box(caption)
+    assert slider[1] + slider[3] <= cap[1] and 2 * cap[0] + cap[2] == 375 == 2 * slider[0] + slider[2]  # under it, both centred
     assert {ui.ints[page.slider, f'style:{s}:icon'.encode()] for s in ('normal', 'pressed', 'over', 'disable', 'focused')} == {0}
     assert ui.text(caption) == read_wide(C.addressof(fw.var('navigation__slider_caption', C.c_uint)))
-    assert ui.prop(caption, b'style:normal:font_name') == b'classic-light'
+    assert ui.prop(caption, b'style:normal:font_name') == b'default'  # a quiet line, in stock's face
+    assert ui.ints[caption, b'_final_n'] == 0  # not final: Light Mode's hook turns it with the page
     assert (st.slider_win, st.slider_w, st.slider_kind) == (page.win, page.slider, list(SLIDERS).index(name))
 
 
@@ -2617,22 +2619,15 @@ def test_off_classic_a_slider_page_stays_stocks(fw, st, ui):
     assert all(ui.shown.get(w, 1) for w in page.hidden)
 
 
-def test_max_volumes_slider_sits_higher_and_its_triangle_repaints_past_it(fw, st, ui):
+def test_every_slider_page_has_its_slider_on_one_box_that_holds_its_bar(fw, st, ui):
     theme(fw, st, CLASSIC)
-    other = SliderPage(fw, ui, 'backlight_page')
-    assert ui.emit(other.slider, O['EVT_VALUE_CHANGING']) == []  # no triangle: the slider repaints itself
-    page = SliderPage(fw, ui, 'maxvol_page')
-    x, y, w, h = ui.box(page.slider)
-    ox, oy, ow, oh = ui.box(other.slider)
-    assert y < oy and (x, w, h) == (ox, ow, oh)  # the same slider, higher: its triangle under it
-    ui.dirty.clear()
-    for evt in (O['EVT_VALUE_CHANGING'], O['EVT_VALUE_CHANGED']):
-        assert ui.emit(page.slider, evt) == [0]
-    (w1, band), (w2, again) = ui.dirty_rects()
-    assert w1 == w2 == page.win and band == again
-    bx, by, bw, bh = band
-    assert bx < x and x + w < bx + bw and y <= by and by + bh <= y + h  # past the slider's ends, on its rows
-    assert within(band, ui.box(page.view))  # and still the page's
+    boxes = set()
+    for name in SLIDERS:
+        page = SliderPage(fw, ui, name)
+        boxes.add(ui.box(page.slider))
+        assert ui.emit(page.slider, O['EVT_VALUE_CHANGING']) == []  # the bar is inside it: the slider repaints itself
+    (x, y, w, h), = boxes
+    assert 2 * x + w == 375 and h > 36  # centred, its 36 px bar in a taller touch
 
 
 def test_balance_shows_its_number_and_l_and_r(fw, st, ui):
@@ -2641,10 +2636,10 @@ def test_balance_shows_its_number_and_l_and_r(fw, st, ui):
     nx, ny, nw, nh = ui.box(page.number)
     sx, sy, sw, sh = ui.box(page.slider)
     (lx, ly, lw, lh), (rx, ry, rw, rh) = [ui.box(w) for t in 'LR' for w in ui.kids[page.win] if ui.text(w) == t]
-    assert lx + lw <= sx and sx + sw <= rx  # either side of the slider
+    assert sx <= lx and rx + rw <= sx + sw  # over the bar's ends
     assert (ly, lw, lh) == (ry, rw, rh) and abs(2 * lx + lw + 2 * rx + rw - 2 * 375) <= 2  # mirrored about the middle
-    assert sy <= ly and ly + lh <= sy + sh  # on the slider's rows
-    assert (nx, nw) == (0, 375) and ny + nh <= ly  # centred across the screen, over the bar and its ends
+    assert ly + lh <= sy + (sh - 36) // 2  # above the bar, which is the slider's middle 36 rows
+    assert (nx, nw) == (0, 375) and ny <= ly and ly + lh <= ny + nh  # the number centred across the screen, L and R on its rows
     assert ui.prop(page.number, b'style:normal:font_name') == b'classic-light'
     ui.set_text(page.number, CJK)
     fw.fn('slider_number', None, C.c_void_p)(page.number)
@@ -2703,7 +2698,7 @@ def test_the_sliders_part_is_its_share_of_the_width(fw, ui, value, part):
 
 @pytest.mark.parametrize('image, on', [(b'switch_on', True), (b'switch_off', False), (b'', False)])
 def test_the_switch_lights_its_value_s_cell(fw, st, ui, image, on):
-    theme(fw, st, CLASSIC)
+    theme(fw, st, CLASSIC, 1)  # the light half, where the ink is not white
     page = SliderPage(fw, ui, 'bootvol_page')
     ui.set_str(page.switch, b'image', image)
     canvas = Canvas(fw)
@@ -2711,13 +2706,14 @@ def test_the_switch_lights_its_value_s_cell(fw, st, ui, image, on):
     off_cell, on_cell = [t[1] for t in canvas.texts]  # Off's label, then On's, each centred in its cell
     assert off_cell[0] + off_cell[2] <= on_cell[0] and off_cell[1] == on_cell[1]  # side by side, On on the right
     assert within(off_cell, ui.box(page.hit(ui))) and within(on_cell, ui.box(page.hit(ui)))  # in the tray
-    def lit(cell):  # the selection's rows, the cell's own width across
+    def lit(cell):  # rows in what is on (Classic Blue's blue), inside the cell
         x, y, w, h = cell
-        return any(r[0] == x and r[2] == w and r[3] == 1 and y <= r[1] < y + h for r in canvas.rects)
+        return any((r[4] >> 16 & 255) - (r[4] & 255) > 0x30 and r[3] == 1 and x <= r[0] and r[0] + r[2] <= x + w and y <= r[1] < y + h
+                   for r in canvas.rects)
     assert (lit(off_cell), lit(on_cell)) == (not on, on)
-    (_, (ex, _, _, _)), = [i for i in canvas.images if i[0] == b'classic_light_lit_edge']
-    assert abs(ex - (on_cell if on else off_cell)[0]) <= 1  # its lit edge with it
-    assert len({t[3] for t in canvas.texts}) == 1  # both labels in one ink
+    assert canvas.images == []  # flat: no edge, no shadow
+    off_ink, on_ink = [t[3] for t in canvas.texts]
+    assert off_ink != on_ink and (on_ink if on else off_ink) == 0xffffffff  # white on the cell that holds, the ink beside it
 
 
 @pytest.mark.parametrize('light', [0, 1])

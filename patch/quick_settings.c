@@ -241,33 +241,48 @@ void quick_page(void *win, void *canvas) {
     }
     stock_canvas_set_fill_color(canvas, fill);
 }
-/* ringnav_paint, after stock's slider, whose bar quick_fill cleared: the bar at rest, its fill in
- * what is on, never less than its own round end, and the suns in it, the small one on the fill and
- * the large one quiet until the fill reaches it; in the window's coordinates less the slider's. */
+/* A 36 px bar, flat: r at rest, its first part px in what is on, and its marks in its ends
+ * (BAR_SUNS, BAR_SPEAKERS, or none): the near one on the fill, white, or dark on a bright accent,
+ * and the far one quiet until the fill reaches it. */
+void flat_bar(void *w, void *canvas, const rect_t *r, int part, unsigned rest, int marks) {
+    unsigned on = quick_on();
+    int light = ipod_light(), dark = bright_tone(on), reached = part > r->w - r->h / 2;
+    rect_t f = { r->x, r->y, part, r->h };
+    stops_t under = { 2, { 0, 100 }, { rest, rest } }, lit = { 2, { 0, 100 }, { on, on } };
+    paint_round_rows(canvas, r, &under, 18);
+    paint_round_rows(canvas, &f, &lit, 18);
+    if (marks == BAR_SUNS) {
+        paint_art(w, canvas, dark ? "classic_light_drop_dim_l" : "classic_light_drop_dim", r->x + 6,
+                  r->y + 6);
+        paint_art(w, canvas,
+                  reached ? dark ? "classic_light_drop_bright_l" : "classic_light_drop_bright"
+                  : light ? "classic_light_drop_bright_ql"
+                          : "classic_light_drop_bright_qd",
+                  r->x + r->w - 33, r->y + 3);
+    } else if (marks == BAR_SPEAKERS) {
+        paint_art(w, canvas, dark ? "classic_light_spk_quiet_l" : "classic_light_spk_quiet_w",
+                  r->x + 12, r->y + 11);
+        paint_art(w, canvas,
+                  reached ? dark ? "classic_light_spk_loud_l" : "classic_light_spk_loud_w"
+                  : light ? "classic_light_spk_loud_l"
+                          : "classic_light_spk_loud_d",
+                  r->x + r->w - 34, r->y + 11);
+    }
+}
+/* ringnav_paint, after stock's slider, whose bar quick_fill cleared: the bar, its fill never less
+ * than its own round end, the suns in it; in the window's coordinates less the slider's. */
 void quick_scrub(void *w, void *canvas) {
     if (!classic_pages() || !quick_slider(w) || !P(canvas, CANVAS_LCD)) return;
-    unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR), on = quick_on();
+    unsigned fill = (unsigned)I(P(canvas, CANVAS_LCD), LCD_FILL_COLOR);
     void *view = P(w, W_PARENT);
-    int ox = -I(view, W_X) - I(w, W_X), oy = -I(view, W_Y) - I(w, W_Y), light = ipod_light();
+    int ox = -I(view, W_X) - I(w, W_X), oy = -I(view, W_Y) - I(w, W_Y);
     int min = widget_get_prop_int(w, "min", 0), max = widget_get_prop_int(w, "max", 100);
     int part = QS_BAR_H;
     if (max > min)
         part += (QS_BAR_W - QS_BAR_H) *
                 clamp_step(0, max - min, widget_get_prop_int(w, "value", 0) - min) / (max - min);
     rect_t r = { QS_BAR_X + ox, QS_BAR_Y + oy, QS_BAR_W, QS_BAR_H };
-    stops_t rest = { 2, { 0, 100 }, { qs_rest[light], qs_rest[light] } },
-            lit = { 2, { 0, 100 }, { on, on } };
-    int dark = bright_tone(on), reached = part > QS_BAR_W - QS_BAR_H / 2;
-    paint_round_rows(canvas, &r, &rest, 18);
-    r.w = part;
-    paint_round_rows(canvas, &r, &lit, 18);
-    paint_art(w, canvas, dark ? "classic_light_drop_dim_l" : "classic_light_drop_dim", r.x + 6,
-              r.y + 6);
-    paint_art(w, canvas,
-              reached ? dark ? "classic_light_drop_bright_l" : "classic_light_drop_bright"
-              : light ? "classic_light_drop_bright_ql"
-                      : "classic_light_drop_bright_qd",
-              r.x + QS_BAR_W - 33, r.y + 3);
+    flat_bar(w, canvas, &r, part, qs_rest[ipod_light()], BAR_SUNS);
     stock_canvas_set_fill_color(canvas, fill);
 }
 

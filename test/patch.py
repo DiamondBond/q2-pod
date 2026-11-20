@@ -2560,7 +2560,6 @@ def place(m,w,*g):
     for k,v in zip(('W_X','W_Y','W_W','W_H'),g): m.word(w+O[k],v)
 def bg(m,w): m.call(address=HOOKS['widget_on_paint_background'][0],args=(w,m.canvas,0,0),gap=0)
 def bare(m): m.bands=[]; m.letters=[]; m.rounded=[]; m.image_draws=[]; m.image_loads=[]; m.calls=[]
-CAPTION=('Press Centre When Finished',(0,229,375,32),('classic-light',31),0x59000000)
 def vol_np(light='1',remain=1,theme='1',**config):
     SETUP[:]=[lambda k:(k.config.update(THEME=theme,LIGHT=light,**config),k)]
     try: q=LoadQueue(queue=3,pos=1)
@@ -2748,48 +2747,42 @@ def slider_win(m,name,slider,view,label,ends,y=0,**kw):
     m.top=win; m.nodes[m.wm]={'children':[win]}; ui_loaded(m,name,win); return win,s,v,lab,nav,l,r,dec,add
 def slider_new(*a,light='1',**kw):
     m=LoadPlain(); m.config.update(THEME='1',LIGHT=light); return (m,*slider_win(m,*a,**kw))
-# A slider page under Classic (Brightness): flat page, band, suns; the track and fill on their 8 rows; 4 of 1..10.
+# A slider page under Classic (Brightness): the half's paper, and the bar on the slider's own rows 17 to 52, as Quick Settings': its round end and 3 of the 9 steps of the rest filled (4 of 1..10), the suns in its ends.
+def slider_bar(m,s):  # the slider's own paint, in its coordinates: its bands and its images
+    bare(m); m.call(address=HOOKS['widget_on_paint_border'][0],args=(s,m.canvas,0,0),gap=0); return m.bands,art_at(m)
 bk,bwin,bsl,bsl_view,blab,bnav,bl,br,bdec,badd=slider_new('backlight_page','slider_backlight','view_backlight','label_backlight',('img_left','img_right'),min=1,max=10,value=4)
-bare(bk); bg(bk,bwin); bandrows,rest=round_box(bk.bands[1:],28,129,322,46,8)
-assert page_fill(bk)
-assert art_at(bk)==[('classic_light_band_shadow',(21,124)),('classic_light_band_top',(28,129)),('classic_light_band_foot',(28,167)),('classic_light_sun_small',(48,144)),('classic_light_sun_big',(311,141))]
-assert not triangle(bk) and shadows(bk)==[CAPTION]  # no triangle here; the caption's shadow, behind its label
-assert bandrows[0]==color_t(0x6a707a) and bandrows[45]==color_t(0x181b21) and not rest  # its rim is the two images
+bare(bk); bg(bk,bwin)
+assert page_fill(bk,0,0xffffff) and len(bk.bands)==1 and not art_at(bk) and not bk.letters  # the page alone: no band, no image, no shadow
 assert bk.lcd_colors()==LCD_COLORS
-assert wbox(bk,bsl)==(81,117,204,70) and wbox(bk,bsl_view)==(0,0,375,294)
+assert wbox(bk,bsl)==(33,115,309,70) and wbox(bk,bsl_view)==(0,0,375,294)
 assert not any(bk.nodes[w]['visible'] for w in (bl,br,bdec,badd,blab)) and bk.nodes[bwin]['children'] and named(bk,bwin,'img_add')==badd  # kept by name
-cap=named(bk,bwin,'caption'); assert wbox(bk,cap)==(0,228,375,32) and bk.nodes[cap]['text']=='Press Centre When Finished' and bk.nodes[cap]['style:normal:font_size']==31 and bk.nodes[cap]['style:normal:font_name']=='classic-light'
-assert bk.nodes[cap]['style:normal:text_color']&0xffffffff==color_t(0)  # the light half's style hook flips it back to white
+cap=named(bk,bwin,'caption'); assert wbox(bk,cap)==(16,196,343,22) and bk.nodes[cap]['text']=='Press Centre When Finished' and bk.nodes[cap]['style:normal:font_size']==17 and bk.nodes[cap]['style:normal:font_name']=='default'
+assert bk.nodes[cap]['style:normal:text_color']&0xffffffff==color_t(0x98989d) and bk.nodes[cap]['_final_n']==0  # a quiet grey, not final: Light Mode's style hook turns it with the page
 assert all(bk.nodes[bsl][f'style:{s}:border_color']==0 and bk.nodes[bsl][f'style:{s}:icon']==0 for s in ('normal','pressed','over','disable','focused'))  # stock's slider draws its knob in this colour and the theme's icon over it, none with neither
-bk.bands=[]; bk.call(address=HOOKS['widget_on_paint_border'][0],args=(bsl,bk.canvas,0,0),gap=0); slider=bk.bands
-assert [b[:4] for b in slider[:8]]==[(1,31,202,1),*[(0,31+i,204,1) for i in range(1,7)],(1,38,202,1)]
-assert slider[0][4]==color_t(0x2f4052) and slider[7][4]==color_t(0x26333f) and slider[8][:4]==(1,31,66,1) and slider[8][4]==color_t(0xf7ffff) and slider[15][4]==color_t(0xc6cbcf)
-assert slider[9][2]==68 and bk.nodes[bsl_view]['visible']==1; passed()
+bands,arts=slider_bar(bk,bsl); track,rest=round_box(bands,0,17,309,36,18); fill,rest=round_box(rest,0,17,127,36,18)
+assert set(track)=={color_t(0xe9e9ec)} and set(fill)=={color_t(0x207cde)} and not rest and arts==[('classic_light_drop_dim',(6,23)),('classic_light_drop_bright_ql',(276,20))]
+assert bk.nodes[bsl_view]['visible']==1 and bk.lcd_colors()==LCD_COLORS; passed()
 # Minimal's and Modern's page stays stock's, where the load leaves it, but its slider is a plain one too: no knob.
 for th in ('0','2'):
     pm=LoadPlain(); pm.config.update(THEME=th); pwin,psl,*_=slider_win(pm,'backlight_page','slider_backlight','view_backlight','label_backlight',('img_left','img_right'),min=1,max=10,value=4)
     assert all(pm.nodes[psl][f'style:{s}:icon']==0 for s in ('normal','pressed','over','disable','focused'))
     assert wbox(pm,psl)==(31,60,313,70) and 'style:normal:border_color' not in pm.nodes[psl]; passed()
-bd,bdwin,*_=slider_new('backlight_page','slider_backlight','view_backlight','label_backlight',('img_left','img_right'),light='0',min=1,max=10,value=4); bare(bd); bg(bd,bdwin); assert shadows(bd)==[CAPTION] and page_fill(bd,0,0x1c1c1c); passed()  # black in the dark half too
+bd,bdwin,bdsl,*_=slider_new('backlight_page','slider_backlight','view_backlight','label_backlight',('img_left','img_right'),light='0',min=1,max=10,value=4); bare(bd); bg(bd,bdwin); assert page_fill(bd,0,0) and not bd.letters
+bands,arts=slider_bar(bd,bdsl); assert set(round_box(bands,0,17,309,36,18)[0])=={color_t(0x2c2c2e)} and arts[1][0]=='classic_light_drop_bright_qd'; passed()  # black in the dark half, the bar and its far sun the half's
 # ... paints from what it recorded: no string compare or widget look-up on its way.
 bare(bk); bg(bk,bwin); assert not {'widget_lookup','tk_strcmp'}&slider_paint_calls(bk); passed()
-bk.nodes[bsl]['min']=bk.nodes[bsl]['max']=5; bk.bands=[]; bk.call(address=HOOKS['widget_on_paint_border'][0],args=(bsl,bk.canvas,0,0),gap=0); assert len(bk.bands)==8; passed()  # max<=min: no fill
+bk.nodes[bsl]['min']=bk.nodes[bsl]['max']=5; bands,_=slider_bar(bk,bsl); assert not round_box(round_box(bands,0,17,309,36,18)[1],0,17,36,36,18)[1]; passed()  # max<=min: the round end alone
 # ... the page and its slider go with the window: nothing paints for them after it.
 f,ctx=next((f,c) for t,f,c in bk.nodes[bwin]['handlers'] if t==O['EVT_DESTROY']); bk.call(address=f,args=(ctx,bk.event,0,0),gap=0)
 bare(bk); bk.call(address=HOOKS['widget_on_paint_border'][0],args=(bsl,bk.canvas,0,0),gap=0); bg(bk,bwin); assert not bk.bands and not bk.image_draws; passed()
-# Max Volume at 50%: the bar high in the band, the triangle at the fill's end (window-local y); no other page draws one.
+# Max Volume at 50%: the same box as every page's, the speakers in the bar's ends, the far one the half's until the fill reaches it.
 mv,mwin,mv_slider,mv_view,mlab,_,_,_,_,_=slider_new('maxvol_page','slider_maxvol','view_maxvol','label_vol',('img_volleft','img_volright'),max=100,value=50)
-bare(mv); bg(mv,mwin); tri=[b for b in mv.bands if 155<=b[1]<=160 and b[2]<=10]
-assert wbox(mv,mv_slider)[1]==111 and [t[:2] for t in tri]==[(81+102-1,155),(81+102-1,156),(81+102-2,157),(81+102-3,158),(81+102-4,159),(81+102-5,160)]
-assert [t[2] for t in tri]==[2,2,4,6,8,10] and {t[4] for t in tri}=={color_t(0xffffff)} and [d[1][:2] for d in mv.image_draws]==[(21,124),(28,129),(28,167),(50,139),(311,139)] and mv.nodes[mlab]['visible']==0; passed()
-mv.nodes[mv_slider]['value']=0; bare(mv); bg(mv,mwin); assert [b[0] for b in mv.bands if 155<=b[1]<=160 and b[2]<=10][-1]==76; passed()  # it follows the value
-# ... past the slider's rect at its ends, so a step repaints the band, on a drag too: the triangle's whole reach is inside it.
-for kind in ('EVT_VALUE_CHANGING','EVT_VALUE_CHANGED'):
-    f,ctx=next((f,c) for t,f,c in mv.nodes[mv_slider]['handlers'] if t==O[kind]); mv.calls=[]; mv.call(address=f,args=(ctx,mv.event,0,0),gap=0)
-    assert dirty(mv,mwin)==[(28,129,322,46)]
-bx,by,bw,bh=dirty(mv,mwin)[0]
-for v in (0,100):
-    mv.nodes[mv_slider]['value']=v; bare(mv); bg(mv,mwin); assert len(triangle(mv))==6 and all(bx<=b[0] and b[0]+b[2]<=bx+bw and by<=b[1]<by+bh for b in triangle(mv))
+bare(mv); bg(mv,mwin); assert wbox(mv,mv_slider)==(33,115,309,70) and len(mv.bands)==1 and not mv.image_draws and mv.nodes[mlab]['visible']==0
+bands,arts=slider_bar(mv,mv_slider); _,rest=round_box(bands,0,17,309,36,18); _,rest=round_box(rest,0,17,36+273//2,36,18)
+assert not rest and arts==[('classic_light_spk_quiet_w',(12,28)),('classic_light_spk_loud_l',(275,28))]; passed()
+mv.nodes[mv_slider]['value']=100; bands,arts=slider_bar(mv,mv_slider); assert arts[1]==('classic_light_spk_loud_w',(275,28)); passed()  # the fill under it: white on it
+# ... the bar is inside the slider's rect, so a step repaints nothing else: no handler of the page's on it.
+assert not [h for h in mv.nodes[mv_slider].get('handlers',[]) if h[0] in (O['EVT_VALUE_CHANGING'],O['EVT_VALUE_CHANGED'])]
 passed()
 def boot_page(light='1',on=1,ctx=None):
     SETUP[:]=[lambda k:(k.config.update(THEME='1',LIGHT=light),k)]
@@ -2804,46 +2797,46 @@ def boot_page(light='1',on=1,ctx=None):
     if ctx is None: q.top=win; q.stack.append(win); return q
     assert q.call(address=payload_syms['xfade_open'],args=(ctx,q.event,0,0),gap=0)==0 and q.top==win
     return q
-# Default Volume: toolbar hidden, the title in the bar, the tray's hit dispatches stock's switch; off, no band.
+# Default Volume: toolbar hidden, the title in the bar, the switch's hit dispatches stock's switch; Off and On, two halves of one pill, the one that holds in what is on.
 dv=boot_page(); win=dv.win
 assert dv.nodes[dv.nav]['visible']==0 and dv.nodes[dv.nav]['enable']==0 and named(dv,win,'img_bootswitch')==dv.switch and dv.nodes[dv.vol]['visible']==0
 hit=named(dv,win,'switch_hit'); assert wbox(dv,hit)==(125,28,125,44)
 f,ctx=next((f,c) for t,f,c in dv.nodes[hit]['handlers'] if t==O['EVT_CLICK']); dv.clicks=[]; dv.calls=[]
 assert dv.call(address=f,args=(ctx,dv.event,0,0),gap=0)==0 and dv.clicks==[dv.switch] and [c[1] for c in dv.calls if c[0]=='widget_invalidate_force']==[win]
 bare(dv); bg(dv,win); rows=dv.bands
-assert art_at(dv)==[('classic_light_tray_shadow',(117,22)),('classic_light_track_inset',(138,37)),('classic_light_lit_edge',(187,36)),('classic_light_band_shadow',(21,124)),('classic_light_band_top',(28,129)),('classic_light_band_foot',(28,167)),('classic_light_spk_quiet_w',(50,145)),('classic_light_spk_loud_w',(311,145))]
-assert wbox(dv,dv.slider)==(81,117,204,70) and dv.nodes[dv.bar_title]['text']=='Default Volume' and not triangle(dv)
-tray,rest=round_box(rows[1:],125,28,125,44,9); assert tray[0]==color_t(0x6a707a) and tray[-1]==color_t(0x1b1f26)  # the tray
-track,rest=round_box(rest,138,37,100,26,6); assert track[0]==color_t(0x07090d)  # the track
-_,rest=round_box(rest,188,37,50,26,6); round_box(rest,28,129,322,46,8)  # On lit, in the scheme's band; the band
-assert [(t['text'],t['rect'],t['font']) for t in dv.letters[:2]]==[('Off',(138,37,50,26),('classic-light',21)),('On',(188,37,50,26),('classic-light',21))] and shadows(dv)[2:]==[CAPTION]; passed()
-dv.nodes[dv.switch]['image']='switch_off'; bare(dv); bg(dv,win); _,rest=round_box(dv.bands[1:],125,28,125,44,9); _,rest=round_box(rest,138,37,100,26,6); round_box(rest,138,37,50,26,6); assert ('classic_light_lit_edge',(137,36)) in art_at(dv); passed()  # Off lit
+assert not art_at(dv) and wbox(dv,dv.slider)==(33,115,309,70) and dv.nodes[dv.bar_title]['text']=='Default Volume'
+track,rest=round_box(rows[1:],128,32,120,36,18); assert set(track)=={color_t(0xe9e9ec)}  # the pill at rest
+cell,rest=round_box(rest,188,32,60,36,18); assert set(cell)=={color_t(0x207cde)} and not rest  # On holds
+assert [(t['text'],t['rect'],t['font'],t['color']) for t in dv.letters]==[('Off',(128,32,60,36),('classic-light',19),color_t(0x1c1c1e)),('On',(188,32,60,36),('classic-light',19),color_t(0xffffff))]
+assert slider_bar(dv,dv.slider)[1]==[('classic_light_spk_quiet_w',(12,28)),('classic_light_spk_loud_l',(275,28))]; passed()  # a volume: its speakers
+dv.nodes[dv.switch]['image']='switch_off'; bare(dv); bg(dv,win); _,rest=round_box(dv.bands[1:],128,32,120,36,18); cell,rest=round_box(rest,128,32,60,36,18); assert not rest and [t['color'] for t in dv.letters]==[color_t(0xffffff),color_t(0x1c1c1e)]; passed()  # Off holds
 bare(dv); bg(dv,win); assert not {'widget_lookup','tk_strcmp'}&slider_paint_calls(dv) and not [c for c in dv.calls if c[0]=='widget_lookup' and dv.text(c[2])=='img_bootswitch']; passed()  # the switch as found at the first paint: no look-up after it
 dv.nodes[dv.view]['visible']=0; bare(dv); bg(dv,win)
-assert not any(b[1]>=129 for b in dv.bands) and len(dv.image_draws)==3 and dv.nodes[named(dv,win,'caption')]['visible']==1 and shadows(dv)[2:]==[CAPTION]; passed()  # stock hid the view: the tray and caption
-dv.nodes[dv.switch]['visible']=0; bare(dv); dv.clicks=[]; bg(dv,win); assert shadows(dv)==[CAPTION] and dv.call(address=f,args=(ctx,dv.event,0,0),gap=0)==0 and not dv.clicks; passed()  # no switch, no tray, no hit
-# Balance and Crossfade: the number's box, L and R; Crossfade's switch; Wheel Sensitivity has none, its keys as today.
+assert len(dv.letters)==2 and not dv.image_draws and dv.nodes[named(dv,win,'caption')]['visible']==1; passed()  # stock hid the view: the switch and the caption stay; the bar is the slider's, which paints no more
+dv.nodes[dv.switch]['visible']=0; bare(dv); dv.clicks=[]; bg(dv,win); assert len(dv.bands)==1 and not dv.letters and dv.call(address=f,args=(ctx,dv.event,0,0),gap=0)==0 and not dv.clicks; passed()  # no switch, no pill, no hit
+# Balance and Crossfade: the number's box, L and R over the bar's ends; Crossfade's switch; Wheel Sensitivity has none, its keys as today.
 ba,bawin,bas,_,label_balance,_,_,_,_,_=slider_new('balance_page','slider_balance','view_balance','label_balance',('img_left','img_right'),min=-10,max=10,value=0)
 L,R=[next(c for c in ba.nodes[bawin]['children'] if ba.nodes[c].get('text')==t) for t in 'LR']
-BAND_ART=[('classic_light_band_shadow',(21,124)),('classic_light_band_top',(28,129)),('classic_light_band_foot',(28,167))]
 assert wbox(ba,label_balance)==(0,85,375,34) and ba.nodes[label_balance]['visible']==1 and ba.nodes[label_balance]['style:normal:font_size']==32 and ba.nodes[label_balance]['style:normal:font_name']=='classic-light'
-assert wbox(ba,L)==(50,139,20,26) and wbox(ba,R)==(306,139,20,26) and ba.nodes[L]['style:normal:font_size']==24==ba.nodes[R]['style:normal:font_size'] and wbox(ba,bas)==(81,117,204,70)
-bare(ba); bg(ba,bawin); assert art_at(ba)==BAND_ART and not triangle(ba); passed()
+assert ba.nodes[label_balance]['_final_n']==0 and ba.nodes[label_balance]['style:normal:text_color']&0xffffffff==color_t(0xffffff)  # white, which the light half turns to its ink
+assert wbox(ba,L)==(37,89,20,26) and wbox(ba,R)==(318,89,20,26) and ba.nodes[L]['style:normal:font_size']==21==ba.nodes[R]['style:normal:font_size'] and wbox(ba,bas)==(33,115,309,70)
+bands,arts=slider_bar(ba,bas); _,rest=round_box(bands,0,17,309,36,18); _,rest=round_box(rest,0,17,36+273//2,36,18); assert not rest and not arts; passed()  # the middle of its range; no marks
 # ... the text stock writes after the load picks the number's face at the next paint, and a paint that changes nothing writes nothing.
 for bn_text,bn_face,bn_px in (('Баланс','bold',27),('平衡','default',27),('L 3','classic-light',32)):
     ba.nodes[label_balance]['text']=bn_text; bare(ba); bg(ba,bawin); assert (ba.nodes[label_balance]['style:normal:font_name'],ba.nodes[label_balance]['style:normal:font_size'])==(bn_face,bn_px),bn_text
     bare(ba); bg(ba,bawin); assert not [c for c in ba.calls if c[0]=='widget_set_prop_str' and c[1]==label_balance]
 passed()
 xf0=boot_page(ctx=0); assert xf0.nodes[xf0.switch]['visible']==1 and xf0.nodes[xf0.vol]['visible']==1 and wbox(xf0,xf0.vol)==(0,85,375,34) and xf0.nodes[xf0.view]['visible']==1
-cap0=named(xf0,xf0.win,'caption'); assert xf0.nodes[cap0]['text']=='Press Centre to Turn On or Off'; bare(xf0); bg(xf0,xf0.win); assert shadows(xf0)[-1][0]=='Press Centre to Turn On or Off' and shadows(xf0)[-1][1:]==CAPTION[1:]
-bare(xf0); bg(xf0,xf0.win); assert xf0.nodes[xf0.bar_title]['text']=='Crossfade' and len(xf0.image_draws)==6 and [t['text'] for t in xf0.letters[:2]]==['Off','On'] and any(b[1]==129 for b in xf0.bands) and not triangle(xf0)  # no ends
+cap0=named(xf0,xf0.win,'caption'); assert xf0.nodes[cap0]['text']=='Press Centre to Turn On or Off'
+bare(xf0); bg(xf0,xf0.win); assert xf0.nodes[xf0.bar_title]['text']=='Crossfade' and not xf0.image_draws and [t['text'] for t in xf0.letters]==['Off','On']
+bands,arts=slider_bar(xf0,xf0.slider); assert bands and not arts  # its bar, with no ends
 hit=named(xf0,xf0.win,'switch_hit'); f,ctx=next((f,c) for t,f,c in xf0.nodes[hit]['handlers'] if t==O['EVT_CLICK']); xf0.clicks=[]
 assert xf0.call(address=f,args=(ctx,xf0.event,0,0),gap=0)==0 and xf0.clicks==[xf0.switch]; passed()
-xf0.calls=[]; assert xf0.call(O['KEY_NEXT'])==11 and dirty(xf0,xf0.win)==[(125,28,125,44)]; passed()  # the wheel can turn it on: the tray repaints, and only it
-ns=boot_page(ctx=3); assert ns.nodes[named(ns,ns.win,'caption')]['text']=='Press Centre to Change Mode'; bare(ns); bg(ns,ns.win); assert shadows(ns)[-1][0]=='Press Centre to Change Mode'; passed()  # Centre cycles here
+xf0.calls=[]; assert xf0.call(O['KEY_NEXT'])==11 and dirty(xf0,xf0.win)==[(125,28,125,44)]; passed()  # the wheel can turn it on: the switch repaints, and only it
+ns=boot_page(ctx=3); assert ns.nodes[named(ns,ns.win,'caption')]['text']=='Press Centre to Change Mode'; passed()  # Centre cycles here
 wheel=boot_page(ctx=1); wsw=wheel.switch; assert wheel.nodes[wheel.title]['text']=='Wheel Sensitivity' and not wheel.nodes[wsw]['visible'] and wheel.nodes[wheel.vol]['visible']==1 and wheel.nodes[wheel.vol]['text']=='50%'
-bare(wheel); bg(wheel,wheel.win); assert art_at(wheel)==BAND_ART and shadows(wheel)==[CAPTION] and not triangle(wheel)
-wheel.calls=[]; assert wheel.call(O['KEY_NEXT'])==11 and [c for c in wheel.calls if c[0]=='write_int_config'] and not dirty(wheel,wheel.win); passed()  # no tray
+bare(wheel); bg(wheel,wheel.win); assert len(wheel.bands)==1 and not wheel.letters and not art_at(wheel)  # no switch
+wheel.calls=[]; assert wheel.call(O['KEY_NEXT'])==11 and [c for c in wheel.calls if c[0]=='write_int_config'] and not dirty(wheel,wheel.win); passed()  # no switch to repaint
 # Classic's bar with a slider page under it. The slider pages and Set Time once had a dark bar of their own; the bar over them is the one every page has.
 def bar_setup(light='1',state=0,name='Balance'):
     db=LoadPlain(); db.config.update(THEME='1',LIGHT=light); classic_light_boot(db)
@@ -3012,8 +3005,8 @@ for theme_ in '0':
     tm=time_form(0,theme_=theme_); assert tm.confirm()==11 and tm_field(tm)==1 and [tm.call(O['KEY_FWD_BTN']) for _ in range(9)] and tm_field(tm)==5
 passed()
 # A label's box holds its font, and nothing crosses the glass: every rect above.
-RECTS=[(44,247,12,14),(318,247,22,14),(63,245,248,31),(68,271,243,17),(52,273,12,14),(317,273,22,14),(28,155,322,46),(36,201,306,1),(81,168,204,8),(81,174,204,8),(50,165,12,14),(311,165,22,14),(50,171,12,14),(311,171,22,14),(48,170,16,16),(311,167,22,22),(50,166,20,26),(306,166,20,26),
-       (125,54,125,44),(138,63,100,26),(278,7,10,11),(294,7,26,13),(320,11,2,5),(76,181,10,6),(280,181,10,6)]
+RECTS=[(44,247,12,14),(318,247,22,14),(63,245,248,31),(68,271,243,17),(52,273,12,14),(317,273,22,14),(33,158,309,36),(39,164,24,24),(309,161,30,30),(45,169,12,14),(308,169,22,14),(37,115,20,26),(318,115,20,26),
+       (128,58,120,36),(16,222,343,22),(278,7,10,11),(294,7,26,13),(320,11,2,5)]
 for x,y,w,h in RECTS: assert corner_inset(y)<=x and corner_inset(y+h-1)<=x and x+w<=375-max(corner_inset(y),corner_inset(y+h-1)),(x,y,w,h)
 for m_,w_ in ((bk,cap),(ba,label_balance),(ba,L),(ba,R),(xf0,xf0.vol)): assert wbox(m_,w_)[3]>=m_.nodes[w_]['style:normal:font_size']  # a label draws nothing in a shorter box
 assert all(t['rect'][3]>=t['font'][1] for m_ in (bk,dv,wheel) for t in m_.letters)
@@ -3022,8 +3015,8 @@ for m_,dy in ((dv,26),(vp,0)):  # the images on the screen; the soft shadows' fa
     for name,(x,y) in art_at(m_):
         w,h=art_size(name); assert name=='classic_light_slider_page' or (x>=0 and y+dy>=0 and x+w<=375 and y+dy+h<=320),name
 assert math.hypot(80-(28-1+13),256-1+50-13-240)+13<=80 and math.hypot(80-(35-1+13),118-1+112-13-240)<=80  # the panel's corners, its ring and R 12 in them
-cf=TTFont(CLASSIC_LIGHT_FONT_SRC,lazy=True); cs=31/(cf['hhea'].ascent-cf['hhea'].descent)
-for hint in ('Press Centre When Finished','Press Centre to Turn On or Off','Press Centre to Change Mode'): assert sum(cf['hmtx'][cf.getBestCmap()[ord(c)]][0] for c in hint)*cs<=375-2*corner_inset(256+22),hint  # the caption's ink, centred
+cf=TTFont(B/'default.ttf',lazy=True); cs=17/(cf['hhea'].ascent-cf['hhea'].descent)
+for hint in ('Press Centre When Finished','Press Centre to Turn On or Off','Press Centre to Change Mode'): assert sum(cf['hmtx'][cf.getBestCmap()[ord(c)]][0] for c in hint)*cs<=343,hint  # the caption's ink, in its box
 passed()
 # Minimal: every slider page and the volume exactly as today: no images, no band, no moved widget, the toolbar kept.
 for theme_ in '0':

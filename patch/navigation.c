@@ -4592,12 +4592,6 @@ void slider_tray_dirty(void *page) {
     rect_t tray = { 125, 28, 125, 44 };
     if (page && page == st.slider_win) widget_invalidate_force(page, &tray);
 }
-/* Max Volume's triangle moves past the slider's rect, inside the band. */
-static int slider_moved(void *win, void *event) {
-    rect_t band = { 28, 129, 322, 46 };
-    widget_invalidate_force(win, &band);
-    return 0;
-}
 /* The switch's parent is hidden, so it can't be hit: this does it, for stock's or crossfade.c's
  * handler. */
 static int slider_switch_hit(void *win, void *event) {
@@ -4647,6 +4641,13 @@ void slider_label(void *w, int x, int y, int ww, int h, int px, const char *face
     widget_set_prop_str(w, "style:normal:text_align_h", "center");
     text_ink(w, 0xffffffffu, INK_LABEL);
 }
+/* ... on a page that is the half's paper: its ink the dark half's 0xRRGGBB, a grey, no longer
+ * final, so Light Mode's style hook turns it with the page. */
+void page_label(void *w, int x, int y, int ww, int h, int px, const char *face, unsigned rgb) {
+    slider_label(w, x, y, ww, h, px, face);
+    widget_set_prop_int(w, "_final_n", 0);
+    widget_set_prop_int(w, "style:normal:text_color", (int)(0xff000000u | (RGBA(rgb) & 0xffffffu)));
+}
 /* The value's label, on the pages that show one, in the face its text has. Shared with crossfade.c.
  */
 const char *number_face(void *label, int *px) {
@@ -4659,7 +4660,7 @@ void slider_number(void *label) {
     int px;
     widget_set_visible(label, 1, 0);
     st.number_face = number_face(label, &px);
-    slider_label(label, 0, 85, 375, 34, px, st.number_face);
+    page_label(label, 0, 85, 375, 34, px, st.number_face, 0xffffff);
 }
 /* Stock's window as it loads, before its init. Every look-up it makes by name still finds its
  * widget: edit_key clicks img_dec and img_add, hidden here. */
@@ -4668,8 +4669,8 @@ static const __WCHAR_TYPE__ slider_caption[] = L"Press Centre When Finished";
 void slider_centre_hint(void *page, int night) {
     void *c = page && page == st.slider_win ? widget_lookup(page, "caption", 1) : (void *)0;
     if (!c) return;
-    st.slider_hint = night ? L"Press Centre to Change Mode" : L"Press Centre to Turn On or Off";
-    widget_set_text(c, (const unsigned *)st.slider_hint);
+    widget_set_text(c, (const unsigned *)(night ? L"Press Centre to Change Mode"
+                                                : L"Press Centre to Turn On or Off"));
 }
 static void slider_open(void *win) {
     static const char *const sliders[] = { "slider_backlight", "slider_maxvol", "slider_balance",
@@ -4689,10 +4690,8 @@ static void slider_open(void *win) {
     --kind;
     for (unsigned i = 0; i < sizeof hide / sizeof *hide; ++i)
         if ((c = widget_lookup(win, hide[i], 1))) widget_set_visible(c, 0, 0);
-    int maxvol = kind == SLIDER_MAX;
     widget_move_resize(P(s, W_PARENT), 0, 0, 375, 294);
-    widget_move_resize(s, 81, maxvol ? 111 : 117, 204,
-                       70); /* its bar's rows 31..38 of a wide touch */
+    widget_move_resize(s, 33, 115, 309, 70); /* its bar's rows 17..52 of a taller touch */
     /* stock's slider fills its knob in this colour, then draws the theme's icon on it, and has no
      * knob with neither (slider_knobless) */
     for (unsigned i = 0; i < sizeof states / sizeof *states; ++i)
@@ -4701,24 +4700,20 @@ static void slider_open(void *win) {
     st.slider_w = s;
     st.slider_kind = (unsigned char)kind;
     st.slider_sw = (void *)0; /* stock's init makes it, after this: slider_paint finds it */
-    st.slider_hint = slider_caption;
     widget_on(win, EVT_DESTROY, slider_gone, win);
-    if (maxvol) { /* the triangle reaches past the slider's rect */
-        widget_on(s, EVT_VALUE_CHANGING, slider_moved, win);
-        widget_on(s, EVT_VALUE_CHANGED, slider_moved, win);
-    }
-    c = text(win, 0, 228, 375, 32);
+    c = text(win, 16, 196, 343, 22);
     widget_set_name(c, "caption");
     widget_set_text(c, (const unsigned *)slider_caption);
-    slider_label(c, 0, 228, 375, 32, 31, "classic-light");
+    page_label(c, 16, 196, 343, 22, 17, "default", PAGE_QUIET);
+    /* the number, with L and R over the bar's ends */
     if ((c = widget_lookup(win, "label_balance", 1))) {
         slider_number(c);
-        c = text(win, 50, 139, 20, 26);
+        c = text(win, 37, 89, 20, 26);
         widget_set_text_utf8(c, "L");
-        slider_label(c, 50, 139, 20, 26, 24, "classic-light");
-        c = text(win, 306, 139, 20, 26);
+        page_label(c, 37, 89, 20, 26, 21, "classic-light", PAGE_QUIET);
+        c = text(win, 318, 89, 20, 26);
         widget_set_text_utf8(c, "R");
-        slider_label(c, 306, 139, 20, 26, 24, "classic-light");
+        page_label(c, 318, 89, 20, 26, 21, "classic-light", PAGE_QUIET);
     }
     if (kind != SLIDER_BOOT) return;
     /* the toolbar stays for img_bootswitch (tools/ipod.py TOOLBAR_SWITCHES); the bar has the title
@@ -4731,24 +4726,6 @@ static void slider_open(void *win) {
     widget_set_name(c, "switch_hit");
     widget_set_prop_str(c, "clickable", "true");
     widget_on(c, EVT_CLICK, slider_switch_hit, win);
-}
-/* The Off and On tray on its shadow, the recessed track, the lit cell in the scheme's selection. */
-void slider_switch(void *w, void *canvas, void *sw) {
-    static const unsigned off[] = { 'O', 'f', 'f' }, on[] = { 'O', 'n' };
-    rect_t tray = { 125, 28, 125, 44 }, track = { 138, 37, 100, 26 };
-    rect_t left = { 138, 37, 50, 26 }, right = { 188, 37, 50, 26 };
-    const char *image = widget_get_prop_str(sw, "image", "");
-    /* stock's two names, switch_on and switch_off, first differ at [8] */
-    const rect_t *cell = image[0] && image[8] == 'n' ? &right : &left;
-    unsigned white = RGBA(flip_if(ipod_light(), 0xffffff));
-    paint_art(w, canvas, "classic_light_tray_shadow", 117, 22);
-    paint_round_rows(canvas, &tray, &confirm_tray, 9);
-    paint_round_rows(canvas, &track, &confirm_well, 6);
-    paint_art(w, canvas, "classic_light_track_inset", 138, 37);
-    paint_round_rows(canvas, cell, &scheme()->sel, 6);
-    paint_art(w, canvas, "classic_light_lit_edge", cell->x - 1, 36);
-    draw_centred(canvas, off, 3, &left, 21, white);
-    draw_centred(canvas, on, 2, &right, 21, white);
 }
 /* The page at (0, y, 375, 294): flat in the half's Home pane colour (theme home_pane), final. */
 void paint_page(void *w, void *canvas, int y) {
