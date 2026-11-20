@@ -12727,3 +12727,207 @@ m.call(address=f,args=(ctx,m.event,0,0),gap=0); m.page=m.top; m.view=m.find('scr
 m.choose(0); assert m.showlabels()[0]=='Search' and m.nodes[m.nodes[m.page]['children'][0]]['text']=='Add Songs'
 assert any(c[0]=='hscroll_label_set_only_focus' for c in m.calls); passed()
 print(f'{q2emu.checks} MIPS execution scenarios passed; toolkit services mocked, stock lock filter executed.')
+
+# patch/btmeta.c: Bluetooth off: nothing read, no thread. On: the record from g_play_id3_info
+# and the play time, written whole and renamed on tmpfs; a second pass with the same state makes no new
+# record; a changed title or play status does; a position jump (a seek) does with the same key.
+m=Machine(); m.call(address=payload_syms['btmeta_poll'],args=(0,0,0,0),gap=0)
+assert not any(c[0] in ('pthread_create@GLIBC_2.2','mclGetPlayStatus','open@GLIBC_2.0') for c in m.calls)
+# The base machine has no filesystem provenance. Fail at the import boundary,
+# rather than executing the stock dynamic-link stub or pretending its /tmp is RAM.
+m=Machine(); m.byte(syms['g_bluetoothflag'],1)
+m.call(address=payload_syms['btmeta_poll'],args=(0,0,0,0),gap=0)
+assert any(c[0]=='statfs@GLIBC_2.0' for c in m.calls)
+assert not any(c[0] in ('open@GLIBC_2.0','pthread_create@GLIBC_2.2') for c in m.calls)
+class MetaMachine(Machine):
+    def __init__(self):
+        super().__init__(); self.absolute_ms=9000123; self.clock_error=0; self.status=2; self.sec=10; self.total=240
+        self.mock('clock_gettime@GLIBC_2.2')
+        self.mock('open@GLIBC_2.0','write@GLIBC_2.0','close@GLIBC_2.0','rename@GLIBC_2.0','unlink@GLIBC_2.0','statfs@GLIBC_2.0')
+        self.pending=b''; self.current=b''; self.fs_error=0; self.fs_type=0x01021994
+        self.handlers[syms['mclGetPlayStatus']]='bm:status'; self.handlers[syms['mclGetPlayTime']]='bm:time'
+        self.handlers[syms['player_playtime_and_length']]='bm:time'
+        self.handlers[syms['mclGetPlayPos']]='bm:pos'
+    def hook(self,u,address,size,unused):
+        name=self.handlers.get(address,'')
+        if name.startswith(('open@','write@','close@','rename@','unlink@','statfs@')):
+            a,b,c=(u.reg_read(r) for r in REGS[:3]); self.calls.append((name,a,b,c))
+            if name.startswith('open@'): self.pending=b''; self.returns(42)
+            elif name.startswith('write@'): self.pending=bytes(u.mem_read(b,c)); self.returns(c)
+            elif name.startswith('rename@'): self.current=self.pending; self.returns(0)
+            elif name.startswith('statfs@'):
+                if not self.fs_error: self.word(b,self.fs_type)
+                self.returns(self.fs_error)
+            else: self.returns(0)
+            return
+        if name.startswith('clock_gettime'):
+            assert u.reg_read(REGS[0])==1
+            if not self.clock_error:
+                self.word(u.reg_read(REGS[1]),self.absolute_ms//1000); self.word(u.reg_read(REGS[1])+4,(self.absolute_ms%1000)*1000000)
+            self.returns(self.clock_error); return
+        if name=='bm:status': self.returns(self.status); return
+        if name=='bm:pos': self.returns(-1); return
+        if name=='bm:time':
+            self.word(u.reg_read(REGS[0]),self.sec); self.word(u.reg_read(REGS[1]),self.total); self.returns(0); return
+        return super().hook(u,address,size,unused)
+    def poll(self,gap=300): return self.call(address=payload_syms['btmeta_poll'],args=(0,0,0,0),gap=gap)
+    def record(self): return self.current.decode()
+for error,kind in ((-1,0x01021994),(0,0xef53)):
+    m=MetaMachine(); m.byte(syms['g_bluetoothflag'],1); m.fs_error=error; m.fs_type=kind
+    m.poll(); assert not m.current and not any(c[0]=='open@GLIBC_2.0' for c in m.calls)
+    m.fs_error=0; m.fs_type=0x01021994; m.poll()
+    assert 'gen=1\n' in m.record()  # the failed RAM check must leave publication pending
+passed()
+m=MetaMachine(); m.byte(syms['g_bluetoothflag'],1)
+m.u.mem_write(0xa5520c+0x684,b'Song One\0'); m.u.mem_write(0xa5520c+0x504,b'Band\0'); m.u.mem_write(0xa5520c+0x404,b'LP\0')
+m.poll(); names=[c[0] for c in m.calls]
+assert 'pthread_create@GLIBC_2.2' not in names and 'open@GLIBC_2.0' in names and 'rename@GLIBC_2.0' in names and 'fopen@GLIBC_2.2' not in names
+rec=m.record(); assert rec.startswith('v=1\nstatus=Playing\ntitle=Song One\nartist=Band\nalbum=LP\n') and 'duration=240000\n' in rec and 'position=10000\ngen=1\n' in rec,rec
+m.sec=11; m.poll(); assert 'gen=1\n' in m.record() and not any(c[0]=='pthread_create@GLIBC_2.2' for c in m.calls)  # a second on, as expected: no new record
+m.sec=90; m.poll(); assert 'position=90000\ngen=2\n' in m.record()  # a seek
+m.status=3; m.poll(); assert 'status=Paused\n' in m.record() and 'gen=3\n' in m.record()
+m.u.mem_write(0xa5520c+0x684,b'\0'); m.poll(); rec=m.record()
+assert 'title=\n' in rec and 'gen=4\n' in rec,rec[:200]  # an empty title: the file name, as stock sends it (none here: an empty queue)
+# A cut falls on a UTF-8 boundary (198 'A' then a three-byte euro: the euro is dropped whole), and
+# the longest fields still give a whole record with its generation and position lines.
+m.u.mem_write(0xa5520c+0x684,b'A'*198+'\u20ac'.encode()+b'\0'); m.poll(); rec=m.record()
+assert 'title='+'A'*198+'\nartist=' in rec and '\xe2' not in rec and 'gen=5\n' in rec,rec[:40]
+for off,n in ((0x684,199),(0x504,199),(0x404,199),(0x604,127)): m.u.mem_write(0xa5520c+off,b'Z'*n+b'\0')
+m.poll(); rec=m.record(); assert rec.endswith('position=90000\ngen=6\n') and len(rec)>800,(len(rec),rec[-60:])  # 18+205+207+206+134 bytes of fields, then the numbers
+passed()
+
+# The wire clock differs from toolkit-relative time; wrap and clock failure do not invent stamps.
+m=MetaMachine(); m.byte(syms['g_bluetoothflag'],1); m.poll()
+assert 'now=9000123\n' in m.record(),m.record()
+m.absolute_ms=(1<<32)+1234; m.sec=99; m.poll()
+assert 'now=1234\n' in m.record(),m.record()
+was=m.record(); m.clock_error=-1; m.sec=150; m.poll(); assert m.record()==was
+m.clock_error=0; m.poll(); assert 'position=150000\n' in m.record()
+passed()
+print(f'Bluetooth metadata producer and distinct-origin/wrap/failure clock cases passed; {q2emu.checks} total MIPS scenarios.')
+
+# Run stock's actual track-time wrapper, mocking only its raw time and CUE flag boundaries.
+# The same queue and Now Playing wheel commit drive seek_position, not a test-only setter.
+class CueMetaMachine(MetaMachine,QueueMachine):
+    def __init__(self):
+        super().__init__()
+        self.handlers.pop(syms['player_playtime_and_length'])
+        self.handlers.pop(syms['mclGetPlayPos'])
+        self.handlers[syms['mclGetCueFlag']]='bm:cue'
+        self.byte(syms['g_bluetoothflag'],1)
+        self.word(O['MCL_POS'],1)
+        self.track=self.items(self.get(syms['mcl_pdeqplaylist']))[1]
+        self.word(self.track+O['REC_CUE_START'],300); self.word(self.track+O['REC_CUE_END'],400)
+        self.sec=310; self.total=1000
+    def hook(self,u,address,size,unused):
+        if self.handlers.get(address)=='bm:cue': self.returns(1); return
+        return super().hook(u,address,size,unused)
+    def poll(self,gap=300):
+        self.absolute_ms+=gap
+        return super().poll(gap)
+
+playing=HOOKS['playing_page_init'][0]
+m=CueMetaMachine(); m.poll()
+assert 'duration=100000\n' in m.record() and 'position=10000\n' in m.record(),m.record()
+m.sec=330; m.poll(); assert 'position=30000\n' in m.record()  # a later seek stays track-relative
+m.sec=290; m.poll(); assert 'position=0\n' in m.record()  # stock's start clamp
+m.sec=450; m.poll(); assert 'position=100000\n' in m.record()  # stock's end clamp
+m.word(O['MCL_POS'],-1); m.poll()
+assert 'duration=0\n' in m.record() and 'position=0\n' in m.record()  # unavailable leaves no stale outputs
+passed()
+
+def paused_meta(sec=10,total=100):
+    m=CueMetaMachine(); m.sec=300+sec; m.status=3
+    m.word(m.track+O['REC_CUE_END'],300+total)
+    m.handlers[playing+12]='stock_playing'
+    scrub_page(value=sec,mx=total,m=m); m.poll(); return m
+
+def meta_commit(m,key=O['KEY_NEXT']):
+    reported=m.sec
+    centre(m); step(m,key); target=m.nodes[m.slider]['value']
+    centre(m,50)
+    assert did(m,'mclSetSeek')==[300+target] and not did(m,'player_seek_time') and not did(m,'mclSetResume')
+    assert m.sec==reported  # the actual player's report intentionally stays at its original second
+    m.poll(); assert f'position={target*1000}\n' in m.record(),m.record()
+    return target
+
+m=paused_meta(); assert meta_commit(m)==15
+was=m.record()
+for _ in range(4): m.poll()
+assert m.record()==was  # retained snapshot for a restarted helper; no periodic paused writes
+assert meta_commit(m)==20
+reopen(m); assert m.nodes[m.slider]['value']==20
+m.poll(); assert 'position=20000\n' in m.record()
+# An end clamp commits a one-second seek, below SEEK_S: still publish exactly once.
+m=paused_meta(); m.word(m.track+O['REC_CUE_END'],311)
+reopen(m); m.poll(); assert meta_commit(m)==11
+was=m.record(); m.poll(); assert m.record()==was
+m.status=2; m.sec=311; m.poll(); assert 'status=Playing\n' in m.record() and 'position=11000\n' in m.record()
+m.sec=310; m.status=3; m.poll(); assert 'position=10000\n' in m.record()  # resumed target does not revive
+passed()
+for change in ('track','path','stop','second'):
+    m=paused_meta(); meta_commit(m)
+    if change=='track': m.word(O['MCL_POS'],2)
+    elif change=='path': m.word(m.track+O['REC_PATH'],m.string('/p/replaced.flac'))
+    elif change=='stop': m.status=1
+    else: m.sec=311
+    m.poll()
+    assert 'position=15000\n' not in m.record(),(change,m.record())
+    if change=='stop': assert 'duration=0\n' in m.record() and 'position=0\n' in m.record()
+passed()
+print('Bluetooth producer: actual CUE wrapper, wheel commit, held target, small seek, resume and track/stop cleanup passed.')
+
+# Resume can precede the decoder's new clock. Keep the committed timeline while waiting,
+# then force the reported anchor even when the correction is below the ordinary SEEK_S.
+def meta_values(m): return dict(line.split('=',1) for line in m.record().splitlines())
+
+m=paused_meta(sec=1); assert meta_commit(m,O['KEY_PREV'])==0
+m.status=2; m.poll(250); resumed=m.record()
+assert 'status=Playing\n' in resumed and 'position=0\n' in resumed,resumed
+m.poll(500); assert m.record()==resumed
+m.sec=300; m.poll(250); caught=m.record()
+assert caught!=resumed and 'position=0\n' in caught  # fresh timestamp corrects even a one-second seek
+m.sec=301; m.poll(1000)
+assert m.record()==caught and m.absolute_ms-int(meta_values(m)['now'])==1000
+passed()
+
+m=paused_meta(); assert meta_commit(m)==15
+m.status=2; m.poll(250); resumed=m.record()
+assert 'position=15000\n' in resumed,resumed
+m.sec=311; m.poll(1000); assert m.record()==resumed  # the old clock can advance before the seek
+m.sec=315; m.poll(250); caught=m.record()
+assert caught!=resumed and 'position=15000\n' in caught
+m.sec=316; m.poll(1000); assert m.record()==caught
+passed()
+
+# At exactly two seconds of Playing, use the actual clock even if it never caught up.
+m=paused_meta(sec=1); meta_commit(m,O['KEY_PREV']); m.status=2; m.poll(250); resumed=m.record()
+m.poll(1750); assert m.record()==resumed
+m.poll(250); assert m.record()!=resumed and 'position=1000\n' in m.record()
+passed()
+
+# A pause suspends the same budget, rather than spending it on wall time or restarting it.
+m=paused_meta(); meta_commit(m); m.status=2; m.poll(250); m.poll(500)
+m.status=3; m.poll(250); paused=m.record(); m.poll(5000); assert m.record()==paused
+m.status=2; m.poll(250); m.poll(1000); assert 'position=15000\n' in m.record()
+m.poll(250); assert 'position=10000\n' in m.record()  # 750 + 1250 Playing ms
+passed()
+
+# A second actual commit replaces both the target and the previous settlement budget.
+m=paused_meta(); meta_commit(m); m.status=2; m.poll(250); m.poll(1500)
+m.status=3; m.poll(250); reopen(m); assert meta_commit(m)==20
+m.status=2; m.poll(250); resumed=m.record(); m.poll(1000)
+assert m.record()==resumed and 'position=20000\n' in resumed
+passed()
+for change in ('track','path','stop'):
+    m=paused_meta(); meta_commit(m); m.status=2; m.poll(250)
+    if change=='track': m.word(O['MCL_POS'],2)
+    elif change=='path': m.word(m.track+O['REC_PATH'],m.string('/p/replaced-after-resume.flac'))
+    else: m.status=1
+    m.poll(250); assert 'position=15000\n' not in m.record(),(change,m.record())
+    if change=='stop': assert 'position=0\n' in m.record() and 'duration=0\n' in m.record()
+m=paused_meta(total=11); assert meta_commit(m)==11
+m.status=2; m.poll(250); m.poll(1000)
+assert int(meta_values(m)['position'])<=11000  # committed projection respects the CUE end
+passed()
+print('Bluetooth delayed resume: actual small/large commits, catch-up anchors, progression, exact timeout, pause, repeat and cleanup passed.')

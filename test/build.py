@@ -457,7 +457,12 @@ def validate_assets(directory):
         absent = subprocess.run(['unsquashfs', '-cat', str(directory/'rootfs.squashfs'), REMOTE],
                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         assert absent.returncode != 0, 'release rootfs contains q2remote'
-    assert read('rootfs.squashfs', S90PLAY) == expected_start
+    from build import MPRIS, MPRIS_START
+    publisher = read('rootfs.squashfs', MPRIS)
+    assert sha(publisher) == manifest['q2mpris_sha256'] and publisher[:4] == b'\x7fELF'
+    assert publisher[36:40] == helper[36:40]
+    assert all(s not in publisher for s in (b'q2pod-btdiag', b'btsnoop', b'Packet capture', b'GetManagedObjects'))
+    assert read('rootfs.squashfs', S90PLAY) == expected_start.replace(*MPRIS_START)
     assert read('rootfs.squashfs', S11LOGO) == read('stock.squashfs', S11LOGO).replace(*LOGO_HOOK)  # the card's logo, if saved
     assert read('rootfs.squashfs', BLUEALSA2) == read('stock.squashfs', BLUEALSA2).replace(*BT_KEEPALIVE)  # keep-alive 5 s
     daemon = read('stock.squashfs', BLUETOOTHD)  # a connection the other side opens: 30 s to 1 s

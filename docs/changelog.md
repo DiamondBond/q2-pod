@@ -1,6 +1,10 @@
 # Changelog
 
 - **1.8.9**:
+  - Bluetooth: compatible cars can show the playing song's title, artist and album. Track information follows playback changes and reconnects using notifications, without a permanent sampling worker or metadata-file polling.
+  - Bluetooth: wait for a valid playback record before advertising track information after the metadata helper starts.
+  - Bluetooth: show CUE tracks' own times and a seek committed while paused; process queued reconnect and player requests after a registration retry without waiting for another playback change.
+  - Bluetooth: keep a paused seek's position when Play arrives before the decoder reports the seek, then correct the timeline when it catches up or its short settling wait expires.
   - App Store: one **Check for Updates** checks every app and game on both tabs, **Apps** and **Games**. A check asked GitHub once per app, and GitHub allows a Q2 only 60 of those an hour, so with today's list it ran out part way and the games, last in the list, showed no update until you checked again. A check now asks without using that allowance.
   - App Store: under **Theme: Classic** and **Theme: Modern**, the open tab, **Apps** or **Games**, is the colour your theme gives the selected row, its name in the row's ink. Under Classic it was the accent's own blue, darker than Classic Blue's rows.
 - **1.8.8**:

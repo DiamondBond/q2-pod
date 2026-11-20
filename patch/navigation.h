@@ -11,6 +11,10 @@
 #include "xiph.h"
 #undef select /* navigation.c's UI selection helper; headset.c uses libc select */
 
+/* btmeta.c: the bounded RAM record for the BlueZ metadata publisher. */
+void btmeta_poll(void);
+void btmeta_paused_seek(unsigned track, int sec, int target);
+
 #define STOP 11
 #define MAX_ENTRIES 512
 #define POS_MEM 64
