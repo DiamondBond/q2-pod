@@ -47,7 +47,7 @@ static int vol_poll(const void *info) {
     return 8; /* RET_REPEAT */
 }
 
-#define VOL_CL_X 28 /* Classic's panel: its ring and corners clear the glass */
+#define VOL_CL_X 28 /* Classic's panel: its corners clear the glass */
 /* The volume, drawn by stock's dialog/volume_dialog itself: transparent and full-screen (its
  * dimming highlight removed at build time, tools/ipod.py), it opens on the wheel's volume and
  * sets its slider_vol. Over Now Playing, as on an iPod classic, the band from the progress bar to
@@ -55,9 +55,9 @@ static int vol_poll(const void *info) {
  * its bar, the bar shows the volume between the iPod's speakers in the times' place (vol_end) and
  * "N%" takes the page dots' place until vol_poll finds the dialog gone. Over any other window
  * (Quick Settings included) a VOL_PANEL_* rounded panel in the fast-scroll letter's style holds a
- * pill bar and the number alone; Classic's, VOL_CL_X in, the rows painter's gloss between two
- * speakers. slider_vol and label_vol are hidden, and slider_vol is moved onto the area drawn, so
- * stock's partial repaints land on it; vol_poll catches the changes those miss. */
+ * pill bar and the number alone; Classic's, VOL_CL_X in, is the toast's box with a thin white bar
+ * between two speakers. slider_vol and label_vol are hidden, and slider_vol is moved onto the area
+ * drawn, so stock's partial repaints land on it; vol_poll catches the changes those miss. */
 void vol_paint(void *top, void *canvas) {
     void *wm = window_manager(), *lcd = P(canvas, CANVAS_LCD);
     if (!lcd || tk_strcmp(widget_get_prop_str(top, "name", ""), "volume_dialog")) return;
@@ -103,14 +103,17 @@ void vol_paint(void *top, void *canvas) {
     if (!beside) dots_back();
     unsigned fill = (unsigned)I(lcd, LCD_FILL_COLOR), s[12] = { 'V', 'o', 'l', 'u', 'm', 'e', ' ' },
              k = np ? 7 : 0;
-    if (gloss) { /* no number */
-        int L = ipod_light(), bx = 68, bw = 243, y = 271;
-        paint_panel(top, canvas, &area, "classic_light_panel_shadow", 0);
-        paint_rows_bar(canvas, bx, y, bw, 17, max > 0 ? bw * clamp_step(0, max, level) / max : 0);
-        paint_art(top, canvas, L ? "classic_light_spk_quiet_l" : "classic_light_spk_quiet_d", 52,
-                  y + 2);
-        paint_art(top, canvas, L ? "classic_light_spk_loud_l" : "classic_light_spk_loud_d", 317,
-                  y + 2);
+    if (gloss) { /* no number: white on the toast's box, the same in both halves */
+        static const stops_t rest = { 2, { 0, 100 }, { 0x6b6b6b, 0x6b6b6b } },
+                             lit = { 2, { 0, 100 }, { 0xffffff, 0xffffff } };
+        rect_t track = { area.x + 40, area.y + area.h / 2 - 2, area.w - 92, 4 }, on = track;
+        on.w = max > 0 ? track.w * clamp_step(0, max, level) / max : 0;
+        if (on.w && on.w < 4) on.w = 4; /* the least it shows is its own round ends */
+        fill_box(canvas, &area, flip_if(ipod_light(), TOAST_RGBA), 12);
+        paint_round_rows(canvas, &track, &rest, 2);
+        if (on.w) paint_round_rows(canvas, &on, &lit, 2);
+        paint_art(top, canvas, "classic_light_spk_quiet_w", area.x + 16, area.y + 17);
+        paint_art(top, canvas, "classic_light_spk_loud_w", area.x + area.w - 38, area.y + 17);
         stock_canvas_set_fill_color(canvas, fill);
         return;
     }

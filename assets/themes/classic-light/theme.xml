@@ -87,7 +87,7 @@
        kept; a column at each end in the last stop's colour (np_bar.c ipod_bar). The played part is the accent's band;
        under Classic Blue it is fill: the 14 rows of the bar in Apple's native 320x240 capture (iPod classic User
        Guide, Now Playing), its two nearly equal rows at 27 made one to fit 13 stops. Its rows painter's 31 rows, fixed
-       colours (#rrggbbaa its own alpha), are the volume panel's away from Now Playing and a card app's progress -->
+       colours (#rrggbbaa its own alpha), are a card app's progress -->
   <view name="playing">
     <element name="art" square="1"/>
     <element name="scrubber" fill="#7d96d7 0, #86aafe 8, #739df9 15, #6b9bf2 27, #6ca2f8 38, #65a3ff 46, #3c89eb 54, #3698f8 62, #32a2fe 69, #36affe 77, #40b3fc 85, #5bbbfe 92, #5b9ecf 100"

@@ -2575,22 +2575,21 @@ def vol_np(light='1',remain=1,theme='1',**config):
     q.nodes[q.wm]={'children':[q.win,q.dlg]}; q.top=q.dlg; q.mock('window_close')
     ui_loaded(q,'dialog/volume_dialog',q.dlg)
     return q
-# Classic, the volume panel over Quick Settings: gloss, 17 rows, speakers, no number; the same over search_dialog.
+# Classic, the volume panel over Quick Settings: the toast's dark box in either half, a thin white bar between two white speakers, no number; the same over search_dialog.
 for over,light in (('statusbar_dialog','1'),('search_dialog','1'),('statusbar_dialog','0')):
     vp=vol_np(light); vol_closed(vp); other=vp.node('dialog',over); vp.word(other+O['W_PARENT'],vp.wm)
     vp.nodes[vp.wm]['children']=[vp.win,other,vp.dlg]; vp.top=vp.dlg; bare(vp); bg(vp,vp.dlg)
-    ring,rest=round_box(vp.bands,27,255,321,50,13); assert set(ring)=={color_t(CL_BAR_LINE[light])}  # the 1 px ring round it, corners antialiased
-    _,barrows=round_box(rest,28,256,319,48,12)
-    assert [b[:4] for b in barrows if b[2]==243]==[(68,271+i,243,1) for i in range(17)] and [b[:4] for b in barrows if b[2]==97]==[(68,271+i,97,1) for i in range(17)] and not vp.letters and not vp.rounded
+    assert [(r['rect'],r['radius'],r['color']) for r in vp.rounded if r['kind']=='fill']==[((28,256,319,48),12,0xee2b2b2b)]
+    track,rest=round_box(vp.bands,68,278,227,4,2); fill,rest=round_box(rest,68,278,227*40//100,4,2)  # 40 of 100
+    assert set(track)=={color_t(0x6b6b6b)} and set(fill)=={color_t(0xffffff)} and not rest and not vp.letters
     assert [vp.nodes[w]['visible'] for w in (vp.elapsed,vp.remain)]==[1,1] and wbox(vp,vp.sv)==(28,256,319,48)
-    assert [d[1][:2] for d in vp.image_draws]==[(20,250),(52,273),(317,273)] and art_at(vp)[0][0]=='classic_light_panel_shadow'; passed()  # the panel's soft shadow first, under its ring
-# ... another accent fills with its band, as Now Playing's bar does (ipod_bar); Classic Blue keeps the rows above.
+    assert art_at(vp)==[('classic_light_spk_quiet_w',(44,273)),('classic_light_spk_loud_w',(309,273))]; passed()
+# ... another accent changes nothing: the bar is white on the dark box whatever the accent.
 for light in ('1','0'):
     vp=vol_np(light,CLASSIC_LIGHT_ACCENT='3'); vol_closed(vp); other=vp.node('dialog','statusbar_dialog'); vp.word(other+O['W_PARENT'],vp.wm)
     vp.nodes[vp.wm]['children']=[vp.win,other,vp.dlg]; vp.top=vp.dlg; bare(vp); bg(vp,vp.dlg)
-    _,rest=round_box(vp.bands,27,255,321,50,13); _,barrows=round_box(rest,28,256,319,48,12)
-    fill=[b[4] for b in barrows if b[2]==97]
-    assert len(fill)==17 and fill[0]==color_t(theme_builtins()[1]['schemes'][3]['sel'][0][1]) and len(set(fill))>1,(light,fill); passed()
+    _,rest=round_box(vp.bands,68,278,227,4,2); fill,_=round_box(rest,68,278,90,4,2)
+    assert set(fill)=={color_t(0xffffff)},(light,fill); passed()
 # Classic's bar on Now Playing (ipod_bar), each half: Classic Blue's own fill, another accent's band; last, a column at
 # each end in the track's bottom line, the left one over the fill, fading into the paper under the bar.
 classic=theme_builtins()[1]; blue=next(i for i,s in enumerate(classic['schemes']) if s.get('label'))
@@ -3005,7 +3004,7 @@ for theme_ in '0':
     tm=time_form(0,theme_=theme_); assert tm.confirm()==11 and tm_field(tm)==1 and [tm.call(O['KEY_FWD_BTN']) for _ in range(9)] and tm_field(tm)==5
 passed()
 # A label's box holds its font, and nothing crosses the glass: every rect above.
-RECTS=[(44,247,12,14),(318,247,22,14),(63,245,248,31),(68,271,243,17),(52,273,12,14),(317,273,22,14),(33,158,309,36),(39,164,24,24),(309,161,30,30),(45,169,12,14),(308,169,22,14),(37,115,20,26),(318,115,20,26),
+RECTS=[(44,247,12,14),(318,247,22,14),(63,245,248,31),(68,278,227,4),(44,273,12,14),(309,273,22,14),(33,158,309,36),(39,164,24,24),(309,161,30,30),(45,169,12,14),(308,169,22,14),(37,115,20,26),(318,115,20,26),
        (128,58,120,36),(16,222,343,22),(278,7,10,11),(294,7,26,13),(320,11,2,5)]
 for x,y,w,h in RECTS: assert corner_inset(y)<=x and corner_inset(y+h-1)<=x and x+w<=375-max(corner_inset(y),corner_inset(y+h-1)),(x,y,w,h)
 for m_,w_ in ((bk,cap),(ba,label_balance),(ba,L),(ba,R),(xf0,xf0.vol)): assert wbox(m_,w_)[3]>=m_.nodes[w_]['style:normal:font_size']  # a label draws nothing in a shorter box
@@ -3014,7 +3013,7 @@ bare(dv); dv.nodes[dv.switch]['image']='switch_on'; bg(dv,dv.win)
 for m_,dy in ((dv,26),(vp,0)):  # the images on the screen; the soft shadows' faint corners may pass under the glass, unseen
     for name,(x,y) in art_at(m_):
         w,h=art_size(name); assert name=='classic_light_slider_page' or (x>=0 and y+dy>=0 and x+w<=375 and y+dy+h<=320),name
-assert math.hypot(80-(28-1+13),256-1+50-13-240)+13<=80 and math.hypot(80-(35-1+13),118-1+112-13-240)<=80  # the panel's corners, its ring and R 12 in them
+assert math.hypot(80-(28+12),256+48-12-240)+12<=80 and math.hypot(80-(35-1+13),118-1+112-13-240)<=80  # the volume box's R 12 corner; the rating panel's, its ring and R 12 in them
 cf=TTFont(B/'default.ttf',lazy=True); cs=17/(cf['hhea'].ascent-cf['hhea'].descent)
 for hint in ('Press Centre When Finished','Press Centre to Turn On or Off','Press Centre to Change Mode'): assert sum(cf['hmtx'][cf.getBestCmap()[ord(c)]][0] for c in hint)*cs<=343,hint  # the caption's ink, in its box
 passed()

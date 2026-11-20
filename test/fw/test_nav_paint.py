@@ -2071,32 +2071,27 @@ def added(after, before):
     return extra
 
 
-def volume_bar(fw, world, dialog, vol, level):
-    """Classic's panel at no volume and at level: (the rows the level added: x, width, rows; the track's width
-    on those rows; the canvas at level)."""
-    world.set(vol, 'value', 0)
-    silent = Canvas(fw)
-    vol_paint(fw, dialog, silent)
-    world.set(vol, 'value', level)
+@pytest.mark.parametrize('light, level', [('0', 60), ('1', 60), ('1', 0), ('1', 1)])
+def test_classic_s_volume_is_a_thin_bar_between_two_speakers_on_the_toast_s_box(fw, world, st, light, level):
+    """White on the toast's dark box in either half, with no number; a level shows at least its round ends."""
+    theme(fw, CLASSIC, LIGHT=light)
+    dialog, vol, _ = volume(fw, world, st, level)
     canvas = Canvas(fw)
     vol_paint(fw, dialog, canvas)
-    lit = added(canvas, silent)
-    (x, w), = {(f[0], f[2]) for f in lit}
-    rows = {f[1] for f in lit}
-    (track,) = {f[2] for f in silent.fills if f[0] == x and f[1] in rows}
-    return (x, w, rows), track, canvas
-
-
-@pytest.mark.parametrize('light, ink', [('0', 'd'), ('1', 'l')])
-def test_classic_s_volume_is_its_bar_between_two_speakers_and_no_number(fw, world, st, light, ink):
-    theme(fw, CLASSIC, LIGHT=light)
-    dialog, vol, _ = volume(fw, world, st)
-    (_, full, _), track, _ = volume_bar(fw, world, dialog, vol, 100)
-    (x, w, rows), track, canvas = volume_bar(fw, world, dialog, vol, 60)
-    assert full == track and w == track * 60 // 100  # the level's share of the track, from its start
-    quiet, loud = canvas.art(f'classic_light_spk_quiet_{ink}'), canvas.art(f'classic_light_spk_loud_{ink}')
-    assert quiet[0][0] < x and loud[0][0] >= x + track  # each speaker outside the bar
-    assert canvas.texts == [] and canvas.art('classic_light_panel_shadow')
+    (box, color, radius), = canvas.rounded
+    assert radius == 12 and color >> 24 == 0xee and world.at(vol) == box  # translucent; stock's slider under it
+    white = [f for f in canvas.fills if rgb_of(f[4]) == 0xffffff]
+    rest = [f for f in canvas.fills if rgb_of(f[4]) != 0xffffff]
+    x, end, rows = min(f[0] for f in rest), max(f[0] + f[2] for f in rest), {f[1] for f in rest}
+    assert len(rows) == 4 and box[1] < min(rows) and max(rows) < box[1] + box[3]  # four rows, inside the box
+    if level:
+        assert (min(f[0] for f in white), max(f[0] + f[2] for f in white)) == (x, x + max(4, (end - x) * level // 100))  # its share, from the start
+        assert {f[1] for f in white} == rows
+    else:
+        assert white == []
+    (quiet,), (loud,) = canvas.art('classic_light_spk_quiet_w'), canvas.art('classic_light_spk_loud_w')
+    assert box[0] < quiet[0] < x and end <= loud[0] < box[0] + box[2]  # either side of the bar, inside the box
+    assert canvas.texts == [] and canvas.fill == 0xff123456
 
 
 def test_over_now_playing_the_volume_takes_the_times_band(fw, world, st):

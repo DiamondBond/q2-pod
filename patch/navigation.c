@@ -2330,7 +2330,6 @@ static void hold_paint(void *w, void *canvas, int over) {
  * Since V1.34 the plain toast (kind 1) is one word-wrapping label, sized here to its wrapped lines;
  * V1.32's and its kinds 2 and 4 are hscroll_labels, a line each.
  */
-#define TOAST_RGBA 0xee2b2b2bu
 #define TOAST_LABEL_W 331
 #define TOAST_LINE 24
 #define TOAST_PX 22

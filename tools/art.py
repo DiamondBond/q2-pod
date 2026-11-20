@@ -326,10 +326,10 @@ def speaker(loud, rgb):
     return png(w, 14, compose((0, 0, w, 14), [(path(SPEAKER) + arcs, lambda x, y: (rgb, 1))]))
 
 
-# The soft shadows of the panels' boxes, as CSS's box-shadow draws them: name, the box's w, h and corner radius, the
+# The soft shadow of the rating panel's box, as CSS's box-shadow draws it: name, the box's w, h and corner radius, the
 # shadow's blur, its drop and alpha. The image reaches blur + 2 past the shadow's box on every side and is clear under
 # the box itself.
-SHADOWS = {'panel_shadow': (319, 48, 12, 6, 2, 0x33), 'rate_shadow': (304, 110, 12, 6, 2, 0x33)}
+SHADOWS = {'rate_shadow': (304, 110, 12, 6, 2, 0x33)}
 BLACK = 0
 @functools.cache
 def classic_light_font():
