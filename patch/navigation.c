@@ -3669,9 +3669,11 @@ static int seek_position(int to) {
         int sec = -1, total;
         player_playtime_and_length(&sec, &total);
         mclSetSeek(to + I(r, REC_CUE_START));
+        btmeta_seek(to);
         return sec + 1;
     }
     player_seek_time(to);
+    btmeta_seek(to);
     return 0;
 }
 

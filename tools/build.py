@@ -254,6 +254,20 @@ HELPER_LIBS = ['lib/libc-2.28.so', 'lib/libpthread-2.28.so', 'usr/lib/libasound.
 # ends the loop, so the watchdog reboots as stock's would. Wi-Fi is off while Rockbox runs (WIFI_OFF).
 BOOT = 'usr/bin/q2boot'
 REMOTE = 'usr/bin/q2remote'
+# A single metadata publisher belongs to each demo lifetime, never the Rockbox session.
+MPRIS = 'usr/bin/q2mpris'
+MPRIS_LIBS = ['lib/libc-2.28.so', 'lib/libpthread-2.28.so', 'usr/lib/libdbus-1.so.3.19.15']
+MPRIS_START = (b'        while :; do\n            /release/bin/demo', b'''        while :; do
+            mkdir -m 700 -p /tmp/q2-bt
+            rm -f /tmp/q2-bt/nowplaying /tmp/q2-bt/nowplaying.tmp
+            /usr/bin/q2mpris 2>>/tmp/q2-demo.err &
+            metadata_pid=$!
+            /release/bin/demo''')
+MPRIS_STOP = (b'            s=$?\n', b'''            s=$?
+            kill "$metadata_pid" 2>/dev/null
+            wait "$metadata_pid" 2>/dev/null
+            rm -f /tmp/q2-bt/nowplaying /tmp/q2-bt/nowplaying.tmp
+''')
 S90PLAY = 'etc/init.d/S90play'
 ROCKBOX_FLAG = '/tmp/q2pod-rockbox'
 # Rockbox can't use Wi-Fi and the radio costs battery, so rockbox() below stops it. Nothing is saved or restored
@@ -1698,6 +1712,7 @@ FUNCTIONS = {
  'btrecvA2dpFunc': ('int', 'int, void *, void *'),
  'mclGetCueFlag': ('int', 'void'),  # the playing record has a CUE start or end
  'mclGetPlayStatus': ('int', 'void'),  # 1 stopped, 2 playing, 3 paused (mclStop, mclSetResume, mclSetPause)
+ 'mclGetPlayPos': ('int', 'void'),
  'player_stop': ('int', 'void'),
  'player_save_stop': ('int', 'void'),  # a playing or paused queue stopped, its status and place kept for player_save_start; nothing when stopped
  'player_save_start': ('int', 'int'),  # pause: mclStartPlayer at the saved seek, then paused if set
@@ -1874,7 +1889,7 @@ FLAGS = ['--target=mipsel-linux-gnu','-march=mips32r2','-mabi=32','-mfp64',
          '-Wshadow','-Wimplicit-int-conversion','-Wconditional-uninitialized','-Wmissing-variable-declarations',
          '-Wvla','-Wundef']
 # navigation.c and the files split out of it (patch/navigation.h), each its own object, linked in this order.
-NAVIGATION = ['navigation.c', 'theme_engine.c', 'playlists.c', 'classic_pages.c', 'home.c', 'np_bar.c', 'volume.c', 'smart_wifi.c', 'system.c', 'usb_charge.c', 'tags.c', 'scrobble_ui.c', 'library_lists.c', 'durations.c', 'script.c', 'coverflow_position.c', 'ratings.c', 'scan_folders.c', 'folder_delete.c', 'battery.c', 'np_lyrics.c', 'quick_settings.c', 'flat.c', 'clock.c', 'queue_menu.c', 'np_marks.c', 'rotate.c', 'netservice.c', 'addon_bar.c', 'side_seek.c', 'language.c', 'bidi_text.c', 'card_theme.c', 'card_rules.c', 'sleep_row.c', 'samplerate.c']
+NAVIGATION = ['navigation.c', 'theme_engine.c', 'playlists.c', 'classic_pages.c', 'home.c', 'np_bar.c', 'volume.c', 'smart_wifi.c', 'system.c', 'usb_charge.c', 'tags.c', 'scrobble_ui.c', 'library_lists.c', 'durations.c', 'script.c', 'coverflow_position.c', 'ratings.c', 'scan_folders.c', 'folder_delete.c', 'battery.c', 'np_lyrics.c', 'quick_settings.c', 'flat.c', 'clock.c', 'queue_menu.c', 'np_marks.c', 'rotate.c', 'netservice.c', 'addon_bar.c', 'side_seek.c', 'language.c', 'bidi_text.c', 'card_theme.c', 'card_rules.c', 'sleep_row.c', 'samplerate.c', 'btmeta.c']
 
 def compile_payload(out):  # pragma: no mutate block
     """Compile and link the payload."""
@@ -1917,7 +1932,13 @@ def check_rootfs_size(size, stock_size):
     check(free >= ROOTFS_FREE_MIN, f'Repacked rootfs leaves {free:,} bytes of stock size free, '
                                    f'{ROOTFS_FREE_MIN - free:,} short of ROOTFS_FREE_MIN ({ROOTFS_FREE_MIN:,})')
 
-def compile_helper(out, cat, src, name, rels):
+def dbus_cflags(out):
+    (out/'dbus').mkdir(exist_ok=True)
+    (out/'dbus/dbus-arch-deps.h').write_bytes((ROOT/'patch/dbus-arch-deps.h').read_bytes())
+    return [f'-I{out}', *run('pkg-config', '--cflags', 'dbus-1').split()]
+
+
+def compile_helper(out, cat, src, name, rels, cflags=()):
     """Link patch/{src}.c and start.c as name against the stock rootfs's libraries rels."""
     libs = []
     for rel in rels:
@@ -1926,7 +1947,7 @@ def compile_helper(out, cat, src, name, rels):
     objs = [out/f'{s}.o' for s in (src, 'start')]
     for o in objs:
         run('clang', *[f for f in FLAGS if f not in ('-mno-abicalls', '-G0')], '-mnan=2008', '-mabs=2008',
-            '-mabicalls', '-c', ROOT/'patch'/f'{o.stem}.c', '-o', o)
+            '-mabicalls', *cflags, '-c', ROOT/'patch'/f'{o.stem}.c', '-o', o)
     run('ld.lld', '-m', 'elf32ltsmip', '-e', '__start', '--dynamic-linker', '/lib/ld-linux-mipsn8.so.1',
         '--image-base=0x400000', '-z', 'noexecstack', '--gc-sections', '-s', '--hash-style=sysv', '--build-id=none',
         *objs, *libs, '-o', out/name)
@@ -2401,7 +2422,13 @@ def build(zip_path, out, logo, dev=False, repo=REPO, stock_flac=False):  # pragm
     s90play = s90play.replace(*BOOT_HOOK)
     check(s90play.count(LOG_HOOK[0]) == 1, 'Unexpected demo loop')
     check(s90play.count(WHEEL_LOG_HOOK[0]) == 1, 'Unexpected card path')
-    (out/'S90play').write_bytes(s90play.replace(*REMOTE_HOOK).replace(*LOG_HOOK).replace(*WHEEL_LOG_HOOK) if dev else s90play)
+    if dev: s90play = s90play.replace(*REMOTE_HOOK).replace(*LOG_HOOK).replace(*WHEEL_LOG_HOOK)
+    check(s90play.count(MPRIS_START[0]) == 1 and s90play.count(MPRIS_STOP[0]) == 1,
+          'Unexpected metadata lifetime insertion')
+    s90play = s90play.replace(*MPRIS_START).replace(*MPRIS_STOP)
+    if dev: s90play = s90play.replace(b'/usr/bin/q2mpris 2>>/tmp/q2-demo.err',
+                                    b'/usr/bin/q2mpris >>/tmp/q2-demo.log 2>&1')
+    (out/'S90play').write_bytes(s90play)
     (out/'config.ini').write_bytes(default_config(cat(DEFAULT_CONFIG)))
     s11logo = cat(S11LOGO)
     check(s11logo.count(LOGO_HOOK[0]) == 1, 'Unexpected S11logo_display_shell')
@@ -2474,6 +2501,7 @@ def build(zip_path, out, logo, dev=False, repo=REPO, stock_flac=False):  # pragm
     for path, (like, data) in {**{xx+n: (xx+l, d) for n, (l, d) in icons.items()}, **pages, **drawn,
                                'etc/init.d/S12usbcharge': ('etc/init.d/S20urandom', (ROOT/'patch/usb_charge.sh').read_bytes()),
                                HELPER: (HELPER_LIKE, compile_helper(out, cat, 'video', 'q2video', HELPER_LIBS)),
+                               MPRIS: (HELPER_LIKE, compile_helper(out, cat, 'mpris', 'q2mpris', MPRIS_LIBS, dbus_cflags(out))),
                                SCROBBLE_CA: ('etc/hosts', (ROOT/'assets/scrobble-ca.pem').read_bytes()),
                                Q2MOUNT: ('etc/init.d/S20urandom', Q2MOUNT_SH),  # an executable script's (wifi_connect.sh's is swapped)
                                BOOT: (HELPER_LIKE, compile_helper(out, cat, 'boot', 'q2boot', HELPER_LIBS[:1])),
@@ -2484,7 +2512,7 @@ def build(zip_path, out, logo, dev=False, repo=REPO, stock_flac=False):  # pragm
                                **({REMOTE: (HELPER_LIKE, compile_helper(out, cat, 'remote', 'q2remote', HELPER_LIBS[:1]))} if dev else {})}.items():
         stock = need(inode(p, like.encode()), f'Missing stock inode for {path}')
         name = path.rsplit('/', 1)[-1]
-        if path not in (HELPER, BOOT, REMOTE): (out/name).write_bytes(data)  # package the hashed bytes, as the logo
+        if path not in (HELPER, BOOT, REMOTE, MPRIS): (out/name).write_bytes(data)  # package the hashed bytes, as the logo
         if inode(p, path.encode()):  # stock has a file of that name (V1.36's own menu_coverflow*.png): ours takes its inode
             changed_assets[path] = dict(original_sha256=sha(cat(path)), sha256=sha(data))
             p = swap_inode(p, path.encode(), out/name)
@@ -2568,6 +2596,7 @@ def build(zip_path, out, logo, dev=False, repo=REPO, stock_flac=False):  # pragm
             if data is not None: m.size=len(data)
             t.addfile(m,io.BytesIO(data) if data is not None else None)
     manifest = dict(input_zip_sha256=ZIP_SHA, stock_demo_sha256=DEMO_SHA, source_sha256=source,
+        q2mpris_sha256=sha((out/'q2mpris').read_bytes()),
         demo_sha256=sha(patched), patch_sha256=sha(payload), update_sha256=sha((out/'update.tar').read_bytes()),
         rootfs_sha256=sha(newsq.read_bytes()), kernel_sha256=sha(blobs['recovery-update/xImage']),
         patch_bytes=len(payload), ring_step_pixels=RING_STEP,
