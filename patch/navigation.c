@@ -2263,9 +2263,9 @@ static void confirm_labels(void *w, void *canvas) {
     }
 }
 /* Classic's Now Playing marks: More, the play mode and the heart are stock's images, which stay its
- * state and take its touch but go unseen (opacity 0), and are drawn after their parent's children
- * in the flat pages' glyphs (tools/art.py np_*, and the rating panel's hearts), the half's. An
- * image with no glyph of its own is drawn as it is. */
+ * state and take its touch but go unseen (opacity 0), and are drawn on their parent, under its
+ * children (the heart's rating badge stays over it), in the flat pages' glyphs (tools/art.py np_*),
+ * the half's. An image with no glyph of its own is drawn as it is. */
 #define NP_MARKS 4
 static void *np_mark[NP_MARKS];
 static unsigned np_marked; /* how many: with none a paint looks no further */
@@ -2290,7 +2290,7 @@ void np_mark_add(void *image) {
 void np_marks(void *w, void *canvas) {
     static const char *const glyphs[][2] = {
         { "play_more", "np_more" },    { "play_moredown", "np_more_q" },
-        { "play_fav", "heart_on" },    { "play_unfav", "heart_off" },
+        { "play_fav", "np_heart_on" }, { "play_unfav", "np_heart_off" },
         { "play_order", "np_order" },  { "play_random", "np_shuffle" },
         { "play_cycle", "np_repeat" }, { "play_cycle1", "np_repeat1" },
     };
@@ -2799,7 +2799,6 @@ int ringnav_paint(void *w, void *canvas) {
     search_over(w, canvas);
     if (w && st.np_lrc && P(w, W_PARENT) == st.np_lrc) lyrics_paint(w, canvas);
     paint_caps(w, canvas);
-    np_marks(w, canvas);
     hold_paint(w, canvas, 1);
     coverflow_home_clip(w, canvas, 0);
     st.paint_w = w ? P(w, W_PARENT) : (void *)0;
@@ -5206,6 +5205,7 @@ int ringnav_paint_bg(void *w, void *canvas) {
         confirm_track(w, canvas, form);
         confirm_check(w, canvas);
     }
+    np_marks(w, canvas);
     hold_paint(w, canvas, 0);
     if (w && w == st.search_tabs) search_tabs_paint(w, canvas);
     paint_selection(w, canvas);

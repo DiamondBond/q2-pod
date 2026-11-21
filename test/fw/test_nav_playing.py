@@ -2287,7 +2287,7 @@ def test_classics_stream_page_takes_the_local_pages_places(fw, ui, st):
 
 
 # Classic's Now Playing marks (np_mark_add, np_marks): stock's More, play mode and heart unseen, drawn in the theme's glyphs.
-MARKS = {b'play_more': b'np_more', b'play_moredown': b'np_more_q', b'play_fav': b'heart_on', b'play_unfav': b'heart_off',
+MARKS = {b'play_more': b'np_more', b'play_moredown': b'np_more_q', b'play_fav': b'np_heart_on', b'play_unfav': b'np_heart_off',
          b'play_order': b'np_order', b'play_random': b'np_shuffle', b'play_cycle': b'np_repeat', b'play_cycle1': b'np_repeat1'}
 
 
@@ -2317,7 +2317,7 @@ def test_classic_draws_now_playing_s_marks_itself_over_their_row(fw, ui, mcl, st
     assert [opacity.get(w) for w in icons] == [0, 0, 0]  # unseen: stock's images stay its state and take its touch
     half = b'_l' if light else b'_d'
     assert marked(fw, row) == [(b'classic_light_' + name + half, (x + 19, 16, 12, 12))  # the half's, centred in the image's box
-                               for name, x in ((b'np_more', 309), (b'np_shuffle', 247), (b'heart_off', 191))]
+                               for name, x in ((b'np_more', 309), (b'np_shuffle', 247), (b'np_heart_off', 191))]
     assert marked(fw, now.win) == []  # by their own parent's paint alone
 
 
@@ -2330,9 +2330,9 @@ def test_each_of_stock_s_images_has_its_glyph(fw, ui, mcl, st, image):
 def test_a_mark_hidden_or_gone_is_not_drawn(fw, ui, mcl, st):
     now, row, icons, _ = marks(fw, ui, mcl, st, CLASSIC)
     ui.shown[icons[0]] = 0
-    assert [name for name, _ in marked(fw, row)] == [b'classic_light_np_shuffle_d', b'classic_light_heart_off_d']
+    assert [name for name, _ in marked(fw, row)] == [b'classic_light_np_shuffle_d', b'classic_light_np_heart_off_d']
     ui.emit(icons[1], O['EVT_DESTROY'])
-    assert [name for name, _ in marked(fw, row)] == [b'classic_light_heart_off_d']
+    assert [name for name, _ in marked(fw, row)] == [b'classic_light_np_heart_off_d']
     ui.emit(icons[2], O['EVT_DESTROY'])
     ui.emit(icons[0], O['EVT_DESTROY'])
     assert marked(fw, row) == []
@@ -2354,7 +2354,7 @@ def test_classic_s_stream_page_s_heart_is_a_mark_too(fw, ui, st):
     ipod = fw.fn('stream_ipod', C.c_int, C.c_void_p, C.c_void_p, C.c_void_p, C.c_void_p, C.c_void_p, C.c_void_p)
     assert ipod(art, C.addressof(texts), None, None, None, heart) == 1 and opacity[heart] == 0
     x, y = O['NP_IPOD_FAV_X'], O['NP_IPOD_FAV_Y']
-    assert marked(fw, page) == [(b'classic_light_heart_on_d', (x + 19, y + 19, 12, 12))]
+    assert marked(fw, page) == [(b'classic_light_np_heart_on_d', (x + 19, y + 19, 12, 12))]
     ui.emit(heart, O['EVT_DESTROY'])
     assert marked(fw, page) == []
 

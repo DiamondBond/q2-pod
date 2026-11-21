@@ -9295,7 +9295,7 @@ rheart=next(w for w in r.nodes[rnp]['children'] if r.nodes[w].get('image') in ('
 assert cf_geometry(r,rheart)==(O['NP_IPOD_FAV_X'],O['NP_IPOD_FAV_Y'],50,50) and r.nodes[rheart]['image']=='play_fav'
 # ... the heart is a mark (np_mark_add): stock's image unseen, its state kept, and the theme's own heart drawn over the page, the half's, centred in its box.
 np_drawn=lambda m: [m.text(c[2]) if c[0]=='widget_load_image' else c[0] for c in m.calls if c[0] in ('widget_load_image','canvas_draw_image')]  # each image loaded, then drawn
-r.call(address=payload_syms['np_marks'],args=(rnp,r.canvas,0,0),gap=0); assert np_drawn(r)==['classic_light_heart_on_d','canvas_draw_image'],np_drawn(r)
+r.call(address=payload_syms['np_marks'],args=(rnp,r.canvas,0,0),gap=0); assert np_drawn(r)==['classic_light_np_heart_on_d','canvas_draw_image'],np_drawn(r)
 npk=Machine(); classic_light_boot(npk); npw=npk.node('view','view_buttons'); npm=npk.node('image','img_more',image='play_more'); npk.nodes[npw]['children']=[npm]; parents(npk,npw); place(npk,npm,309,0,50,44); npk.byte(npm+0x34,255)
 npk.call(address=payload_syms['np_mark_add'],args=(npm,0,0,0),gap=0); assert npk.get(npm+0x34)&255==0
 for np_image,np_glyph in (('play_more','np_more'),('play_moredown','np_more_q'),('play_order','np_order'),('play_random','np_shuffle'),('play_cycle','np_repeat'),('play_cycle1','np_repeat1')):

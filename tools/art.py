@@ -372,6 +372,7 @@ MSG_INK = {'l': 0x1c1c1e, 'd': 0xffffff}
 # Now Playing's marks: a glyph on an NP_BOX px square in the half's ink; More, pressed, in its quiet grey.
 NP_BOX, NP_MARKS = 32, ('more', 'order', 'shuffle', 'repeat', 'repeat1')
 NP_QUIET = {'l': 0x6e6e73, 'd': 0x98989d}
+NP_HEART = .8  # the rating panel's heart at this size: stock's own, so its rating badge sits where it did
 # Set Time's face (clock.c time_paint): a flat disc in the half's resting grey, its numerals quiet. The hands are the payload's.
 CLOCK_PX = 110
 CLOCK_FACE = {'l': (0xe9e9ec, 0x6e6e73), 'd': (0x2c2c2e, 0x98989d)}
@@ -541,6 +542,10 @@ RATE_HEART_INKS = {'l': 0x000000, 'd': 0xffffff}
 def rate_heart(on, rgb):
     shape = path(RATE_HEART)
     return png(32, 30, compose((0, 0, 32, 30), [((shape if on else []) + stroke(shape, 2.4), lambda x, y: (rgb, 1))]))
+def np_heart(on, rgb):
+    """Now Playing's heart: the rating panel's, NP_HEART of its size, in the middle of an NP_BOX square."""
+    shape = [[(NP_BOX / 2 + (x - 16) * NP_HEART, NP_BOX / 2 + (y - 14.5) * NP_HEART) for x, y in poly] for poly in path(RATE_HEART)]
+    return png(NP_BOX, NP_BOX, compose((0, 0, NP_BOX, NP_BOX), [((shape if on else []) + stroke(shape, 2.4 * NP_HEART), lambda x, y: (rgb, 1))]))
 def ink(rgb, alpha):
     return lambda x, y: (rgb, alpha / 255)
 def numeral(text, size, cx, cy):
@@ -611,6 +616,7 @@ def images(t):
         out |= {f'{prefix}_{name}': shadow(*a) for name, a in SHADOWS.items()}
         out |= {f'{prefix}_np_{name}_{half}': qs_mark(name, 1, rgb, NP_BOX) for name in NP_MARKS for half, rgb in MSG_INK.items()}
         out |= {f'{prefix}_np_more_q_{half}': qs_mark('more', 1, rgb, NP_BOX) for half, rgb in NP_QUIET.items()}
+        out |= {f'{prefix}_np_heart_{state}_{half}': np_heart(state == 'on', rgb) for state in ('on', 'off') for half, rgb in MSG_INK.items()}
         for name, (glyph, lit, opacity) in QS_BUTTONS.items():
             out |= {f'{prefix}_drop_{name}{k}': qs_mark(glyph, opacity, rgb) for k, rgb in QS_INK.items()}
         for name, (px, k) in QS_SUNS.items():

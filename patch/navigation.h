@@ -333,7 +333,7 @@ int clamp_step(int offset, int maximum, int delta);
 unsigned put_num(unsigned *s, unsigned v);
 void paint_panel(void *w, void *canvas, const rect_t *r, const char *shadow, int flat);
 /* Classic's Now Playing marks: a stock image kept as its state and its touch, unseen, and drawn in
- * the theme's glyph over its parent (navigation.c). */
+ * the theme's glyph on its parent (navigation.c). */
 void np_mark_add(void *image);
 void np_marks(void *w, void *canvas);
 #define HOLD_FOOT 10 /* paper under the hold menu's rows: its card's corners clear the last row */

@@ -54,7 +54,7 @@ def test_classic_draws_its_images_and_the_others_none():
         assert set(art.images({**themes[0], **half})) == {'minimal_vol_lo', 'minimal_vol_hi'}
     full = art.images(themes[1])
     assert {k: v for k, v in full.items() if '_icon_' not in k} == classic()  # what the other tests draw
-    assert set(full) == {f'classic_light_{n}' for n in ('sort_bars', *(f'icon_{n}{k}' for n in ('note', 'folder', 'stack', 'game', 'wave', 'gear') for k in ('', '_l')), 'chevron', 'bolt', 'plug', 'note', 'note_l', 'play_l', 'play_d', 'pause_l', 'pause_d', 'vol_lo', 'vol_hi', *(f'spk_{v}_{h}' for v in ('quiet', 'loud') for h in 'ldw'), *(f'drop_{n}{k}' for n in QS_NAMES for k in QS_INKS), 'drop_dim', 'drop_dim_l', 'drop_bright', 'drop_bright_l', 'drop_bright_ql', 'drop_bright_qd', *(f'msg_{n}_{h}' for n in ('usb', 'note') for h in 'ld'), 'clock_face_l', 'clock_face_d', *(f'np_{n}_{h}' for n in (*art.NP_MARKS, 'more_q') for h in 'ld'), 'hint_shadow', 'clock_dark', 'kb_del', 'kb_shift', 'kb_back', 'field_glass', 'field', 'rate_shadow', 'heart_on_l', 'heart_on_d', 'heart_off_l', 'heart_off_d', 'station')}
+    assert set(full) == {f'classic_light_{n}' for n in ('sort_bars', *(f'icon_{n}{k}' for n in ('note', 'folder', 'stack', 'game', 'wave', 'gear') for k in ('', '_l')), 'chevron', 'bolt', 'plug', 'note', 'note_l', 'play_l', 'play_d', 'pause_l', 'pause_d', 'vol_lo', 'vol_hi', *(f'spk_{v}_{h}' for v in ('quiet', 'loud') for h in 'ldw'), *(f'drop_{n}{k}' for n in QS_NAMES for k in QS_INKS), 'drop_dim', 'drop_dim_l', 'drop_bright', 'drop_bright_l', 'drop_bright_ql', 'drop_bright_qd', *(f'msg_{n}_{h}' for n in ('usb', 'note') for h in 'ld'), 'clock_face_l', 'clock_face_d', *(f'np_{n}_{h}' for n in (*art.NP_MARKS, 'more_q', 'heart_on', 'heart_off') for h in 'ld'), 'hint_shadow', 'clock_dark', 'kb_del', 'kb_shift', 'kb_back', 'field_glass', 'field', 'rate_shadow', 'heart_on_l', 'heart_on_d', 'heart_off_l', 'heart_off_d', 'station')}
 
 
 # The approved rendered rows, within 1 per channel: the fill down column 272 of the pause bars
@@ -240,7 +240,7 @@ def test_the_keyboard_glyphs_and_the_field():
 def test_now_playing_s_marks_are_glyphs_in_the_half_s_ink():
     got = classic()
     marks = {}
-    for name in (*art.NP_MARKS, 'more_q'):
+    for name in (*art.NP_MARKS, 'more_q', 'heart_on', 'heart_off'):
         for half, rgb in (art.NP_QUIET if name == 'more_q' else art.MSG_INK).items():
             w, h, at = pixels(got[f'classic_light_np_{name}_{half}'])
             ink = {(x, y) for x in range(w) for y in range(h) if at(x, y)[3]}
@@ -254,6 +254,8 @@ def test_now_playing_s_marks_are_glyphs_in_the_half_s_ink():
     assert len({x for x, y in more if y == 16}) < 20 and (16, 16) in more and (7, 16) in more and (25, 16) in more and (11, 16) not in more and (21, 16) not in more
     assert (16, 16) not in order and (16, 16) in shuffle  # the straight arrows pass either side of the middle, the crossed ones through it
     assert repeat < repeat1 and (16, 16) in repeat1 - repeat  # the same loop, a 1 in it
+    on, off = marks['heart_on'][0], marks['heart_off'][0]
+    assert off < on and (16, 16) in on - off and all(3 <= x <= 28 and 3 <= y <= 28 for x, y in on)  # the outline, filled; stock's 24 px, not the panel's 28
     assert all(any(x >= 27 for x, _ in m) for m in (order, shuffle, repeat)) and any(x <= 3 for x, _ in repeat)  # heads to the right; the loop's second to the left
 
 
