@@ -3634,7 +3634,8 @@ static int to_tracks(const void *unused) {
     }
     /* Album rows always have a detail line for the album artist. The duration part is
      * optional: duration_text() returns empty when Scan Song Durations is off or unavailable. */
-    int album_tracks = cf.scoped != PLAYLISTS, timed = 0;
+    int album_tracks = cf.scoped != PLAYLISTS && theme()->painter[PAINT_PAGES] == PAGES_FLAT,
+        timed = 0;
     for (int i = 0; i < n && !timed; ++i)
         /* NOLINTNEXTLINE(bugprone-signed-char-misuse): only tested for 0, an empty text */
         timed = *duration_text(name, sizeof name, deque_at(cf.tracks, (unsigned)i));
