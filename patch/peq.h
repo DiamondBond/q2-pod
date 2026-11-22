@@ -723,6 +723,9 @@ int bar_title_fits(void *label);      /* label's text fits the bar's title box *
 int ipod_light(void);                 /* theme_engine.c: Light Mode */
 unsigned unflip(unsigned v);          /* theme_engine.c: the grey Light Mode's flip turns into v */
 int ipod_square_art(void);            /* navigation.c: Classic, and Modern under Square */
+/* theme_rules.c (NAVIGATION): the theme's rules for stock's widgets on screen (SCREEN_*), from the
+ * screen's hook: navigation.c's Now Playing and status bar, coverflow.c's Home, the lock screen */
+void theme_rules(void *win, int screen);
 #define SPOT_GREY 0xffaaaaaau
 void radio_search(void);      /* radio.c */
 void toast(const char *text); /* navigation.c */

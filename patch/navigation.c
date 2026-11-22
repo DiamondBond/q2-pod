@@ -3836,7 +3836,8 @@ static void bar_sync(void *bar) {
  * repaints the bar here, outside a paint, while lit (a wake paints it all). */
 int ringnav_showface(void *bar) {
     int result = stock_showface_trampoline(bar);
-    bar_state_sync(bar); /* no I/O, and a relayout waits for a paint */
+    theme_rules(bar, SCREEN_BAR); /* before a layout sees what stock showed */
+    bar_state_sync(bar);          /* no I/O, and a relayout waits for a paint */
     if (st.bar_pct && st.bar_icon && g_backlight_status) {
         unsigned key = battery_now(bar_theme()->painter[PAINT_BATTERY] == BATT_CLASSIC_LIGHT);
         if (key != st.batt_key) {
@@ -4373,6 +4374,7 @@ int ringnav_playing(void *win, void *ctx) {
     st.lyric_held = 0;
     int result = stock_playing_trampoline(win, ctx);
     if (!win || result == STOP) return result;
+    theme_rules(win, SCREEN_PLAYING); /* before the heart's badge takes its corner */
     rate_bind(win);
     /* np_gone leaves a replaced page's state alone: its Genre line is that page's. */
     stop_timer(&st.genre_timer);
@@ -6099,7 +6101,10 @@ void theme_select(int t) {
     image_manager_unload_all(image_manager());
     widget_invalidate_force(window_manager(), (void *)0);
 }
-int theme_restart(int t) { return geom_with(&themes[t], -1, 0, 1) != st.geom; }
+/* Another set, or other widget rules (theme_rules.c: Home and the bar keep one to a restart). */
+int theme_restart(int t) {
+    return geom_with(&themes[t], -1, 0, 1) != st.geom || themes[t].rules != themes[st.theme].rules;
+}
 /* A choice that needs another geometry set: confirmed, the config takes value (a theme its presets
  * too, its own options' among them) and the Q2 restarts into it, ringnav_reboot saving the queue
  * first; the running state stays the booted set's theme until then, as theme_boot requires.

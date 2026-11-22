@@ -6,9 +6,9 @@ import itertools
 import json
 import math
 import re
-from typing import NoReturn
+from typing import NoReturn, cast
 from build import ROOT, check, need
-from ipod import AUDIT, GEOM_VALS, INC, O, SET0, SLIDE, VALUE_NAMES, Geometry, corner_inset, immediate_values
+from ipod import AUDIT, GEOM_VALS, HOME_ROWS, INC, NP_ICON, NP_TOP, O, SET0, SLIDE, VALUE_NAMES, Geometry, corner_inset, corner_x, immediate_values
 
 
 ACCENTS_BLOCK = need(re.search(r'#define ACCENTS (?:.*\\\n)*.*', INC), 'Missing ACCENTS')[0]
@@ -253,7 +253,7 @@ def view_attr(path):
 
 ELEMENTS = {p.rpartition('.')[0] for p in SCHEMA if view_attr(p)}
 VIEWS = {e.partition('.')[0] for e in ELEMENTS}
-CHILDREN = {'theme': {'colorSchemes', 'colorScheme', 'geometry', 'option', 'view'}, 'view': {'element'}, 'option': {'value'}}
+CHILDREN = {'theme': {'colorSchemes', 'colorScheme', 'geometry', 'option', 'view', 'widgets'}, 'view': {'element'}, 'option': {'value'}, 'widgets': {'widget'}}
 OPTION_ATTRS = {'setting', 'key', 'label', 'default', 'preset', 'keep', 'values'}
 # Per-theme numbers stay in offsets.inc: theme id -> {C field: expression over O}.
 CF_ROLES = {'cf.top': 'CF_TOP',
@@ -362,6 +362,79 @@ GEOM_RANGES = {
 THEME_GEOM_OFF = 4  # offsetof(theme_t, geom), right after name so no field moves it; asserted in navigation.c; test/patch.py pokes it
 THEME_MOTION_OFF = 8  # offsetof(theme_t, motion), right after geom; asserted in navigation.c; test/patch.py pokes it
 SCHEME_MODE_OFF = 5  # offsetof(scheme_t, mode) on MIPS, right after flags; asserted in navigation.c; test/patch.py pokes it
+
+# A theme's rules for stock's widgets: <widgets screen="S"><widget name="W" hide="1" x="16" y="2" text="Albums"/>
+# </widgets>. By screen: its window, then per widget what it takes: hide (not drawn and no taps), move (x and y in
+# its parent's coordinates, inside the box [x0, y0, x1, y1]: tools/theme.py takes x0 <= x < x1, y0 <= y < y1, and
+# the payload keeps the whole widget in the box, one wider or taller than it staying put on that axis) and text (its
+# words: 1 to that many bytes of UTF-8). Plain data, so a browser editor can mirror it; theme.h's SCREEN_* follow
+# its order, and patch/theme_rules.c applies the compiled rules (theme_t.rules) where each window already passes
+# through the payload. Out on purpose everywhere: sizes, faces and tints; list rows; names that repeat (widget_lookup
+# finds the first); what the payload or stock places, writes or reads as it paints or ticks, as noted per screen.
+RULE_TEXT = 40
+NP_PAGE = [0, 0, 375, 230]  # Now Playing's art page: Classic's, the taller; a widget past Minimal's 186 rows is cut off there
+BAR_LO, BAR_HI = cast(tuple[int, int], GEOM_RANGES['bar'])  # the bar heights a set may have
+MORE_X = min(375 - corner_x(b, NP_TOP) - NP_ICON for b in range(BAR_LO, BAR_HI + 1))  # More's least x
+WIDGET_RULES: dict[str, dict] = {
+    # ringnav_playing, before rate_bind (whose rating badge takes the heart's corner), the iPod page only: a theme whose
+    # playing.layout is centred states none, and Centred Now Playing skips them. A moved art takes the play-state
+    # glyph and the buffering spinner with it. Out: img_more (on Tidal the only way to More), img_playstate (the art's
+    # gesture target), img_repeata and img_repeatb (stock places them), view_eqchip (gone from the page). Hide only:
+    # the times and the bar, as Classic's ipod_times refits their x to each track, np_beside tells Classic's times
+    # beside the bar from the others' under it by the elapsed time's rows, vol_paint's band spans the bar to the
+    # times, and stock puts the A-B markers on the bar's built-in place (ipod.json's np_bar_x, np_bar_w); the page
+    # dots, which np_full and the visualizer lay out. Move only: the heart, whose badge (ratings.c) shows a rating on
+    # its corner whatever the heart shows. "3 of 12" stays left of More, as a label over it takes its taps (Classic's
+    # More is the window's last child, its "3 of 12" in the art page). The album can't hide under playing.album.caps,
+    # which paints it from the label's text (paint_caps).
+    'playing': {'window': 'playing_page', 'widgets': {
+        'img_cover': {'hide': True, 'move': NP_PAGE},
+        'scrlabel_title': {'hide': True, 'move': NP_PAGE},
+        'scrlabel_artist': {'hide': True, 'move': NP_PAGE},
+        'label_ipod_album': {'hide': True, 'move': NP_PAGE},
+        'img_playmode': {'hide': True, 'move': NP_PAGE},
+        'img_fav': {'move': NP_PAGE},
+        'label_ipod_pos': {'hide': True, 'move': [0, 0, MORE_X, NP_TOP]},
+        'label_playtime': {'hide': True},
+        'label_ipod_remain': {'hide': True},
+        'slider_play': {'hide': True},
+        'slide_indicator1': {'hide': True},
+    }},
+    # ringnav_showface, each second after stock's tick shows its icons and before a layout sees them. EQ hidden, the
+    # idle mark shows when nothing plays (bar_state_sync); Bluetooth or Wi-Fi hidden, the battery takes their room
+    # (bar_sync). Out: img_state, label_idle, label_battery, view_battery and img_battery, which bar_sync and
+    # bar_state_sync write as they paint; Classic's label_title, which bar_title widens. The clock's box is the
+    # tallest bar's (GEOM_RANGES).
+    'bar': {'window': 'system_bar', 'widgets': {
+        'label_eq': {'hide': True},
+        'img_bt': {'hide': True},
+        'img_wifi': {'hide': True},
+        'label_clock': {'hide': True, 'move': [0, 0, 375, BAR_HI]},
+    }},
+    # coverflow_home_layout's end: Home's main rows (tools/ipod.py HOME_ROWS, in their order), looked for under the
+    # list, as the carousel's cards repeat their names and keep theirs. Hidden rows go last, as the list lays out
+    # hidden rows too, and Home keeps one besides Rockbox's. The Shortcut row takes no words: they name the
+    # Shortcut's target, which the layout writes. Out: the Settings list's rows.
+    'home': {'window': 'home_page', 'widgets': {
+        f'btn_{r}': {'hide': True, **({} if r == 'rockbox' else {'text': RULE_TEXT})} for r in HOME_ROWS}},
+    # lockscreen_init's end, after Large's big_clock. A theme with Classic's own pages states none: its info screen
+    # lays these out and paints their trays, its dial and the hint's shadow in fixed places. The clock moves whole
+    # (view_timeinfo), as Large's big_clock changes its box; the song's labels inside the card's 335 x 80. The card and
+    # the hint, the window's last child, stay apart, so the hint never takes the card's taps.
+    'lock': {'window': 'saverscreen_page', 'widgets': {
+        'view_timeinfo': {'hide': True, 'move': [0, 0, 375, 320]},
+        'clock_time': {'hide': True},
+        'clock_date': {'hide': True},
+        'label_battery': {'hide': True},
+        'img_battery': {'hide': True},
+        'view_playinfo': {'hide': True, 'move': [0, 0, 375, 280]},
+        'scrlabel_title': {'hide': True, 'move': [0, 0, 335, 80]},
+        'scrlabel_artist': {'hide': True, 'move': [0, 0, 335, 80]},
+        'img_slide': {'hide': True, 'move': [0, 280, 375, 320]},
+    }},
+}
+check(re.findall(r'SCREEN_(\w+)', need(re.search(r'enum \{ (SCREEN_\w+(?:, SCREEN_\w+)*), SCREEN_N \}', (ROOT/'patch/theme.h').read_text()),
+                                       'Missing SCREEN_*')[1]) == [s.upper() for s in WIDGET_RULES], "theme.h's SCREEN_* != WIDGET_RULES")
 
 
 def sets(t):
@@ -719,6 +792,66 @@ def own_option(c, known):
                        'def': -1, 'preset': -1, 'keep': -1, 'values': 0}, names, key)
 
 
+RULE_ATTRS = {'hide': 'hide', 'x': 'move', 'y': 'move', 'text': 'text'}  # a <widget>'s attribute -> what it does
+
+
+def widget_rules(c, t, screens):
+    """One <widgets screen>'s rules into t['widgets'][screen]: widget -> {hide, x, y, text}, each attribute in place
+    of the base's of that name. screens: those this file states, so far."""
+    def err(node, message) -> NoReturn: fail(node.file, node.line, message)
+    for k in c.attrs:
+        if k != 'screen':
+            err(c, f'unknown key widgets.{k}')
+    screen = c.attrs.get('screen', '')
+    if screen not in WIDGET_RULES:
+        err(c, f'unknown screen {screen}')
+    if screen in screens:
+        err(c, f'widgets screen {screen} stated twice')
+    screens.add(screen)
+    allowed, rules, named = WIDGET_RULES[screen]['widgets'], t['widgets'].setdefault(screen, {}), set()
+    for w in c.children:
+        name = w.attrs.get('name', '')
+        what = f'widgets.{screen}.{name}'
+        if name not in allowed:
+            err(w, f'unknown widget {screen}.{name}')
+        if name in named:
+            err(w, f'{what} stated twice')
+        named.add(name)
+        if len(w.attrs) == 1:
+            err(w, f'{what}: no rule')
+        takes, rule = allowed[name], rules.setdefault(name, {})
+        for attr, text in w.attrs.items():
+            if attr == 'name':
+                continue
+            if attr not in RULE_ATTRS:
+                err(w, f'unknown key widget.{attr}')
+            if RULE_ATTRS[attr] not in takes:
+                err(w, f'{what}: no {RULE_ATTRS[attr]} (it takes {", ".join(takes)})')
+            if attr == 'hide':
+                if text not in ('0', '1'):
+                    err(w, f'{what}.hide: expected 0 or 1')
+                rule['hide'] = int(text)
+            elif attr == 'text':
+                if not 0 < len(text.encode()) <= takes['text'] or re.search('[\x00-\x1f\x7f-\x9f]', text):
+                    err(w, f'{what}.text: expected 1..{takes["text"]} bytes, no control characters')
+                rule['text'] = text
+            else:
+                if not re.fullmatch('-?[0-9]+', text):
+                    err(w, f'{what}.{attr}: expected an integer')
+                x0, y0, x1, y1 = takes['move']
+                lo, hi = (x0, x1 - 1) if attr == 'x' else (y0, y1 - 1)
+                if not lo <= int(text) <= hi:
+                    err(w, f'{what}.{attr}: {text} outside {lo}..{hi}')
+                rule[attr] = int(text)
+        if ('x' in rule) != ('y' in rule):
+            err(w, f'{what}: x and y come together')
+
+
+def ruled(t, screen):
+    """The widgets t's rules change on screen: a hide, a move or words (an inherited hide turned off is none)."""
+    return [n for n, r in t['widgets'].get(screen, {}).items() if r.get('hide') or 'x' in r or 'text' in r]
+
+
 def scheme_names(t):
     """The names accent values index: the ACCENTS rows, then the theme's own schemes."""
     return ACCENT_NAMES + [s['name'] for s in t['schemes'][len(ACCENT_NAMES):]]
@@ -748,13 +881,16 @@ def resolve(root, by_id, seen=()):
         t = resolve(by_id[a['extends']], by_id, seen + (tid,))  # a fresh dict: ours to change
     else:
         t = {'accents': ALL_ACCENTS, 'accent_key': None, 'schemes': [zero_scheme() for _ in ACCENT_NAMES], 'opts': [], 'geoms': {},
-             **{k.field: k.default for k in SCHEMA.values() if not k.path.startswith('scheme.')}, 'light': {}}
+             **{k.field: k.default for k in SCHEMA.values() if not k.path.startswith('scheme.')}, 'light': {}, 'widgets': {}}
     t.update(id=tid, name=a['name'], index=int(a['index']), line=root.line)
     macros = ROLE_MACROS.get(tid, {})
     opts = None
     named = []
+    screens: set[str] = set()
     for c in root.children:
-        if c.tag == 'colorSchemes':
+        if c.tag == 'widgets':
+            widget_rules(c, t, screens)
+        elif c.tag == 'colorSchemes':
             t['accents'] = 0
             t.pop('derive', None)
             for k in c.attrs:
@@ -1053,6 +1189,16 @@ def validate(t, name):
         for s in o['sets']:  # theme_t has one bar; the caption check above then holds for every set
             if sets(t)[s].bar != bar:
                 err(f"{o['key']}: set {s} has a {sets(t)[s].bar} px bar, the theme's is {bar}")
+    # the widget rules' whole-theme limits (WIDGET_RULES' notes)
+    home = t['widgets'].get('home', {})
+    if all(home.get(n, {}).get('hide') for n in WIDGET_RULES['home']['widgets'] if n != 'btn_rockbox'):
+        err("widgets.home: every row hidden; Home keeps one besides Rockbox's, which may not be there")
+    if ruled(t, 'playing') and t['np_layout'] == list(CHOICES['playing.layout']).index('centred'):
+        err('widgets.playing: the rules are the iPod page\'s, and playing.layout is centred')
+    if t['caps_np'] and t['widgets'].get('playing', {}).get('label_ipod_album', {}).get('hide'):
+        err('widgets.playing.label_ipod_album.hide: playing.album.caps paints the album from its label')
+    if ruled(t, 'lock') and t['painter[PAINT_PAGES]'] & list(CHOICES['pages.own.painter']).index('classic-light'):
+        err("widgets.lock: Classic's own lock screen (pages.own.painter classic-light) lays these out and paints its own")
 
 
 def accent_default(t):
@@ -1141,6 +1287,26 @@ def motion_fields(t):
             ('recall_ms', t['recall_ms']), ('bump_px', t['bump_px'])]
 
 
+def c_string(s):
+    """s as a C string literal: printable ASCII as it is, every other byte of its UTF-8 an octal escape."""
+    return '"' + ''.join(chr(b) if 32 <= b < 127 and chr(b) not in '"\\?' else f'\\{b:03o}' for b in s.encode()) + '"'
+
+
+def rules(t):
+    """t's widget rules as rule_t initialisers (theme.h), in WIDGET_RULES' order: those ruled() names."""
+    out = []
+    for screen, s in WIDGET_RULES.items():
+        changed = ruled(t, screen)
+        for name in (n for n in s['widgets'] if n in changed):
+            r = t['widgets'][screen][name]
+            flags = [f for f, on in (('RULE_HIDE', r.get('hide')), ('RULE_MOVE', 'x' in r), ('RULE_TEXT', 'text' in r)) if on]
+            move = ', .x = %d, .y = %d, .box = {%d, %d, %d, %d}' % (r['x'], r['y'], *s['widgets'][name]['move']) if 'x' in r else ''
+            text = f', .text = {c_string(r["text"])}' if 'text' in r else ''
+            out.append(f'    {{ .screen = SCREEN_{screen.upper()}, .flags = {" | ".join(flags)}{move}, .widget = {c_string(name)}{text} }},')
+    check(len(out) < 256, f'{t["id"]}: {len(out)} widget rules, theme_t.n_rules holds 255')
+    return out
+
+
 def emit(themes, out, redirects={}):
     """out/'themes.inc': the schemes, options and themes[] theme_engine.c includes, then the boot tables;
     out/'themes.h': their enums and macros, which every file of tools/build.py's NAVIGATION reads.
@@ -1168,7 +1334,7 @@ def emit(themes, out, redirects={}):
                 f'.bar = {stops_c(s["bar"])}, .bar_line = 0x{s["bar_line"]:06x}, .bar_line2 = 0x{s["bar_line2"]:06x}'
                 + (f', .label = {json.dumps(s["label"])}' if 'label' in s else '') + ' },'
                 for v, s in enumerate(scheme_half(s, light) for s in t['schemes'])]
-    drawn, named = {}, {}  # a theme whose rows are an earlier one's points at its array (Classic Modern at Classic's)
+    drawn, named, stated = {}, {}, {}  # a theme whose rows are an earlier one's points at its array (Classic Modern at Classic's)
     def array(name, body, *asserts):
         if tuple(body) not in drawn:
             drawn[tuple(body)] = name
@@ -1183,6 +1349,10 @@ def emit(themes, out, redirects={}):
         lines += [f'    {{ .setting = {setting(o)}, .def = {o["def"]}, .preset = {o["preset"]}, .keep = {o["keep"]}, '
                   f'.values = 0x{o["values"]:x} }},' for o in t['opts']]
         lines.append('};')
+        body = rules(t)  # a theme stating its base's rules points at its array, so a switch between them needs no restart
+        if body and tuple(body) not in stated:
+            stated[tuple(body)] = f'{i}_rules'
+            lines.extend([f'static const rule_t {i}_rules[] = {{', *body, '};'])
     lines.append('const theme_t themes[THEME_N] = {')
     for t in themes:
         # a final field's halves {dark, light}, flipped between the default accent's light paper and ink
@@ -1199,6 +1369,8 @@ def emit(themes, out, redirects={}):
                   ('undeclared', ' | '.join(f'(1 << {m})' for m in t['undeclared']) or 0),
                   *((k.field, c(k, t[k.field])) for k in SCHEMA.values() if k.cls == 'open'),
                   ('geom', sets.index(geometry(t))), *motion_fields(t)]
+        if rules(t):  # none: 0 and 0, and theme_rules.c touches nothing
+            fields += [('rules', stated[tuple(rules(t))]), ('n_rules', len(rules(t)))]
         lines += ['    {', *(f'        .{k} = {v},' for k, v in fields), '    },']
     lines.append('};')
     for name, bits in redirects.items():
@@ -1208,6 +1380,7 @@ def emit(themes, out, redirects={}):
     ui = [f'{{{json.dumps(n)}, {redirects[n]}}}' for n in sorted(redirects)] + ['{0, 0}']
     check(len(sets) <= 8, f'{len(sets)} geometry sets: ui_redirect_t.sets holds 8')
     lines += ['enum { ' + ', '.join(gname(g.name) for g in sets) + ', GEOM_N };',
+              f'#define RULE_HOME_ROWS {", ".join(map(c_string, WIDGET_RULES["home"]["widgets"]))}',  # theme_rules.c home_order
               'enum { ' + ', '.join(f'G_{n.upper()}' for n in VALUE_NAMES) + ', G_N };',
               f'#define BOOT_SITES {len(sites)}', f'#define CLIENT_H_MAX {max(320 - g.bar for g in sets)}',
               # volatile: -Oz can't fold the initialisers, which theme_boot and test/patch.py read

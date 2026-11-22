@@ -4956,6 +4956,8 @@ void coverflow_home_layout(void) {
     }
     home.key = ~0u; /* Split shows the current cover again, next frame if laid out mid-paint */
     rearm(&home.repaint, home_repaint, 0);
+    /* a theme's rules for the list's rows: the carousel's cards take the same names */
+    theme_rules(home.list, SCREEN_HOME);
 }
 
 /* w from x+dx to its x over m's ms and easing. Returns 0 without touching w when m->ms is 0;

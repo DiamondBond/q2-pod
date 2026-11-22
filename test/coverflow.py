@@ -374,6 +374,7 @@ unsigned unflip(unsigned v) { return v; }
 unsigned mix(unsigned a, unsigned b, int j, int n) { return a; }
 void bar_title_sync(void *win) {}
 void bar_title_name(void *win) {}
+void theme_rules(void *win, int screen) {} /* theme_rules.c's: test/fw/test_theme_rules.py */
 /* navigation.c's: Now Playing's art this song's (np_art_ready), its layout (np_layout), a row lit */
 static int np_ready, np_centred, lit_row = -1;
 static void *lit_list;

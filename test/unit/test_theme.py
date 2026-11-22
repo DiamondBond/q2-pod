@@ -2,6 +2,7 @@
 import math
 import dataclasses
 import itertools
+import json
 import re
 import shutil
 import xml.etree.ElementTree as ET
@@ -157,7 +158,7 @@ MINIMAL = {
     'schemes': [{**MINIMAL_ROLES, 'raw_red': int(v == 1), 'card': int(v == 7)} for v in range(9)],
     'opts': [STATUSBAR, opt('SETTING_TIMETITLE', preset=1), SHOWQ2POD, opt('SETTING_LIGHT', preset=0, keep=2),
              opt('SETTING_ACCENT', default=0, preset=0), opt('SETTING_ROUNDED', preset=1), opt('SETTING_HOME', preset=0),
-             opt('SETTING_SHORTCUT'), opt('SETTING_BATTERY'), opt('SETTING_NPCENTRED')], 'undeclared': [], **CF_TODAY}
+             opt('SETTING_SHORTCUT'), opt('SETTING_BATTERY'), opt('SETTING_NPCENTRED')], 'undeclared': [], 'widgets': {}, **CF_TODAY}
 # Modern: the hand-written table's Classic, before Classic took Classic Light's look.
 MODERN = {
     **MINIMAL, 'id': 'modern', 'index': 2, 'name': 'Modern', 'accents': 0x17f, 'accent_key': 'ACCENT',
@@ -1386,3 +1387,171 @@ def test_scrollbar_at_the_glass_or_absent_passes():
     theme.validate(resolved('<view name="list"><element name="scrollbar" w="4" right="2" top="59" bottom="261" min="16" thumb="#8f98a8"/></view>'), 't.xml')
     theme.validate(resolved('<view name="list"><element name="scrollbar" w="4" right="2" top="59" bottom="261" min="16" light.thumb="#8f98a8"/></view>'), 't.xml')
     theme.validate(resolved('<view name="list"><element name="scrollbar" right="2" top="0" bottom="320"/></view>'), 't.xml')
+
+
+# Widget rules: <widgets screen><widget name hide x y text/></widgets>, WIDGET_RULES' allowlist, compiled into rule_t rows.
+RULES = ('<widgets screen="playing"><widget name="img_cover" x="40" y="2"/><widget name="label_ipod_pos" hide="1"/></widgets>'
+         '<widgets screen="home"><widget name="btn_folder" text="Albums &amp; more"/><widget name="btn_stream" hide="1"/></widgets>'
+         '<widgets screen="bar"><widget name="img_wifi" hide="1"/><widget name="label_clock" x="200" y="0"/></widgets>'
+         '<widgets screen="lock"><widget name="img_slide" hide="1" x="10" y="300"/></widgets>')
+
+
+def test_widget_rules_resolve():
+    t = resolved(RULES, 'id="t" name="T" index="2" extends="modern"')
+    assert t['widgets'] == {'playing': {'img_cover': {'x': 40, 'y': 2}, 'label_ipod_pos': {'hide': 1}},
+                            'home': {'btn_folder': {'text': 'Albums & more'}, 'btn_stream': {'hide': 1}},
+                            'bar': {'img_wifi': {'hide': 1}, 'label_clock': {'x': 200, 'y': 0}},
+                            'lock': {'img_slide': {'hide': 1, 'x': 10, 'y': 300}}}
+    assert theme.validate(t, 't.xml') is None
+    assert all(not b['widgets'] for b in theme.builtins())  # every built-in draws as before
+
+
+def test_widget_rules_inherit_attribute_by_attribute():
+    """A theme takes its base's rules, and its own rule for a widget replaces the base's attributes it states."""
+    by_id = {n.attrs['id']: n for n in map(theme.load, sorted(THEMES.glob('*/theme.xml')))}
+    base = theme.parse('<theme format="1" id="b" name="B" index="2" extends="modern">' + RULES + '</theme>', 'b.xml')
+    child = theme.parse('<theme format="1" id="c" name="C" index="3" extends="b">'
+                        '<widgets screen="playing"><widget name="img_cover" x="60"/><widget name="label_ipod_pos" hide="0"/></widgets>'
+                        '<widgets screen="lock"><widget name="img_slide" hide="0"/></widgets></theme>', 'c.xml')
+    t = theme.resolve(child, {**by_id, 'b': base, 'c': child})
+    assert t['widgets']['playing'] == {'img_cover': {'x': 60, 'y': 2}, 'label_ipod_pos': {'hide': 0}}
+    assert t['widgets']['lock'] == {'img_slide': {'hide': 0, 'x': 10, 'y': 300}}
+    assert t['widgets']['home'] == {'btn_folder': {'text': 'Albums & more'}, 'btn_stream': {'hide': 1}}  # unstated: the base's
+    assert theme.ruled(t, 'playing') == ['img_cover']  # a hide turned off is no rule
+    assert theme.resolve(base, {**by_id, 'b': base})['widgets']['playing']['img_cover'] == {'x': 40, 'y': 2}  # the base's own stays
+
+
+W = 'id="t" name="T" index="2" extends="modern"'
+@pytest.mark.parametrize('body, message', [
+    ('<widgets screen="menu"/>', 'unknown screen menu'),
+    ('<widgets/>', 'unknown screen '),
+    ('<widgets screen="bar" look="x"/>', 'unknown key widgets.look'),
+    ('<widgets screen="bar"/><widgets screen="bar"/>', 'widgets screen bar stated twice'),
+    ('<widgets screen="bar"><element name="img_bt"/></widgets>', 'unknown element <element>'),
+    ('<widgets screen="bar"><widget name="img_bt" hide="1"><widget/></widget></widgets>', 'unknown element <widget>'),
+    ('<widgets screen="bar"><widget name="img_state" hide="1"/></widgets>', 'unknown widget bar.img_state'),
+    ('<widgets screen="playing"><widget name="img_more" hide="1"/></widgets>', 'unknown widget playing.img_more'),
+    ('<widgets screen="playing"><widget hide="1"/></widgets>', 'unknown widget playing.'),
+    ('<widgets screen="bar"><widget name="img_bt" hide="1"/><widget name="img_bt" hide="0"/></widgets>', 'widgets.bar.img_bt stated twice'),
+    ('<widgets screen="bar"><widget name="img_bt"/></widgets>', 'widgets.bar.img_bt: no rule'),
+    ('<widgets screen="bar"><widget name="img_bt" tint="#ffffff"/></widgets>', 'unknown key widget.tint'),
+    ('<widgets screen="bar"><widget name="img_bt" x="1" y="1"/></widgets>', 'widgets.bar.img_bt: no move (it takes hide)'),
+    ('<widgets screen="playing"><widget name="img_fav" hide="1"/></widgets>', 'widgets.playing.img_fav: no hide (it takes move)'),
+    ('<widgets screen="bar"><widget name="label_clock" text="Now"/></widgets>', 'widgets.bar.label_clock: no text (it takes hide, move)'),
+    ('<widgets screen="home"><widget name="btn_rockbox" text="Games"/></widgets>', 'widgets.home.btn_rockbox: no text (it takes hide)'),
+    ('<widgets screen="home"><widget name="btn_folder" hide="true"/></widgets>', 'widgets.home.btn_folder.hide: expected 0 or 1'),
+    ('<widgets screen="playing"><widget name="img_cover" x="1.5" y="2"/></widgets>', 'widgets.playing.img_cover.x: expected an integer'),
+    ('<widgets screen="playing"><widget name="img_cover" x="375" y="2"/></widgets>', 'widgets.playing.img_cover.x: 375 outside 0..374'),
+    ('<widgets screen="playing"><widget name="img_cover" x="0" y="-1"/></widgets>', 'widgets.playing.img_cover.y: -1 outside 0..229'),
+    ('<widgets screen="playing"><widget name="label_ipod_pos" x="300" y="0"/></widgets>', 'widgets.playing.label_ipod_pos.x: 300 outside 0..299'),
+    ('<widgets screen="lock"><widget name="img_slide" x="0" y="279"/></widgets>', 'widgets.lock.img_slide.y: 279 outside 280..319'),
+    ('<widgets screen="lock"><widget name="view_playinfo" x="0" y="280"/></widgets>', 'widgets.lock.view_playinfo.y: 280 outside 0..279'),
+    ('<widgets screen="playing"><widget name="img_cover" x="4"/></widgets>', 'widgets.playing.img_cover: x and y come together'),
+    ('<widgets screen="home"><widget name="btn_folder" text=""/></widgets>', 'widgets.home.btn_folder.text: expected 1..40 bytes, no control characters'),
+    ('<widgets screen="home"><widget name="btn_folder" text="' + 'x' * 41 + '"/></widgets>', 'widgets.home.btn_folder.text: expected 1..40 bytes, no control characters'),
+    ('<widgets screen="home"><widget name="btn_folder" text="' + 'é' * 20 + 'x"/></widgets>', 'widgets.home.btn_folder.text: expected 1..40 bytes, no control characters'),
+    ('<widgets screen="home"><widget name="btn_folder" text="a\x85b"/></widgets>', 'widgets.home.btn_folder.text: expected 1..40 bytes, no control characters'),
+])
+def test_widget_rules_reject(body, message):
+    assert error(resolved, body, W) == f't.xml:1: {message}'
+
+
+def test_widget_rules_reject_non_utf8_words(tmp_path):
+    path = tmp_path/'t'/'theme.xml'
+    path.parent.mkdir()
+    path.write_bytes(b'<theme format="1"><widgets screen="home"><widget name="btn_folder" text="Alb\xe9ms"/></widgets></theme>')
+    assert error(theme.load, path) == 't/theme.xml:1: not UTF-8'
+
+
+def test_widget_rules_take_their_limits():
+    t = resolved('<widgets screen="playing"><widget name="img_cover" x="374" y="229"/><widget name="label_ipod_pos" x="0" y="0"/></widgets>'
+                 '<widgets screen="home"><widget name="btn_folder" text="' + 'é' * 20 + '"/><widget name="btn_settings" text=" "/></widgets>'
+                 '<widgets screen="lock"><widget name="img_slide" x="374" y="280"/></widgets>', W)
+    assert theme.validate(t, 't.xml') is None
+    assert t['widgets']['home']['btn_folder']['text'] == 'é' * 20
+
+
+def home_hidden(*rows):
+    return '<widgets screen="home">' + ''.join(f'<widget name="btn_{r}" hide="1"/>' for r in rows) + '</widgets>'
+
+
+CM = 'id="t" name="T" index="2" extends="classic-modern"'  # Classic's own pages, under the flat look's (art_final is that look's)
+@pytest.mark.parametrize('body, attrs, message', [
+    (home_hidden(*ipod.HOME_ROWS), W, "widgets.home: every row hidden; Home keeps one besides Rockbox's, which may not be there"),
+    (home_hidden(*(r for r in ipod.HOME_ROWS if r != 'rockbox')), W, "widgets.home: every row hidden; Home keeps one besides Rockbox's, which may not be there"),
+    ('<view name="playing" layout="centred"/><widgets screen="playing"><widget name="slider_play" hide="1"/></widgets>', W,
+     "widgets.playing: the rules are the iPod page's, and playing.layout is centred"),
+    ('<widgets screen="playing"><widget name="label_ipod_album" hide="1"/></widgets>', 'id="t" name="T" index="2" extends="minimal"',
+     'widgets.playing.label_ipod_album.hide: playing.album.caps paints the album from its label'),
+    ('<widgets screen="lock"><widget name="img_slide" hide="1"/></widgets>', CM,
+     "widgets.lock: Classic's own lock screen (pages.own.painter classic-light) lays these out and paints its own"),
+    ('<widgets screen="lock"><widget name="view_timeinfo" x="0" y="20"/></widgets>', CM,
+     "widgets.lock: Classic's own lock screen (pages.own.painter classic-light) lays these out and paints its own"),
+])
+def test_widget_rules_validate_rejects(body, attrs, message):
+    assert error(theme.validate, resolved(body, attrs), 't.xml') == f't.xml:1: {message}'
+
+
+@pytest.mark.parametrize('body, attrs', [
+    (home_hidden(*(r for r in ipod.HOME_ROWS if r != 'settings')), W),  # one row left
+    ('<view name="playing" layout="centred"/><widgets screen="playing"><widget name="slider_play" hide="0"/></widgets>', W),  # nothing to do
+    ('<widgets screen="playing"><widget name="label_ipod_album" hide="1"/></widgets>', W),  # Modern's album is its label
+    ('<widgets screen="playing"><widget name="label_ipod_album" x="194" y="100"/></widgets>', 'id="t" name="T" index="2" extends="minimal"'),
+    ('<widgets screen="lock"><widget name="img_slide" hide="0"/></widgets>', CM),
+    ('<widgets screen="playing"><widget name="img_cover" x="20" y="20"/></widgets><widgets screen="bar"><widget name="img_bt" hide="1"/></widgets>'
+     '<widgets screen="home"><widget name="btn_folder" text="Folders"/></widgets>', CM),
+])
+def test_widget_rules_validate_accepts(body, attrs):
+    assert theme.validate(resolved(body, attrs), 't.xml') is None
+
+
+def test_widget_rules_are_plain_data():
+    """What a browser editor mirrors: JSON, each widget something to do, each box a box, Home's rows tools/ipod.py's in order."""
+    rules = theme.WIDGET_RULES
+    assert json.loads(json.dumps(rules)) == rules
+    assert list(rules) == ['playing', 'bar', 'home', 'lock']
+    assert [r['window'] for r in rules.values()] == ['playing_page', 'system_bar', 'home_page', 'saverscreen_page']
+    for screen in rules.values():
+        for name, takes in screen['widgets'].items():
+            assert takes and set(takes) <= {'hide', 'move', 'text'}, name
+            if 'move' in takes:
+                x0, y0, x1, y1 = takes['move']
+                assert 0 <= x0 < x1 <= 375 and 0 <= y0 < y1 <= 320, name
+            assert takes.get('hide', True) is True and takes.get('text', theme.RULE_TEXT) == theme.RULE_TEXT
+    assert list(rules['home']['widgets']) == [f'btn_{r}' for r in ipod.HOME_ROWS]
+    assert [n for s in rules.values() for n, t in s['widgets'].items() if 'text' in t] == [f'btn_{r}' for r in ipod.HOME_ROWS if r != 'rockbox']
+    # More's tap: "3 of 12" ends left of More on every bar a set may have
+    assert theme.MORE_X == min(375 - ipod.corner_x(b, ipod.NP_TOP) - ipod.NP_ICON for b in range(26, 41)) == 300
+
+
+def test_c_string():
+    assert theme.c_string('img_cover') == '"img_cover"'
+    assert theme.c_string('A "b" \\ c?? é😀') == '"A \\042b\\042 \\134 c\\077\\077 \\303\\251\\360\\237\\230\\200"'
+
+
+def test_emit_widget_rules(tmp_path):
+    t = resolved(RULES, W)
+    u = {**t, 'id': 'u', 'name': 'U', 'index': 3}  # t's rules: t's array, so a switch between them is live
+    v = resolved('<widgets screen="home"><widget name="btn_settings" text="Réglages"/></widgets>', 'id="v" name="V" index="4" extends="modern"')
+    minimal = theme.builtins()[0]
+    inc = boot_inc(tmp_path, [minimal, t, u, v])
+    rows = ['static const rule_t t_rules[] = {',
+            '    { .screen = SCREEN_PLAYING, .flags = RULE_MOVE, .x = 40, .y = 2, .box = {0, 0, 375, 230}, .widget = "img_cover" },',
+            '    { .screen = SCREEN_PLAYING, .flags = RULE_HIDE, .widget = "label_ipod_pos" },',
+            '    { .screen = SCREEN_BAR, .flags = RULE_HIDE, .widget = "img_wifi" },',
+            '    { .screen = SCREEN_BAR, .flags = RULE_MOVE, .x = 200, .y = 0, .box = {0, 0, 375, 40}, .widget = "label_clock" },',
+            '    { .screen = SCREEN_HOME, .flags = RULE_TEXT, .widget = "btn_folder", .text = "Albums & more" },',
+            '    { .screen = SCREEN_HOME, .flags = RULE_HIDE, .widget = "btn_stream" },',
+            '    { .screen = SCREEN_LOCK, .flags = RULE_HIDE | RULE_MOVE, .x = 10, .y = 300, .box = {0, 280, 375, 320}, .widget = "img_slide" },',
+            '};']
+    assert '\n'.join(rows) in inc
+    assert inc.count('static const rule_t ') == 2 and 'static const rule_t u_rules' not in inc
+    assert '    { .screen = SCREEN_HOME, .flags = RULE_TEXT, .widget = "btn_settings", .text = "R\\303\\251glages" },' in inc
+    assert inc.count('        .rules = t_rules,\n        .n_rules = 7,\n') == 2 and '        .rules = v_rules,\n        .n_rules = 1,\n' in inc
+    assert inc.count('.rules = ') == 3  # none for Minimal: 0, and theme_rules.c touches nothing
+    assert '#define RULE_HOME_ROWS "btn_playing", "btn_localmusic", "btn_coverflow", "btn_folder", "btn_rockbox", "btn_stream", "btn_settings"\n' in inc
+
+
+def test_builtins_emit_no_rules(tmp_path):
+    inc = boot_inc(tmp_path, theme.builtins())
+    assert 'rule_t' not in inc and '.rules = ' not in inc and '.n_rules' not in inc

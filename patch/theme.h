@@ -145,6 +145,17 @@ typedef struct {
     unsigned short ms;    /* widget kinds: the glide's duration; 0 is an immediate move */
     unsigned char easing; /* widget kinds: AWTK easing_type_t */
 } motion_t;
+/* rule_t.screen, tools/theme.py WIDGET_RULES' order: Now Playing, the status bar, Home, the lock
+ * screen */
+enum { SCREEN_PLAYING, SCREEN_BAR, SCREEN_HOME, SCREEN_LOCK, SCREEN_N };
+enum { RULE_HIDE = 1, RULE_MOVE = 2, RULE_TEXT = 4 }; /* rule_t.flags */
+/* A theme's rule for one stock widget on its screen (theme_rules.c): hidden, moved to x, y in its
+ * parent's coordinates with the whole widget kept inside box (x0, y0, x1, y1), and its words */
+typedef struct {
+    unsigned char screen, flags;
+    short x, y, box[4];
+    const char *widget, *text;
+} rule_t;
 typedef struct {
     const char *name;   /* "Minimal": the Theme row's "Theme: %s" */
     unsigned char geom; /* second: THEME_GEOM_OFF (4) never moves */
@@ -223,6 +234,8 @@ typedef struct {
      * detail row's caption and detail boxes */
     short page_row, page_detail, page_title_h, page_x, page_cap_y, page_cap_h, page_det_y,
         page_det_h;
+    const rule_t *rules; /* [n_rules] its widget rules; none: stock's widgets as they are */
+    unsigned char n_rules;
 } theme_t;
 const theme_t *theme(void); /* accent(); return &themes[st.theme]; */
 /* Classic's own pages: Quick Settings, sliders, rating, dialogs' pages, T9 and Search, Set Time,

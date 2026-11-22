@@ -432,6 +432,7 @@ int lockscreen_init(void *win, void *ctx) {
         info_screen(win, img, id);
     else if (pod_value(POD_LOCKCLOCK))
         big_clock(win);
+    theme_rules(win, SCREEN_LOCK);
     return result;
 }
 
