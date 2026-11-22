@@ -1591,6 +1591,22 @@ widget_t *page_title(widget_t *body, const char *caption, int n) {
     return title;
 }
 
+/* The album title's short rules in Minimal and Modern, matching the centred mockup. */
+static void album_title_rules(widget_t *body) {
+    const theme_t *T = theme();
+    if (T->painter[PAINT_PAGES] != PAGES_FLAT || !T->page_title_h) return;
+    static const int x[] = { 55, 245 };
+    unsigned ink = RGBA(flip_if(ipod_light(), scheme()->ink));
+    for (unsigned i = 0; i < sizeof x / sizeof *x; ++i) {
+        widget_t *rule = widget_factory_create_widget(widget_factory(), "view", body, x[i],
+                                                       T->page_title_h / 2, 75, 1);
+        if (!rule) continue;
+        widget_set_prop_int(rule, "style:normal:bg_color", (int)ink);
+        widget_set_prop_int(rule, "style:normal:border_color", 0);
+        widget_set_prop_int(rule, "style:normal:border_width", 0);
+    }
+}
+
 /* A list view in parent from y, w wide and at most h high, for n item_h rows; its scroll view. */
 static widget_t *rows_view(widget_t *parent, int y, int w, int h, int n, int item_h) {
     int rows = n * item_h < h ? n * item_h : h;
@@ -3616,25 +3632,38 @@ static int to_tracks(const void *unused) {
         widget_set_visible(cf.covers, 0, 0);
         widget_set_sensitive(cf.covers, 0);
     }
-    /* one row height a list, as stock's layouter forces item_height on every row: 64 px with a
-     * length's line under each title once any track has one, an unknown's left empty */
-    int timed = 0;
+    /* Album rows always have a detail line for the album artist. The duration part is
+     * optional: duration_text() returns empty when Scan Song Durations is off or unavailable. */
+    int album_tracks = cf.scoped != PLAYLISTS, timed = 0;
     for (int i = 0; i < n && !timed; ++i)
         /* NOLINTNEXTLINE(bugprone-signed-char-misuse): only tested for 0, an empty text */
         timed = *duration_text(name, sizeof name, deque_at(cf.tracks, (unsigned)i));
     const char *title = P(r, cf.scoped == PLAYLISTS ? REC_TITLE : REC_ALBUM);
-    widget_t *view = timed ? page_list(cf.page, cf.body, &cf.title, title, n, 64) : list(title, n);
+    int details = album_tracks || timed;
+    widget_t *view = details ? page_list(cf.page, cf.body, &cf.title, title, n, 64) : list(title, n);
+    if (album_tracks) album_title_rules(cf.body);
     /* the album over its tracks, all centred, but under a theme's own rows */
     int centred = theme()->page_title_h;
     if (centred) widget_set_prop_int(cf.title, "style:normal:font_size", cfs.name_px);
     for (int i = 0; i < n; ++i) {
-        char duration[24];
+        char duration[24], detail[512] = "";
         void *song = deque_at(cf.tracks, (unsigned)i);
         duration_text(duration, sizeof duration, song);
+        if (album_tracks) {
+            const char *artist = P(r, REC_ALBUM_ARTIST);
+            if (!artist || !*artist) artist = P(r, REC_ARTIST);
+            if (artist && *artist)
+                tk_snprintf(detail, sizeof detail, "%s%s%s", artist, *duration ? " · " : "",
+                            duration);
+            else
+                tk_snprintf(detail, sizeof detail, "%s", duration);
+        } else if (timed) {
+            tk_snprintf(detail, sizeof detail, "%s", duration);
+        }
         widget_t *row = page_row_detail(view, i, track_name(name, sizeof name, song),
-                                        timed ? duration : 0, play);
+                                        details ? detail : 0, play);
         if (centred) widget_use_style(widget_get_child(row, 0), "s_scrlabel_white20c");
-        if (centred && timed)
+        if (centred && details)
             widget_set_prop_str(widget_get_child(row, 1), "style:normal:text_align_h", "center");
     }
     page_push(view, cf.text_albums && cf.scoped == ARTIST_ALBUMS); /* from a list, not the covers */
