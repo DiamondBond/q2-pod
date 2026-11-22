@@ -1,0 +1,77 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: GPL-3.0-only. Holds work from DiamondBond/q2-pod (GPL-3.0-only): see LICENSE at the repository root. -->
+<!-- Q2 Theme Studio: make a theme for Q2 Pod in the official format (assets/themes/<id>/theme.xml).
+     A static page with no build step. Its policy allows only its own files: no inline script or style, no
+     eval, nothing from another host. studio.js builds everything inside the containers below. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Q2 Theme Studio</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="studio.css">
+</head>
+<body>
+<header id="top">
+  <h1>Q2 Theme Studio</h1>
+  <div id="theme-chip">
+    <strong id="theme-name"></strong>
+    <code id="theme-id"></code>
+    <span id="dirty" hidden title="Changes that were not saved yet">unsaved</span>
+  </div>
+  <p id="status" role="status" aria-live="polite"></p>
+  <div class="tools">
+    <button type="button" id="undo" title="Undo (Ctrl+Z)" disabled>Undo</button>
+    <button type="button" id="redo" title="Redo (Ctrl+Y)" disabled>Redo</button>
+    <button type="button" id="new" title="Start another theme" disabled>New&hellip;</button>
+    <button type="button" id="open" title="Open a theme.xml from disk">Open&hellip;</button>
+    <input type="file" id="file" accept=".xml,text/xml,application/xml" hidden>
+    <button type="button" id="save" class="primary" title="Save theme.xml (Ctrl+S)" disabled>Save theme.xml</button>
+  </div>
+</header>
+
+<p id="loading">Loading the theme format&hellip;</p>
+<noscript><p class="plainnote">This page is a program: it needs JavaScript.</p></noscript>
+
+<main id="start" hidden>
+  <div class="start-box">
+    <h2>A new theme</h2>
+    <p class="lead" id="start-lead">A new theme starts from one of Q2 Pod's built-in themes.</p>
+    <div id="start-body"></div>
+    <p class="lead legal">Free software under the GNU GPL version 3 (<a href="../../LICENSE" target="_blank" rel="noopener">LICENSE</a>), with work from DiamondBond/q2-pod. Fonts: Liberation Sans Bold (<a href="../../assets/fonts/LiberationSans-OFL.txt" target="_blank" rel="noopener">SIL OFL 1.1</a>) and TeX Gyre Heros Bold (<a href="../../assets/fonts/GUST-FONT-LICENSE.txt" target="_blank" rel="noopener">GUST Font License</a>).</p>
+  </div>
+</main>
+
+<main id="work" hidden>
+  <section id="preview" aria-label="Preview">
+    <div class="preview-head">
+      <div id="tabs" role="group" aria-label="Screen"></div>
+      <div class="preview-row">
+        <div id="states" role="group" aria-label="State of the screen"></div>
+        <div id="look"></div>
+      </div>
+    </div>
+    <div id="stage">
+      <canvas id="screen" width="750" height="640" aria-label="The theme on a Q2's screen"></canvas>
+      <p id="undrawn" hidden></p>
+    </div>
+    <div id="viewer" aria-label="What the preview shows"></div>
+  </section>
+  <nav id="nav" aria-label="Parts of the theme"></nav>
+  <section id="editor" aria-label="The theme's values">
+    <div id="panel"></div>
+    <div id="problems" aria-label="Problems"></div>
+  </section>
+</main>
+
+<script src="official.js"></script>
+<script src="draw_core.js"></script>
+<script src="draw_bar.js"></script>
+<script src="draw_home.js"></script>
+<script src="draw_list.js"></script>
+<script src="draw_playing.js"></script>
+<script src="studio.js"></script>
+</body>
+</html>
