@@ -8,8 +8,8 @@
 
 #define LOG_FILE PEQ_ROOT "/mnt/mmc/.scrobbler.log"
 #define INI_FILE PEQ_ROOT "/mnt/mmc/.scrobble.ini"
-/* supplied by the firmware, no card setup; netupdate.c, radio.c and onlinematch.c verify by it too
- * (tls_easy): ISRG, GTS Root R4, DigiCert G2 and github.com's roots */
+/* supplied by the firmware, no card setup; netupdate.c, radio.c, onlinematch.c and tidal.c verify
+ * by it too (tls_easy): ISRG, GTS Root R4, DigiCert G2, github.com's and Tidal's CDN's roots */
 #define CA_FILE PEQ_ROOT "/etc/scrobble-ca.pem"
 #define BATCH 50 /* Last.fm's limit; ListenBrainz takes 100 */
 /* Rockbox's lastfm_scrobbler on this card: tags from its 2168-byte id3 buffer, a title from the

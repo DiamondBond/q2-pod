@@ -3103,8 +3103,9 @@ static int curl_easy_perform(void *c) {
     while (gate) if (h.prog(h.pdata, 0, 0, 0, 0)) { performing = 0; return 42; } else usleep(1000);
     h.sink("data", 1, 4, h.data); performing = 0; return 0;
 }
-static int curl_easy_getinfo(void *c, int i, long *code) { *code = 200; return 0; }
+static int curl_easy_getinfo(void *c, int i, ...) { va_list ap; va_start(ap, i); void *out = va_arg(ap, void *); va_end(ap); if (i == 0x100001) *(const char **)out = h.url; else *(long *)out = 200; return 0; } /* EFFECTIVE_URL: no redirect */
 static void curl_easy_cleanup(void *c) { }
+static void *tls_easy(const char *u, long connect_s, long timeout_s) { void *c = curl_easy_init(); curl_easy_setopt(c, 10002, u); return c; } /* scrobble.c's */
 static unsigned curl_save(const void *d, unsigned size, unsigned n, void *f) { return fwrite(d, size, n, f) * size; } /* netupdate.c's */
 static int renamed(const char *a, const char *b) { int r = rename(a, b); ++ended; return r; }
 static int unlinked(const char *p) { int r = unlink(p); ++ended; return r; }
@@ -3113,7 +3114,7 @@ static int unlinked(const char *p) { int r = unlink(p); ++ended; return r; }
 TIDAL_SOURCE
 static void wait_for(_Atomic int *v, int want) { for (int i = 0; i < 3000 && *v != want; i++) usleep(1000); assert(*v == want); }
 static int has(const char *id) { char p[300]; snprintf(p, sizeof p, TIDAL_DIR "/%s-27.flac", id); return !access(p, 0); }
-static void play(const char *id) { char u[64]; snprintf(u, sizeof u, "https://x/%s.flac", id); tidal_play(u, id, 0); }
+static void play(const char *id) { char u[64]; snprintf(u, sizeof u, "https://sp-pr-fa.audio.tidal.com/%s.flac", id); tidal_play(u, id, 0); }
 static void finish(int n) { usleep(20000); gate = 0; wait_for(&ended, n); usleep(20000); }
 int main(void) {
     gate = 1; play("A"); wait_for(&performing, 1); /* stopped 2 s between tracks, then playing: kept */
@@ -3123,7 +3124,7 @@ int main(void) {
     status = 2; gate = 1; play("C"); wait_for(&performing, 1); /* the same id again: one transfer */
     play("C"); finish(3); assert(has("C") && performs == 3);
     gate = 1; play("D"); wait_for(&performing, 1); /* a skip: D dropped, the same worker takes E */
-    play("E"); wait_for(&ended, 4); wait_for(&performing, 1); assert(!strcmp(last, "https://x/E.flac"));
+    play("E"); wait_for(&ended, 4); wait_for(&performing, 1); assert(!strcmp(last, "https://sp-pr-fa.audio.tidal.com/E.flac"));
     finish(5); assert(!has("D") && has("E"));
     gate = 1; play("F"); wait_for(&performing, 1); /* G's job overtaken by a cached play: dropped */
     play("G"); play("A"); finish(6); usleep(50000); assert(!has("F") && !has("G") && performs == 6);

@@ -1,6 +1,7 @@
 # Changelog
 
 - **1.9.1**:
+  - Tidal: a song is saved to **Tidal Downloads** only when it comes from Tidal's own servers over a checked connection, so a Wi-Fi network that tampers with it can't leave its own file on the card to play later. It used to save whatever answered, even another server's or one sent over an unencrypted redirect. Songs saved before this update stay as they are; Clear All Downloads removes them.
   - EQ: in **Advanced**, drag a band up or down on the curve to set its gain, as you drag Simple's sliders. Touch the ring of a band that's on. Choose **Apply changes** to hear it.
   - Bluetooth: **Receive Audio**, on the Bluetooth page, turned off makes the Q2 only send audio, so it plays to a speaker that can also send, such as an Amazon Echo. The Q2 could take the speaker for a phone and open its receiver page each time they connected, even after unpairing it. Turn Bluetooth off and on after changing it. On, as before, a phone can play to the Q2.
   - Playback: with the screen off, hold Next or Previous to fast-forward or rewind the playing song; let go and it plays on from there. A press still skips to the next or previous song.

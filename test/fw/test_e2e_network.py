@@ -401,6 +401,8 @@ class Net:
         h = self.handles[c]
         if what == 0x200002:  # RESPONSE_CODE
             C.c_long.from_address(out).value = h.code
+        elif what == 0x100001:  # EFFECTIVE_URL: the URL asked for, as no redirect is followed here
+            C.c_void_p.from_address(out).value = h.opts[10002]
         elif what == 0x10001f:  # REDIRECT_URL
             loc = C.create_string_buffer(h.location.encode()) if h.location else None
             self.keep.append(loc)

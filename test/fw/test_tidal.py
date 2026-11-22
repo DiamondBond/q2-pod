@@ -15,13 +15,17 @@ from test_streaming import Td
 
 TIDAL = '/mnt/mmc/.tidal'
 CACHE_SIZE = f'{TIDAL}/.cache-size'
-URL = 'https://cdn.example/a/0.flac?token=1'
-NEXT = 'https://cdn.example/b/0.flac?token=2'
+URL = 'https://sp-pr-fa.audio.tidal.com/a/0.flac?token=1'
+NEXT = 'https://sp-pr-fa.audio.tidal.com/b/0.flac?token=2'
 MB = 1 << 20
 CURLOPT_URL, CURLOPT_WRITEDATA, CURLOPT_WRITEFUNCTION = 10002, 10001, 20011
 CURLOPT_NOSIGNAL, CURLOPT_FOLLOWLOCATION, CURLOPT_LOW_SPEED_LIMIT, CURLOPT_LOW_SPEED_TIME = 99, 52, 19, 20
 CURLOPT_XFERINFOFUNCTION, CURLOPT_XFERINFODATA, CURLOPT_NOPROGRESS = 20219, 10057, 43
-CURLE_OK, CURLE_WRITE_ERROR, CURLE_ABORTED_BY_CALLBACK = 0, 23, 42
+CURLOPT_CAINFO, CURLOPT_SSL_VERIFYPEER, CURLOPT_SSL_VERIFYHOST, CURLOPT_SSL_CTX_FUNCTION = 10065, 64, 81, 20108
+CURLOPT_REDIR_PROTOCOLS, CURLPROTO_HTTPS, CURLOPT_TIMEOUT, CURLOPT_CONNECTTIMEOUT = 182, 2, 13, 78
+CURLINFO_RESPONSE_CODE, CURLINFO_EFFECTIVE_URL = 0x200002, 0x100001
+CURLE_OK, CURLE_UNSUPPORTED_PROTOCOL, CURLE_WRITE_ERROR, CURLE_ABORTED_BY_CALLBACK = 0, 1, 23, 42
+CURLE_PEER_FAILED_VERIFICATION = 60
 STOPPED, PLAYING = 1, 2
 EINTR, EAGAIN = 4, 11
 
@@ -78,8 +82,10 @@ class Cdn:
     transfer's progress callback after each, as libcurl does; a progress that answers nonzero aborts it. on_chunk
     runs after each chunk is written: another track starting, a Stop, a Clear All."""
     def __init__(self, fw, bodies, code=200, chunks=4):
-        self.fw, self.bodies, self.code, self.chunks = fw, bodies, code, chunks
+        self.fw, self.bodies, self.code, self.chunks, self.err = fw, bodies, code, chunks, CURLE_OK
         self.opts, self.fetched, self.on_chunk = {}, [], lambda i: None
+        self.ended: str | None = None  # where a redirect ended (None: none, the URL asked for)
+        self.kept: list[C.Array[C.c_char]] = []  # the strings handed out, alive while the test runs
         fw.mock('fw_curl_easy_init', lambda *_: 0x7700)
         fw.mock('fw_curl_easy_setopt', lambda c, opt, value, *_: self.opts.__setitem__(opt, value))
         fw.mock('fw_curl_easy_perform', self.perform)
@@ -100,10 +106,17 @@ class Cdn:
             self.on_chunk(i)
             if progress(self.opts[CURLOPT_XFERINFODATA], len(body), min(len(body), (i + 1) * step), 0, 0):
                 return CURLE_ABORTED_BY_CALLBACK
-        return CURLE_OK
+        return self.err  # a transfer that wrote its body and then failed: the worst case for what's kept
 
     def getinfo(self, c, info, out, *_):
-        assert info == 0x200002  # CURLINFO_RESPONSE_CODE
+        if info == CURLINFO_EFFECTIVE_URL:  # a string libcurl owns until the handle's cleanup
+            if self.ended is None:
+                C.c_void_p.from_address(out).value = self.opts[CURLOPT_URL]
+            else:
+                self.kept.append(C.create_string_buffer(self.ended.encode()))
+                C.c_void_p.from_address(out).value = C.addressof(self.kept[-1])
+            return 0
+        assert info == CURLINFO_RESPONSE_CODE
         C.c_long.from_address(out).value = self.code
         return 0
 
@@ -218,6 +231,11 @@ def test_a_streamed_track_is_kept_on_the_card_and_plays_from_it_next_time(fw):
     opts = cdn.opts
     assert opts[CURLOPT_FOLLOWLOCATION] == 1 and opts[CURLOPT_NOSIGNAL] == 1 and opts[CURLOPT_NOPROGRESS] == 0
     assert opts[CURLOPT_LOW_SPEED_LIMIT] > 0 and opts[CURLOPT_LOW_SPEED_TIME] > 0
+    # verified as tls_easy verifies (the firmware's bundle, peer and host, no date checks), a redirect to https alone
+    assert C.string_at(opts[CURLOPT_CAINFO]) == b'/etc/scrobble-ca.pem' and opts[CURLOPT_SSL_CTX_FUNCTION]
+    assert (opts[CURLOPT_SSL_VERIFYPEER], opts[CURLOPT_SSL_VERIFYHOST], opts[CURLOPT_REDIR_PROTOCOLS]) == (1, 2, CURLPROTO_HTTPS)
+    # no cap on a whole download, however long the song; a host that never answers still ends
+    assert CURLOPT_TIMEOUT not in opts and opts[CURLOPT_CONNECTTIMEOUT] == 15
     t.play(URL, '123')
     assert t.played == [URL, cached('123-0.flac')] and len(t.threads) == 1 and cdn.fetched == [URL]
 
@@ -275,6 +293,53 @@ def test_only_an_http_200_is_kept(fw, code):
     t.play(URL, '1')
     t.run()
     assert card.listing() == [] and t.played == [URL]
+
+
+@pytest.mark.parametrize('err', [CURLE_PEER_FAILED_VERIFICATION, CURLE_UNSUPPORTED_PROTOCOL],
+                         ids=['a certificate that does not verify', 'a redirect off https'])
+def test_a_transfer_curl_refuses_leaves_nothing_on_the_card(fw, err):
+    """The track plays from the stream; what the transfer wrote before it failed goes with its .tmp."""
+    card, cdn = Card(fw), Cdn(fw, {URL: b'fLaC' + b'x' * 1000})
+    cdn.err = err
+    t = Tidal(fw, card)
+    t.play(URL, '1')
+    t.run()
+    assert t.played == [URL] and cdn.fetched == [URL] and card.listing() == [] and t.td.busy == 0
+
+
+@pytest.mark.parametrize('url', [
+    'https://cdn.example/a/0.flac', 'http://sp-pr-fa.audio.tidal.com/a/0.flac',
+    'https://sp-pr-fa.audio.tidal.com@cdn.example/a/0.flac', 'https://cdn.example/x.audio.tidal.com/a/0.flac',
+    'https://cdn.example#.audio.tidal.com/a/0.flac', 'https://sp-pr-fa.audio.tidal.com.cdn.example/a/0.flac',
+    'https://sp-pr-fa.audio.tidal.com./a/0.flac', 'https://sp-pr-fa.audio.tidal.com:8443/a/0.flac',
+    'https://SP-PR-FA.AUDIO.TIDAL.COM/a/0.flac', 'https://audio.tidal.com/a/0.flac', 'https://xaudio.tidal.com/a/0.flac',
+    'https://.audio.tidal.com/a/0.flac'])
+def test_a_url_off_tidal_s_cdn_plays_and_is_never_downloaded(fw, url):
+    """The URL comes from a reply stock fetched unverified, so anything but https to a host under .audio.tidal.com,
+    named plainly, could be anyone's, valid certificate and all: it streams, as stock streams it, and nothing is
+    fetched or saved."""
+    card, cdn = Card(fw), Cdn(fw, {url: b'fLaC'})
+    t = Tidal(fw, card)
+    t.play(url, '1')
+    t.run()
+    assert t.played == [url] and cdn.fetched == [] and not fw.calls('fw_curl_easy_init') and card.listing() == []
+    assert t.td.busy == 0
+
+
+@pytest.mark.parametrize('ended, kept', [('https://cdn.example/a/0.flac', False),
+                                         ('https://sp-pr-fa.audio.tidal.com@cdn.example/a/0.flac', False),
+                                         ('https://sp-pr-cf.audio.tidal.com/a/0.flac?token=1', True)],
+                         ids=['a redirect off the CDN', 'one dressed as the CDN', 'one to another CDN host'])
+def test_a_redirect_keeps_the_song_only_if_it_ends_on_tidal_s_cdn(fw, ended, kept):
+    """libcurl follows a redirect to any https host whose certificate is its own: the copy is kept only when the URL
+    the transfer ended at passes the same rule as the first."""
+    card, cdn = Card(fw), Cdn(fw, {URL: b'fLaC' + b'x' * 1000})
+    cdn.ended = ended
+    t = Tidal(fw, card)
+    t.play(URL, '1')
+    t.run()
+    assert cdn.fetched == [URL] and t.played == [URL] and t.td.busy == 0
+    assert card.listing() == (['1-0.flac'] if kept else [])
 
 
 def test_a_card_that_wont_take_the_file_downloads_nothing(fw):

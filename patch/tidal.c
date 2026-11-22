@@ -182,6 +182,19 @@ static void tag(const char *tmp, char (*tags)[TIDAL_TAG], int pic) {
     if (!access(out, 0)) unlink(out);
 }
 
+/* Whether the download may fetch url: https to a host under Tidal's audio CDN, the authority that
+ * host alone (no user, port, upper case or trailing dot). The URL is from a reply stock fetched
+ * unverified, so a host elsewhere could be anyone's, valid certificate and all; tls_easy then
+ * proves this one is Tidal's. download() holds the URL a redirect ends at to the same rule. */
+static int tidal_cdn(const char *url) {
+    if (strncmp(url, "https://", 8)) return 0;
+    const char *host = url + 8, *end = host;
+    while ((*end >= 'a' && *end <= 'z') || (*end >= '0' && *end <= '9') || *end == '-' ||
+           *end == '.')
+        ++end;
+    return *end == '/' && end - host > 16 && !memcmp(end - 16, ".audio.tidal.com", 16);
+}
+
 /* Downloads tidal_play's job, then the job a track started meanwhile left, until none waits. */
 static void *download(void *unused) {
     char url[sizeof td.url], path[sizeof td.path], tmp[sizeof td.path + 4], tags[3][TIDAL_TAG],
@@ -198,32 +211,28 @@ static void *download(void *unused) {
         if (job) memcpy(tags, td.tags, sizeof tags), memcpy(cover, td.cover, sizeof cover);
         pthread_mutex_unlock(td.lock);
         if (!job) return 0;
+        int cdn = tidal_cdn(url);
         /* now, while it's there: stock removes a page's covers as another opens */
-        int pic = *cover == '/' && thumb(cover, TIDAL_COVER, 640, 640);
+        int pic = cdn && *cover == '/' && thumb(cover, TIDAL_COVER, 640, 640);
         tk_snprintf(tmp, sizeof tmp, "%s.tmp", path);
         unsigned stopped_at[2] = { 0, (unsigned)all };
         long code = 0;
+        char *got = 0; /* the URL the transfer ended at, after any redirect */
         int ok = 0;
-        void *f = fopen(tmp, "wb"), *c = f ? curl_easy_init() : 0;
+        void *f = cdn ? fopen(tmp, "wb") : 0, *c = f ? tls_easy(url, 15, 0) : 0;
         if (c) {
-            curl_easy_setopt(c, 10002, url);        /* CURLOPT_URL */
             curl_easy_setopt(c, 20011, curl_save);  /* WRITEFUNCTION */
             curl_easy_setopt(c, 10001, f);          /* WRITEDATA */
-            curl_easy_setopt(c, 99, 1L);            /* NOSIGNAL: off the UI thread */
-            curl_easy_setopt(c, 52, 1L);            /* FOLLOWLOCATION */
-            curl_easy_setopt(c, 78, 15L);           /* CONNECTTIMEOUT */
+            curl_easy_setopt(c, 52, 1L);            /* FOLLOWLOCATION, */
+            curl_easy_setopt(c, 182, 2L);           /* REDIR_PROTOCOLS: to https alone */
             curl_easy_setopt(c, 19, 1024L);         /* LOW_SPEED_LIMIT: a stalled transfer ends, */
             curl_easy_setopt(c, 20, 30L);           /* LOW_SPEED_TIME   so busy always clears */
             curl_easy_setopt(c, 20219, progress);   /* XFERINFOFUNCTION */
             curl_easy_setopt(c, 10057, stopped_at); /* XFERINFODATA */
             curl_easy_setopt(c, 43, 0L);            /* NOPROGRESS off, for it */
-            /* Tidal's CDN roots are not in the firmware's bundle; hciplayer streams the same URL
-             * unverified (ffmpeg's tls_verify=0), so the copy is trusted exactly as the stream is.
-             */
-            curl_easy_setopt(c, 64, 0L); /* SSL_VERIFYPEER */
-            curl_easy_setopt(c, 81, 0L); /* SSL_VERIFYHOST */
-            ok = !curl_easy_perform(c) && !curl_easy_getinfo(c, 0x200002, &code) &&
-                 code == 200; /* RESPONSE_CODE */
+            /* RESPONSE_CODE 200; EFFECTIVE_URL, where a redirect led, on the CDN too */
+            ok = !curl_easy_perform(c) && !curl_easy_getinfo(c, 0x200002, &code) && code == 200 &&
+                 !curl_easy_getinfo(c, 0x100001, &got) && got && tidal_cdn(got);
             curl_easy_cleanup(c);
         }
         if (f) {
