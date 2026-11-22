@@ -134,7 +134,7 @@ def test_shell_sink_streams_past_the_ok(connect):
 def test_shell_sink_stops_at_a_refusal(connect):
     s = connect(b'ERR', b'never')
     sink = io.BytesIO()
-    with pytest.raises(PermissionError, match=r'^authentication rejected \(check Q2_KEY and /mnt/mmc/q2remote.key\)$'):
+    with pytest.raises(PermissionError, match=r'^authentication rejected \(check Q2_KEY and /mnt/mmc/\.q2remote\.key\)$'):
         q.shell('x', host='h', sink=sink)
     assert sink.getvalue() == b'' and s.chunks == [b'never']
 

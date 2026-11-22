@@ -240,6 +240,29 @@ run list GET 'path=/mnt/mmc/.spotify' '' -
 post delete '/mnt/mmc/.scrobble.ini'
 { [ "$(status)" = 400 ] && [ -e /mnt/mmc/.scrobble.ini ]; } && ok "direct delete of .scrobble.ini refused" || bad "dotfile delete ($(status))"
 
+echo; echo "############ PRIVACY: q2remote's key (patch/remote.c's KEY_FILE) is not listed, served nor replaced"
+# A --dev build's root shell on port 2302 takes whatever key that file holds (docs/remote.md), so a key the
+# page could read or replace would give anyone on the network that shell. The path is read from
+# patch/remote.c: a key moved back to a name the page serves fails here.
+KEY=$(sed -n 's/^#define KEY_FILE "\(.*\)"$/\1/p' "${CGI%/assets/web/q2cgi}/patch/remote.c")
+KDIR=${KEY%/*}; KNAME=${KEY##*/}
+case $KEY in /mnt/mmc/?*) ok "patch/remote.c keeps the key at $KEY" ;; *) bad "no KEY_FILE under /mnt/mmc in patch/remote.c ('$KEY')" ;; esac
+mkdir -p "$KDIR"; printf 'REMOTEKEY-0123456789\n' > "$KEY"; printf 'shown' > "$KDIR/shown.txt"
+run list GET "path=$KDIR" '' -
+body | KNAME=$KNAME python3 -c "import json,os,sys
+ns=[e['name'] for e in json.load(sys.stdin)]
+assert 'shown.txt' in ns and os.environ['KNAME'] not in ns, ns" && ok "the key is absent from its folder's listing" || bad "the key is listed ($(status))"
+run download GET "path=$KEY" '' -
+{ refused && ! leaks REMOTEKEY; } && ok "download of the key refused, no leak" || bad "key download ($(status))"
+post delete "$KEY"
+{ refused && [ -e "$KEY" ]; } && ok "delete of the key refused" || bad "key delete ($(status))"
+mp /tmp/mp_k1 ----q2k1 "$KDIR/" "$KNAME" ATTACKERKEY-0123456789
+run upload POST '' 'multipart/form-data; boundary=----q2k1' /tmp/mp_k1
+{ refused && [ "$(cat "$KEY")" = REMOTEKEY-0123456789 ]; } && ok "upload of a file named as the key refused, the key untouched" || bad "key upload ($(status), now='$(cat "$KEY")')"
+rm -f "$KEY" "$KDIR/shown.txt"
+run upload POST '' 'multipart/form-data; boundary=----q2k1' /tmp/mp_k1
+{ refused && [ ! -e "$KEY" ]; } && ok "nor can an upload put a key there when there is none" || bad "key planted ($(status))"
+
 echo; echo "############ PARITY: System Volume Information is hidden (as stock does)"
 mkdir -p "/mnt/mmc/System Volume Information"
 run list GET 'path=/mnt/mmc' '' -
@@ -620,8 +643,29 @@ if [ "$FS" = vfat ]; then
   mp /tmp/mp_a3 ----q2a3 /mnt/mmc/ALBUMS 'a long song name.flac' newer
   run upload POST '' 'multipart/form-data; boundary=----q2a3' /tmp/mp_a3
   [ "$(cat "/mnt/mmc/Albums/A Long Song Name.flac")" = newer ] && ok "upload over an ordinary file in another case replaces it" || bad "upload in another case ($(status))"
+  # q2remote's key by its short name, which vfat makes from the name without its leading dots: six
+  # letters, ~N, and the extension's first three
+  printf 'REMOTEKEY-0123456789\n' > "$KEY"
+  kb=${KNAME#.}; ke=${kb##*.}; kb=${kb%.*}
+  A_KEY=$(short "$KEY" "$(printf '%s' "$kb" | tr 'a-z' 'A-Z' | cut -c1-6)" ".$(printf '%s' "$ke" | tr 'a-z' 'A-Z' | cut -c1-3)")
+  if [ -z "$A_KEY" ]; then
+    bad "no short name found for the key, so its short-name cases can't run"
+  else
+    ok "the kernel resolves the key's short name here ($A_KEY)"
+    run download GET "path=$KDIR/$A_KEY" '' -
+    { refused && ! leaks REMOTEKEY; } && ok "download of the key by its short name refused, no leak" || bad "key short-name download ($(status))"
+    post delete "$KDIR/$A_KEY"
+    { refused && [ -e "$KEY" ]; } && ok "delete of the key by its short name refused" || bad "key short-name delete ($(status))"
+    mp /tmp/mp_a4 ----q2a4 "$KDIR/" "$A_KEY" ATTACKERKEY-0123456789
+    run upload POST '' 'multipart/form-data; boundary=----q2a4' /tmp/mp_a4
+    { refused && [ "$(cat "$KEY")" = REMOTEKEY-0123456789 ]; } && ok "upload of a file named as the key's short name refused, the key untouched" || bad "key short-name upload ($(status), now='$(cat "$KEY")')"
+    rm -f "$KEY"
+    run upload POST '' 'multipart/form-data; boundary=----q2a4' /tmp/mp_a4  # that name is free now: an ordinary file
+    { [ -e "$KDIR/$A_KEY" ] && [ ! -e "$KEY" ]; } && ok "with no key there, a file uploaded under its old short name is not the key" || bad "a short-name upload became the key ($(status))"
+    rm -f "$KDIR/$A_KEY"
+  fi
 else
-  echo "  SKIP: /mnt/mmc is a $FS, which keeps no short names: run with --fat (see the header) for these 16 cases"
+  echo "  SKIP: /mnt/mmc is a $FS, which keeps no short names: run with --fat (see the header) for these 21 cases"
 fi
 
 echo; echo "############ DEVICE APPLET: no dependency on 'stat' (absent on device busybox 1.31.1)"

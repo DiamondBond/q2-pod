@@ -3,7 +3,8 @@
 #define PORT 2302
 #endif
 #ifndef KEY_FILE
-#define KEY_FILE "/mnt/mmc/q2remote.key"
+/* A dot name, which Wi-Fi transfer neither lists, serves nor replaces (assets/web/q2cgi). */
+#define KEY_FILE "/mnt/mmc/.q2remote.key"
 #endif
 #ifndef CACHE_FILE
 #define CACHE_FILE "/mnt/data/q2remote.key"

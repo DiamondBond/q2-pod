@@ -7,11 +7,15 @@ It listens on TCP port 2302 and sends the key and every command **unencrypted**.
 ## Setup
 
 1. Install a `--dev` update on the Q2 and join it to the same Wi-Fi network as your PC.
-2. Put a key on the card: 16-126 characters from `A-Z a-z 0-9 _ -`, one line. With the Q2 connected over USB storage:
+2. Put a key on the card as `.q2remote.key` in its top folder: 16-126 characters from `A-Z a-z 0-9 _ -`, one line. With the Q2 connected over USB storage:
 
    ```sh
-   openssl rand -hex 16 > /run/media/$USER/<card>/q2remote.key
+   openssl rand -hex 16 > /run/media/$USER/<card>/.q2remote.key
    ```
+
+   The leading dot keeps the key from Wi-Fi transfer, which neither lists, serves nor replaces a dot-named file. Under any other name, anyone on the network could download the key, or upload one of their own, while transfer is on. Make or change the key over USB storage or with Wi-Fi transfer off: on a FAT card, an upload already under way when the file appears can take its place.
+
+   **From an older `--dev` build**, which read `q2remote.key`: Wi-Fi transfer served that file, so make a new key rather than renaming the old one. Over USB storage, write a new `.q2remote.key` as above and delete `q2remote.key`. Or, before installing the new build and with Wi-Fi transfer off, push one from the computer: run `openssl rand -hex 16 > new.key`, then `python3 tools/q2remote.py push new.key /mnt/mmc/.q2remote.key`. Once the new build runs, switch `Q2_KEY` to the new key and delete the old file: `python3 tools/q2remote.py sh 'rm /mnt/mmc/q2remote.key'`. A card with only `q2remote.key` is refused, as one with no key is.
 
 3. **Eject, then unplug the cable or restart the Q2.** While the card is shared over USB storage the Q2 unmounts it, so a new key is read only once the cable is out, or at the next boot, before USB storage takes the card. q2remote keeps a copy in `/mnt/data/q2remote.key` and uses it while the card is away, so a cable in, even from boot, doesn't lock you out.
 4. Find the Q2's address: `python3 tools/q2remote.py find` tries every address of each /24 your PC is on (on Linux every interface's, so a Q2 on a hotspot is found while Ethernet stays the default route; elsewhere the default route's), without sending the key, and lists those where q2remote answers, or use the hotspot's or router's client list.
@@ -28,7 +32,7 @@ It listens on TCP port 2302 and sends the key and every command **unencrypted**.
    Instead of `Q2_KEY`, `Q2_KEY_FILE` can name the file, and without either the client reads
    `q2remote.key` from the repository root, which git ignores.
 
-Each connection rereads `/mnt/mmc/q2remote.key` while the card is mounted, so replacing the file rotates the key and deleting it revokes access, the internal copy included. A change made over USB storage applies once the cable is out.
+Each connection rereads `/mnt/mmc/.q2remote.key` while the card is mounted, so replacing the file rotates the key and deleting it revokes access, the internal copy included. A change made over USB storage applies once the cable is out.
 
 ## Commands
 
@@ -82,7 +86,7 @@ All of it is injected by writing input events to `/dev/input/eventN`, so the fir
 
 ## Troubleshooting
 
-- **`authentication rejected`:** the key differs from the card's file, the file is malformed, or the key is new and the USB cable is still connected (setup step 3).
+- **`authentication rejected`:** the key differs from the card's file, the file is malformed or still has its old name, `q2remote.key` (setup step 2), or the key is new and the USB cable is still connected (setup step 3).
 - **`cannot reach Q2` / `No route to host`:** the Q2 isn't on the network yet (after a boot or a reboot it can take a few minutes), or is in Rockbox, which has no q2remote. Make sure the PC is on the same network and not still on wired Ethernet.
 - **`no md-gpio-keys input device`:** run `devices`; the firmware may name its devices differently.
 

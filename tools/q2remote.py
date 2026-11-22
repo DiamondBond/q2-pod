@@ -82,7 +82,7 @@ def shell(cmd, data=b"", timeout=TIMEOUT, host=None, sink=None, done=None):
     if not out:
         raise ConnectionError("no reply from q2remote")
     if not out.startswith(b"OK\n"):
-        raise PermissionError("authentication rejected (check Q2_KEY and /mnt/mmc/q2remote.key)")
+        raise PermissionError("authentication rejected (check Q2_KEY and /mnt/mmc/.q2remote.key)")
     return bytes(out[3:])
 
 
