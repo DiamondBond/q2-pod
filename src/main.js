@@ -386,7 +386,6 @@ function release() {
     .then((j) => {
       const date = new Date(j.published_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
       $('#meta').textContent = `Version ${j.tag_name} · ${date}`;
-      $('#dl').textContent = `Download Q2 Pod ${j.tag_name}`;
     })
     .catch(() => {});
 }
