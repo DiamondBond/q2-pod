@@ -18,13 +18,13 @@
 <style>
 :root {
   --bg: #fff; --soft: #f5f5f7; --text: #1d1d1f; --muted: #6e6e73; --line: #d2d2d7;
-  --accent: #1f6fc0; --link: #1f6fc0; --on-accent: #fff;
+  --accent: #3d424b; --link: #1d1d1f; --on-accent: #fff;
   --d-body: #e3e3e6; --d-edge: #c7c7cc; --d-glass: #0b0b0c; --d-wheel: #d1d1d6; --d-centre: #e3e3e6; --d-mark: #636366;
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #000; --soft: #161617; --text: #f5f5f7; --muted: #a1a1a6; --line: #38383a;
-    --link: #5aa9ff;
+    --accent: #f5f5f7; --link: #f5f5f7; --on-accent: #000;
     --d-body: #2c2c2e; --d-edge: #3a3a3c; --d-glass: #000; --d-wheel: #1c1c1e; --d-centre: #2c2c2e; --d-mark: #8e8e93;
   }
 }
@@ -38,10 +38,12 @@ body {
 }
 a { color: var(--link); text-decoration: none; }
 a:hover { text-decoration: underline; }
+p a, li a:not([class]), .more a { text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; }
+p a:hover, li a:not([class]):hover, .more a:hover { text-decoration-color: currentColor; }
 :focus-visible { outline: 2px solid var(--link); outline-offset: 3px; border-radius: 4px; }
 img { display: block; max-width: 100%; height: auto; }
 code { font: 0.9em ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--soft); padding: 1px 5px; border-radius: 5px; }
-.wrap { max-width: 1040px; margin: 0 auto; padding: 0 22px; }
+.wrap { max-width: 980px; margin: 0 auto; padding: 0 22px; }
 .muted { color: var(--muted); }
 
 /* Top bar */
@@ -49,22 +51,23 @@ code { font: 0.9em ui-monospace, SFMono-Regular, Menlo, monospace; background: v
 @supports (backdrop-filter: blur(1px)) { .top { backdrop-filter: saturate(1.8) blur(16px); } }
 .top .wrap { display: flex; align-items: center; justify-content: space-between; height: 52px; }
 .top .name { color: var(--text); font-weight: 600; font-size: 19px; letter-spacing: -0.01em; }
-.top nav a { color: var(--muted); font-size: 14px; margin-left: 22px; }
+.top nav a { color: var(--muted); font-size: 12px; letter-spacing: .16em; text-transform: uppercase; margin-left: 24px; }
 .top nav a:hover { color: var(--text); text-decoration: none; }
 @media (max-width: 560px) { .top nav a.opt { display: none; } }
 
 /* The stage: the Q2 rises and turns to face you as you scroll; the page then moves on. */
-.stage { position: relative; height: 240vh; height: 240svh; }
+.stage { position: relative; height: 240vh; height: 240svh; padding: 0; margin-top: -53px; }
 .sticky { position: sticky; top: 0; height: 100vh; height: 100svh; overflow: hidden; }
 #q2 { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: pan-y; outline: none; opacity: 0; transition: opacity 1.2s ease; }
 #q2.ready { opacity: 1; }
-.hero { position: absolute; left: 0; right: 0; top: calc(52px + 7vh); text-align: center; padding: 0 22px; z-index: 1; will-change: opacity, transform; }
-.hero h1 { font-size: clamp(48px, 9vw, 80px); line-height: 1.02; font-weight: 700; letter-spacing: -0.035em; margin: 0; }
-.hero .tag { font-size: clamp(21px, 3vw, 28px); line-height: 1.25; font-weight: 500; letter-spacing: -0.01em; color: var(--muted); margin: 14px 0 30px; }
-.cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+.hero { position: absolute; left: 0; right: 0; top: calc(52px + 7vh); max-width: 980px; margin: 0 auto; text-align: left; padding: 0 22px; z-index: 1; will-change: opacity, transform; }
+.hero h1 { font-size: clamp(52px, 8vw, 84px); line-height: 1; font-weight: 700; letter-spacing: -0.035em; margin: 0; }
+.hero .tag { font-size: clamp(21px, 3vw, 28px); line-height: 1.25; font-weight: 500; letter-spacing: -0.01em; color: var(--muted); margin: 18px 0 30px; max-width: 13em; }
+.cta { display: flex; gap: 12px; flex-wrap: wrap; }
+@media (min-width: 900px) { .hero { top: 52px; bottom: 0; display: flex; flex-direction: column; justify-content: center; } .hero > * { max-width: 420px; } }
 .btn { display: inline-block; padding: 12px 24px; border-radius: 999px; font-weight: 600; font-size: 17px; background: var(--accent); color: var(--on-accent); }
-.btn:hover { text-decoration: none; filter: brightness(1.08); }
-.btn.ghost { background: transparent; color: var(--link); box-shadow: inset 0 0 0 1px var(--line); }
+.btn:hover { text-decoration: none; opacity: .82; }
+.btn.ghost { background: transparent; color: var(--text); box-shadow: inset 0 0 0 1.5px var(--text); }
 .meta { font-size: 14px; color: var(--muted); margin: 16px 0 0; min-height: 1.5em; }
 .screenbar { position: absolute; left: 0; right: 0; bottom: max(3.5vh, 18px); text-align: center; padding: 0 22px; opacity: 0; pointer-events: none; }
 .cap { font-size: 17px; font-weight: 600; margin: 0; min-height: 1.5em; }
@@ -75,6 +78,7 @@ code { font: 0.9em ui-monospace, SFMono-Regular, Menlo, monospace; background: v
 .flat .hero, .flat .screenbar { position: static; opacity: 1; }
 .flat #q2 { display: none; }
 .flat .flatq2 { display: block; position: relative; width: 300px; margin: 48px auto 18px; }
+@media (min-width: 900px) { .flat .sticky { display: grid; grid-template-columns: 1fr 1fr; max-width: 980px; margin: 0 auto; align-items: center; } .flat .hero { grid-row: 1 / 3; align-self: center; } .flat .flatq2 { grid-row: 1 / 3; grid-column: 2; } .flat .screenbar { grid-column: 2; } }
 .flatq2 svg { display: block; width: 100%; height: auto; }
 .flatq2 img { position: absolute; left: 8%; top: 5%; width: 84%; border-radius: 6px; }
 .flatq2 button { position: absolute; top: 69%; width: 22%; height: 12%; border: 0; background: none; cursor: pointer; }
@@ -94,6 +98,8 @@ code { font: 0.9em ui-monospace, SFMono-Regular, Menlo, monospace; background: v
 /* Sections */
 section { padding: 96px 0 0; }
 .head { max-width: 720px; margin: 0 0 40px; }
+.kick { font-size: 12px; letter-spacing: .18em; text-transform: uppercase; color: var(--muted); margin: 0 0 14px; }
+.kick::before { content: "•"; color: var(--text); margin-right: .7em; }
 h2 { font-size: clamp(32px, 5vw, 48px); line-height: 1.08; font-weight: 700; letter-spacing: -0.03em; margin: 0 0 12px; }
 .head p { font-size: 21px; line-height: 1.4; color: var(--muted); margin: 0; }
 .head.minor h2 { font-size: 32px; }
@@ -104,7 +110,7 @@ h3 { font-size: 19px; line-height: 1.3; letter-spacing: -0.01em; margin: 0 0 6px
 .card p { margin: 0; color: var(--muted); font-size: 16px; }
 .card p a { white-space: nowrap; }
 
-.themes { display: grid; gap: 28px 20px; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+.themes { display: grid; gap: 28px 20px; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); }
 .themes figure { margin: 0; }
 .themes img { width: 100%; border-radius: 10px; box-shadow: 0 0 0 1px var(--line); }
 .themes figcaption { margin-top: 12px; font-size: 15px; color: var(--muted); }
@@ -132,9 +138,9 @@ h3 { font-size: 19px; line-height: 1.3; letter-spacing: -0.01em; margin: 0 0 6px
 @media (max-width: 900px) { .people { grid-template-columns: 1fr 1fr; } .people .wide { grid-column: span 2; } }
 
 .cols { display: grid; gap: 40px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
-ol.steps { counter-reset: s; list-style: none; padding: 0; margin: 0; }
-ol.steps li { counter-increment: s; position: relative; padding: 0 0 0 46px; margin: 0 0 20px; }
-ol.steps li::before { content: counter(s); position: absolute; left: 0; top: -1px; width: 30px; height: 30px; border-radius: 50%; background: var(--soft); font-weight: 600; font-size: 15px; display: grid; place-items: center; }
+ol.steps { counter-reset: s; list-style: none; padding: 0; margin: 0 0 56px; display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
+ol.steps li { counter-increment: s; background: var(--soft); border-radius: 18px; padding: 22px 22px 24px; }
+ol.steps li::before { content: counter(s); display: block; font-size: 44px; font-weight: 800; line-height: 1; letter-spacing: -0.04em; margin: 0 0 14px; }
 .plain { margin: 0 0 28px; padding-left: 20px; }
 .plain li { margin: 0 0 10px; }
 .cols h3 { margin-bottom: 14px; }
@@ -198,7 +204,7 @@ footer a { color: var(--muted); text-decoration: underline; }
 
 <div class="wrap">
   <section id="features">
-    <div class="head minor reveal">
+    <div class="head minor reveal"><p class="kick">Features</p>
       <h2>Your Q2, as an iPod.</h2>
       <p>Q2 Pod replaces the Q2’s menus with an iPod-style interface.</p>
     </div>
@@ -216,7 +222,7 @@ footer a { color: var(--muted); text-decoration: underline; }
   </section>
 
   <section id="themes">
-    <div class="head minor reveal">
+    <div class="head minor reveal"><p class="kick">Themes</p>
       <h2>Four handcrafted themes.</h2>
       <p>Light Mode has an Auto schedule. Night Shift makes the colours warmer at night. Minimal and Modern have accent colours.</p>
     </div>
@@ -229,7 +235,7 @@ footer a { color: var(--muted); text-decoration: underline; }
   </section>
 
   <section id="apps">
-    <div class="head minor reveal">
+    <div class="head minor reveal"><p class="kick">App Store</p>
       <h2>More from the App Store.</h2>
       <p>In Library → App Store, install, update and remove apps and games through Wi-Fi.</p>
     </div>
@@ -265,22 +271,21 @@ footer a { color: var(--muted); text-decoration: underline; }
       <h2>Install.</h2>
       <p>You need a computer and the Q2’s USB-C cable. The User Guide has more data.</p>
     </div>
-    <div class="cols reveal">
-      <div>
-        <h3>Install Q2 Pod</h3>
-        <ol class="steps">
+    <ol class="steps reveal">
           <li>Download <a href="https://github.com/DiamondBond/q2-pod/releases/latest/download/update.tar"><code>update.tar</code></a> from the latest release.</li>
           <li>Connect the Q2 to your computer with the USB-C cable. The card shows as a drive.</li>
           <li>Copy <code>update.tar</code> to the card’s root, not into a folder. Eject the card, then disconnect the cable.</li>
           <li>On the Q2, select System settings → System Update → TF card update. Keep the card in until the Q2 starts again.</li>
-        </ol>
-      </div>
+    </ol>
+    <div class="cols reveal">
       <div>
         <h3>Update</h3>
         <ul class="plain">
           <li>Through Wi-Fi: select System settings → System Update → Network update.</li>
           <li>With a cable: do the install steps again with the newest release.</li>
         </ul>
+      </div>
+      <div>
         <h3>Go back to Shanling’s firmware</h3>
         <ul class="plain">
           <li>Install the <a href="https://en.shanling.com/download/150">Shanling firmware</a> with the same steps.</li>
@@ -300,7 +305,7 @@ footer a { color: var(--muted); text-decoration: underline; }
     </div>
   </section>
 
-  <p class="note">Use Q2 Pod at your own risk. Q2 Pod is an independent project. Shanling does not make or endorse it. iPod is a trademark of Apple Inc.</p>
+  <p class="note">Q2 Pod is an independent project. Shanling does not make or endorse it. You install it at your own risk. iPod is a trademark of Apple Inc.</p>
 </div>
 </main>
 

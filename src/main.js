@@ -205,7 +205,7 @@ function start() {
     invalidate();
   };
 
-  let visH = 100, startY = -30, startS = 0.56;
+  let visH = 100, startY = -30, startS = 0.56, startX = 0;
   const resize = () => {
     const w = canvas.clientWidth, h = canvas.clientHeight;
     if (!w || !h) return;
@@ -219,8 +219,16 @@ function start() {
     visH = 2 * dist * t;
     // At the top of the page, the Q2 stands whole in the room under the hero text.
     const pxmm = h / visH, below = hero.offsetTop + hero.offsetHeight + 24, room = h - below - Math.max(28, h * 0.05);
-    startS = clamp((room * 0.9) / (H * pxmm), 0.34, 0.7);
-    startY = (h / 2 - (below + room / 2)) / pxmm;
+    if (w >= 900) {
+      // Wide: the hero text is on the left, the Q2 stands on the right.
+      startS = clamp(((h - 52) * 0.78) / (H * pxmm), 0.34, 0.72);
+      startY = (h / 2 - (52 + (h - 52) / 2)) / pxmm;
+      startX = (Math.min(w, 980) * 0.26) / pxmm;
+    } else {
+      startS = clamp((room * 0.9) / (H * pxmm), 0.34, 0.7);
+      startY = (h / 2 - (below + room / 2)) / pxmm;
+      startX = 0;
+    }
     invalidate();
   };
 
@@ -229,7 +237,7 @@ function start() {
   const pose = () => {
     const k = smooth(0, 0.62, p), i = 1 - Math.pow(1 - intro, 3);
     q2.rotation.set(lerp(-0.2, 0, k) + lean.y * (1 - k), lerp(-0.62, 0, k) + lean.x * (1 - k) - 0.35 * (1 - i), 0);
-    q2.position.y = lerp(startY, 0, k) - 10 * (1 - i);
+    q2.position.set(lerp(startX, 0, k), lerp(startY, 0, k) - 10 * (1 - i), 0);
     q2.scale.setScalar(lerp(startS, 1, k));
     screenMat.color.setScalar(smooth(0.36, 0.6, p));
     if (!reduced) {
