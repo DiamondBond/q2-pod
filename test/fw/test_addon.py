@@ -549,13 +549,14 @@ def test_caps_has_needs(fw):
 @pytest.mark.parametrize('manifest,ids', [
     (b'needs=vault\n', [b'vault']), (b'needs=vault,b\r\n', [b'vault', b'b']), (b'needs= vault , b \n', [b'vault', b'b']),
     (b'name=A\n', []), (b'needs=\n', []), (b'needs=Bad!,x y,,c-d,,UPPER,\n', [b'c-d']),
+    (b'needs=,,,a b,c-d,UPPER,x/../y,aaaaaaaaaaaaaaaaaaaaa\n', [b'c-d']),
     (b'needs=a,b,c,d,e\n', [b'a', b'b', b'c', b'd'])])
 def test_needs_lists_the_ids(fw, manifest, ids):
     card(fw, foo=manifest)
     scan(fw)
     a = ap(fw).a[0]
     assert a.id == b'foo'
-    assert [bytes(a.needs[i].value) if hasattr(a.needs[i], 'value') else C.string_at(a.needs[i]) for i in range(a.nneeds)] == ids
+    assert [a.needs[i].value for i in range(a.nneeds)] == ids
 
 
 def test_a_wifi_app_does_not_hold_the_radio(fw):
