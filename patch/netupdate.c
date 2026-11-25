@@ -1123,14 +1123,14 @@ static void sh_start(int job, int i);
 /* The shelf indexes into out of app i's needed apps (its q2app's needs=) that are listed and not
  * installed, each once; how many, NEEDS_MAX at most. */
 static int needs_missing(int i, int *out) {
-    char path[96], raw[512], ids[NEEDS_MAX][16];
+    char path[96], raw[512], ids[NEEDS_MAX][16]; /* 16: addon.c's APP_ID */
     int n = 0;
     snprintf(path, sizeof path, CARD "/%s/q2app", apps[i].dir);
     if (!state_read(path, raw, sizeof raw)) return 0;
     for (int k = 0, found = needs_ids(raw, ids); k < found; ++k) {
         int j = sh_find(ids[k]), seen = 0;
         for (int m = 0; m < n; ++m) seen |= out[m] == j;
-        if (j >= 0 && j != i && !seen && sh_state(j) == ST_INSTALL) out[n++] = j;
+        if (j >= 0 && j != i && !seen && sh_shown(j) && sh_state(j) == ST_INSTALL) out[n++] = j;
     }
     return n;
 }
@@ -1163,6 +1163,8 @@ static int sh_wait(const void *unused) {
         sh.queued = needs_missing(i, sh.queue);
         snprintf(sh.needer, sizeof sh.needer, "%s", apps[i].name);
     }
+    if (job == JOB_INSTALL && (r == SH_NET || r == SH_CANCELLED))
+        sh.queued = 0; /* no Wi-Fi, or stopped: not a failure toast for each app left */
     sh.chained = 0;
     /* its files replaced or gone: an update that failed or was cancelled before it stopped its app
      * leaves it running, still tracked, and a remove cut off by USB storage leaves it marked to
@@ -1191,8 +1193,9 @@ static int sh_wait(const void *unused) {
         snprintf(s, sizeof s, tr("%s removed"), apps[i].name), toast(s);
     else if (job == JOB_ERASE) /* rows first: toast blocks */
         stream_erased(), toast(tr("Spotify's login and cache erased"));
-    /* the next needed app, one at a time and whatever the last one's result; not if a press during a
-     * toast started a job (it also cleared the queue) */
+    /* the next needed app, one at a time and whatever the last one's result (but SH_NET and
+     * SH_CANCELLED, above); not if a press during a toast started a job (which also cleared the
+     * queue, sh_start) */
     while (job == JOB_INSTALL && sh.queued > 0 && !sh.job) {
         int j = sh.queue[0];
         memmove(sh.queue, sh.queue + 1, --sh.queued * sizeof *sh.queue);
@@ -1208,6 +1211,7 @@ static int sh_wait(const void *unused) {
 }
 
 static void sh_start(int job, int i) {
+    if (!sh.chained) sh.queued = 0; /* a job of its own, not the chain's: nothing is waiting */
     if (job == JOB_ERASE || (is(i, "spotify") && job != JOB_CHECK))
         spot_stop(); /* on this thread: spotify.c's state too */
     sh.job = job, sh.app = i, sh.cancel = sh.percent = sh.result = sh.manual = 0, sh.running = 1;

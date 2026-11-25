@@ -2829,18 +2829,20 @@ def one_app(name, needs=b''):
     return {f'.{name}/q2-{name}': b'\x7fELF ' + name.encode(), f'.{name}/q2app': b'name=%s\n' % name.capitalize().encode() + needs}
 
 
-def needing(fw, plex=b'needs=vault\n', vault=b'', installed=(), listed=NEEDS_LIST):
+def needing(fw, plex=b'needs=vault\n', vault=b'', x=b'', installed=(), listed=NEEDS_LIST):
     """The App Store over `listed` with the apps in `installed` already on the card, and each install's zip in turn: Plex's,
     then Vault's. Returns the Store, the card."""
     tags = {b'/mnt/mmc/.q2/apps/%s.tag' % n: b'2.0' for n in installed}
     bins = {b'/mnt/mmc/.q2/apps/%s.files' % n: b'.%s/q2-%s\n' % (n, n) for n in installed}
     bins.update({b'/mnt/mmc/.%s/q2-%s' % (n, n): b'ELF' for n in installed})
     card = Disk(fw, {SOURCES: listed, **tags, **bins})
-    zips = [app_zip(one_app('plex', plex)), app_zip(one_app('vault', vault)), app_zip(one_app('x'))]
-    store_net(fw, listed=listed,
-              api=[(0, 200, None, github('2.0', ('app.zip', len(z)))) for z in zips],
-              zip=[(0, 200, None, z) for z in zips])
-    return Store(fw, card), card
+    zips = [app_zip(one_app('plex', plex)), app_zip(one_app('vault', vault)), app_zip(one_app('x', x))]
+    net = store_net(fw, listed=listed,
+                    api=[(0, 200, None, github('2.0', ('app.zip', len(z)))) for z in zips],
+                    zip=[(0, 200, None, z) for z in zips])
+    s = Store(fw, card)
+    s.net = net
+    return s, card
 
 
 def test_an_install_brings_what_it_needs(fw):
@@ -2909,6 +2911,59 @@ def test_a_need_installed_while_the_first_ends_is_skipped(fw):
     card.files[b'/mnt/mmc/.q2/apps/x.tag'] = b'2.0'  # Vault's end finds X installed by now
     s.run()
     assert s.sh.job == 0 and s.toasts[-1] == 'Vault is ready in Streaming'
+
+
+def test_two_apps_needing_one_install_it_once(fw):
+    s, card = needing(fw, x=b'needs=vault\n')
+    s.run()
+    s.click(1)
+    s.run()
+    s.run()
+    assert s.sh.job == 0 and s.labels() == ['Installed', 'Installed', 'Install']
+    s.click(3)
+    assert s.run() == 0 and s.sh.job == 0 and s.toasts[-1] == 'X is ready in Streaming'
+    assert len([t for t in s.toasts if t.startswith('Also')]) == 1
+    assert len([u for u in s.net.urls if u.startswith(b'https://h/')]) == 3  # plex, vault, x: no second vault
+
+
+def test_a_dropped_needed_app_isn_t_brought_along(fw):
+    s, card = needing(fw, listed=b'me/q2-plex Plex\n-me/q2-vault Vault\n')
+    s.run()
+    s.click(1)
+    assert s.run() == 0 and s.sh.job == 0 and s.toasts[-1] == 'Plex is ready in Streaming'
+
+
+def test_cancelling_a_chained_install_stops_the_chain(fw):
+    s, card = needing(fw, plex=b'needs=vault,x\n')
+    s.run()
+    s.click(1)
+    s.run()
+    assert s.sh.app == 1 and s.sh.chained == 1 and s.sh.queued == 1
+    s.click(2)  # Vault's row
+    assert s.sh.cancel == 1 and s.sh.queued == 0
+    assert s.run() == 0 and s.sh.job == 0 and s.labels()[2] == 'Install'
+
+
+def test_an_unusable_zip_brings_nothing(fw):
+    s, card = needing(fw, plex=b'needs=vault\n')
+    s.run()
+    bad = app_zip({'../x': b'x', '.plex/q2app': b'needs=vault\n'})
+    s.net.replies[b'https://h/'] = (0, 200, None, bad)
+    s.net.replies[b'https://api'] = (0, 200, None, github('2.0', ('app.zip', len(bad))))
+    s.click(1)
+    assert s.run() == 0 and s.sh.job == 0 and s.sh.queued == 0
+    assert s.toasts[-1] == 'The download is not a usable app'
+
+
+def test_a_chained_install_without_wifi_doesn_t_start_the_next(fw):
+    s, card = needing(fw, plex=b'needs=vault,x\n')
+    s.run()
+    s.click(1)
+    s.run()
+    assert s.sh.app == 1 and s.sh.queued == 1
+    s.net.replies[b'https://raw'] = (7, 0, None)
+    assert s.run() == 0 and s.sh.job == 0 and s.sh.queued == 0
+    assert s.toasts[-1] == "Can't reach GitHub"
 
 
 # A remove leaves no login behind, even from an app that saves it on its TERM, after 3 s too.
