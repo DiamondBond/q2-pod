@@ -45,7 +45,7 @@ class Sh(C.Structure):
     _fields_ = [('thread', C.c_ulong), *((n, C.c_int) for n in ('running', 'cancel', 'percent', 'stage', 'result', 'job', 'app', 'armed', 'rows', 'n')),
                 ('map', C.c_int * (SH_MAX + 1)), ('manual', C.c_int), ('need', C.c_uint), ('checked', C.c_ulonglong), ('next', App * SH_MAX),
                 ('page', C.c_void_p), ('row', C.c_void_p * (SH_MAX + 1)), ('tab', C.c_int), ('strip', C.c_void_p),
-                ('clicks', C.c_int)]
+                ('clicks', C.c_int), ('queue', C.c_int * 4), ('queued', C.c_int), ('chained', C.c_int), ('needer', C.c_char * 32)]
 
 
 class Nu(C.Structure):
@@ -2819,6 +2819,96 @@ def test_an_app_installs_into_place_and_removes_without_a_trace(fw, q2app, where
     assert s.labels() == ['Removing…']
     assert s.run() == 0 and s.toasts[-1] == 'Foo removed' and s.labels() == ['Install']
     assert on_card() == before and looked.count((77, b'library_apps')) == 2
+
+
+# An app whose q2app says needs= brings those apps with it, one install after the other.
+NEEDS_LIST = b'me/q2-plex Plex\nme/q2-vault Vault\nme/q2-x X\n'
+
+
+def one_app(name, needs=b''):
+    return {f'.{name}/q2-{name}': b'\x7fELF ' + name.encode(), f'.{name}/q2app': b'name=%s\n' % name.capitalize().encode() + needs}
+
+
+def needing(fw, plex=b'needs=vault\n', vault=b'', installed=(), listed=NEEDS_LIST):
+    """The App Store over `listed` with the apps in `installed` already on the card, and each install's zip in turn: Plex's,
+    then Vault's. Returns the Store, the card."""
+    tags = {b'/mnt/mmc/.q2/apps/%s.tag' % n: b'2.0' for n in installed}
+    bins = {b'/mnt/mmc/.q2/apps/%s.files' % n: b'.%s/q2-%s\n' % (n, n) for n in installed}
+    bins.update({b'/mnt/mmc/.%s/q2-%s' % (n, n): b'ELF' for n in installed})
+    card = Disk(fw, {SOURCES: listed, **tags, **bins})
+    zips = [app_zip(one_app('plex', plex)), app_zip(one_app('vault', vault)), app_zip(one_app('x'))]
+    store_net(fw, listed=listed,
+              api=[(0, 200, None, github('2.0', ('app.zip', len(z)))) for z in zips],
+              zip=[(0, 200, None, z) for z in zips])
+    return Store(fw, card), card
+
+
+def test_an_install_brings_what_it_needs(fw):
+    s, card = needing(fw)
+    s.run()
+    s.click(1)
+    assert s.run() == 0 and s.toasts[-2:] == ['Plex is ready in Streaming', 'Also installing Vault, which Plex needs']
+    assert s.sh.job == JOB_INSTALL and s.sh.app == 1 and s.sh.chained == 1
+    assert s.run() == 0 and s.sh.job == 0 and s.toasts[-1] == 'Vault is ready in Streaming'
+    assert s.labels() == ['Installed', 'Installed', 'Install'] and b'/mnt/mmc/.vault/q2-vault' in card.files
+
+
+def test_a_needed_app_already_installed_isn_t_installed_again(fw):
+    s, card = needing(fw, installed=[b'vault'])
+    s.run()
+    s.click(1)
+    assert s.run() == 0 and s.sh.job == 0 and s.toasts[-1] == 'Plex is ready in Streaming'
+
+
+def test_a_needed_app_not_listed_is_skipped(fw):
+    s, card = needing(fw, plex=b'needs=nothere\n')
+    s.run()
+    s.click(1)
+    assert s.run() == 0 and s.sh.job == 0 and s.toasts[-1] == 'Plex is ready in Streaming'
+
+
+@pytest.mark.parametrize('how', ['no release', 'cancelled'])
+def test_a_failed_or_cancelled_install_brings_nothing(fw, how):
+    s, card = needing(fw)
+    s.run()
+    s.click(1)
+    if how == 'cancelled':
+        s.click(1)
+    else:
+        fw.mock('fw_curl_easy_perform', lambda *_: 7)
+    s.run()
+    assert s.sh.job == 0 and s.sh.queued == 0 and not [t for t in s.toasts if t.startswith('Also')]
+
+
+def test_a_chained_install_doesn_t_chain_further(fw):
+    s, card = needing(fw, vault=b'needs=x\n')
+    s.run()
+    s.click(1)
+    s.run()
+    assert s.sh.job == JOB_INSTALL and s.sh.app == 1
+    assert s.run() == 0 and s.sh.job == 0 and s.toasts[-1] == 'Vault is ready in Streaming'
+    assert s.labels() == ['Installed', 'Installed', 'Install']
+
+
+def test_an_app_naming_a_need_twice_installs_it_once(fw):
+    s, card = needing(fw, plex=b'needs=vault, vault ,vault\n')
+    s.run()
+    s.click(1)
+    s.run()
+    assert s.sh.queued == 0 and s.sh.job == JOB_INSTALL
+    s.run()
+    assert s.sh.job == 0 and len([t for t in s.toasts if t.startswith('Also')]) == 1
+
+
+def test_a_need_installed_while_the_first_ends_is_skipped(fw):
+    s, card = needing(fw, plex=b'needs=vault,x\n')
+    s.run()
+    s.click(1)
+    s.run()
+    assert s.sh.app == 1 and s.sh.queued == 1
+    card.files[b'/mnt/mmc/.q2/apps/x.tag'] = b'2.0'  # Vault's end finds X installed by now
+    s.run()
+    assert s.sh.job == 0 and s.toasts[-1] == 'Vault is ready in Streaming'
 
 
 # A remove leaves no login behind, even from an app that saves it on its TERM, after 3 s too.
