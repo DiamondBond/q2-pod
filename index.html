@@ -85,8 +85,9 @@ code { font: 0.9em ui-monospace, SFMono-Regular, Menlo, monospace; background: v
 #flat-prev { left: 18%; } #flat-next { right: 18%; }
 @media (prefers-reduced-motion: reduce) {
   .stage { height: auto; }
-  .sticky { position: relative; height: auto; overflow: visible; padding: calc(52px + 7vh) 0 0; }
+  .sticky { position: relative; height: auto; overflow: visible; padding: calc(52px + 7vh) 0 0; display: flex; flex-direction: column; }
   .hero, .screenbar { position: static; opacity: 1; }
+  .hero { order: 1; margin-top: 48px; }
   #q2 { position: relative; height: 82vh; }
 }
 
