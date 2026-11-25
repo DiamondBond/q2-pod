@@ -3387,17 +3387,26 @@ def test_the_unknown_check_tests_the_tag_before_the_music_filter(fw, records):
     query(None, b'select * from songtable where albumsonger=""', none, 0)  # Album Artist's, after its rewrite
     assert db.sent[-1].startswith("select * from songtable where ifnull(nullif(albumsonger,''),songer)=\"\" collate nocase and (fileurl not like")
     assert db.sent[-1].endswith(') limit 1')
+    query(None, b'select * from songtable where id=9', none, 0)  # one term, but no tag's ="": wrapped, compared as it is
+    assert db.sent[-1].startswith('select * from (select * from songtable where fileurl not like') and db.sent[-1].endswith(') where id=9 limit 1')
     first.value = 0
-    query(None, b'select * from songtable where album=""', none, 0)
-    assert 'from (select * from songtable where' in db.sent[-1] and 'limit' not in db.sent[-1]
-    assert [r[0] for r in db.rows(tag_first)] == [r[0] for r in db.rows(db.sent[-1])][:1] == [b'9']  # the loose song
-    db.db.execute("update songtable set album = 'Loose' where id = 9")
-    assert db.rows(tag_first) == []  # no untagged music song: the audiobook and the hidden one aren't found
+    query(None, b'select * from songtable where album=""', none, 0)  # the row's own songs: the same query without the limit
+    songs = db.sent[-1]
+    assert songs + ' limit 1' == tag_first
+    music_where = tag_first[tag_first.index(' and (') + 6:-len(') limit 1')]
+    as_wrapped = 'select * from (select * from songtable where ' + music_where + ') where album=""'  # as it was sent before
+    db.db.executemany("insert into songtable(id, fileurl, album) values (?, ?, '')", [
+        (1000, '/mnt/mmc/Music/Loose/b.flac'), (1001, '/mnt/mmc/Podcasts/Show/1.mp3'), (1002, '/mnt/mmc/Music/Loose/a.flac')])
+    assert [r[0] for r in db.rows(songs)] == [r[0] for r in db.rows(as_wrapped)] == [b'9', b'1000', b'1002']
+    assert [r[0] for r in db.rows(tag_first)] == [b'9']  # the first loose song
+    db.db.execute("update songtable set album = 'Loose' where id in (9, 1000, 1002)")
+    assert db.rows(tag_first) == db.rows(songs) == []  # no untagged music song: the spoken and the hidden ones aren't found
 
 
 def test_the_unknown_check_compares_the_tag_nocase_and_albums_searches_its_index(fw, records):
-    """The check's tag test is compared NOCASE. It finds the songs stock's own comparison finds, whatever a tag holds,
-    and with songtable_album, which any scanned library has, Albums' check searches that index, not the table."""
+    """An Unknown row's tag test is compared NOCASE, in its check and in its songs. It finds the songs stock's own
+    comparison finds, whatever a tag holds, and with songtable_album, which any scanned library has, Albums' two search
+    that index, not the table."""
     db = Songtable(fw, Library(fw), records, index=True)
     query = fw.fn('ringnav_library_query', C.c_int, C.c_void_p, C.c_char_p, C.c_void_p, C.c_int)
     music, first = fw.var('navigation__library_music', C.c_int), fw.var('navigation__library_first', C.c_int)
@@ -3406,12 +3415,15 @@ def test_the_unknown_check_compares_the_tag_nocase_and_albums_searches_its_index
     query(None, b'select * from songtable where album=""', none, 0)
     query(None, b'select * from songtable where songer=""', none, 0)
     album, artist = db.sent[-2:]
+    first.value = 0
+    query(None, b'select * from songtable where album=""', none, 0)
+    songs = db.sent[-1]
     stock = album.replace(' collate nocase', '')  # the tag compared as stock's own text compares it
-    assert stock != album and ' collate nocase and (' in artist
+    assert stock != album and ' collate nocase and (' in artist and songs + ' limit 1' == album
 
     def plan(sql):
         return ' '.join(str(step[-1]) for step in db.db.execute('explain query plan ' + sql))
-    assert 'USING INDEX songtable_album' in plan(album)
+    assert 'USING INDEX songtable_album' in plan(album) and 'USING INDEX songtable_album' in plan(songs)
     assert 'songtable_album' not in plan(stock) and 'songtable_album' not in plan(artist)  # no index answers these
     # a row a value: only the empty text is "no tag", compared either way, with the index and without it
     values = ['', ' ', 'a', 'A', '0', 0, None, b'', '\0', 'a\0', chr(0xc9), chr(0xe9), chr(0x200b)]
@@ -3421,4 +3433,4 @@ def test_the_unknown_check_compares_the_tag_nocase_and_albums_searches_its_index
         for value in values:
             db.db.execute('delete from songtable')
             db.db.execute("insert into songtable(id, fileurl, album) values (1, '/mnt/mmc/Music/x.flac', ?)", (value,))
-            assert db.rows(album) == db.rows(stock) and bool(db.rows(album)) == (value == ''), (index, value)
+            assert db.rows(album) == db.rows(songs) == db.rows(stock) and bool(db.rows(album)) == (value == ''), (index, value)

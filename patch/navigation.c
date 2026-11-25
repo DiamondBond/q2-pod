@@ -98,22 +98,23 @@ static int library_query(int content, const char *db, const char *sql, void *row
     }
     const char *from = library_music && sql ? strstr(sql, " from songtable") : 0;
     if (from) { /* library_first: the Unknown row's check, which one song answers */
-        const char *rest = from + 15;
-        /* Stock's check is a bare where: a flattened subquery's where comes ahead of stock's, and
-         * SQLite tests the terms in order, so the music filter's three LIKEs, dearer a row than the
-         * tag test, go after it, not before it. ponytail: the speed-up needs stock's where (Album
-         * Artist's after its rewrite) to be one term with no space (the five NULL queries are,
-         * internals.md Unknown rows); any other shape is wrapped as before. The tag's ="" is
-         * compared NOCASE: '' equals only '' as it does compared BINARY, so the same songs, and
-         * Albums' check searches songtable_album (coverflow.c) where it read the table. The other
-         * tags have no index: theirs reads the table to the first such song, or all of it. */
-        int n =
-            library_first && strstr(rest, " where ") == rest && !strstr(rest + 7, " ")
-                ? tk_snprintf(filtered, sizeof filtered, "%s collate nocase and (%s) limit 1", sql,
-                              MUSIC_WHERE)
-                : tk_snprintf(filtered, sizeof filtered,
-                              "%.*s from (select * from songtable where %s)%s%s", (int)(from - sql),
-                              sql, MUSIC_WHERE, rest, library_first ? " limit 1" : "");
+        const char *rest = from + 15, *limit = library_first ? " limit 1" : "";
+        /* An Unknown row's check and its songs are stock's bare where <tag>="": a flattened
+         * subquery's where comes ahead of stock's, and SQLite tests the terms in order, so the
+         * music filter's three LIKEs, dearer a row than the tag test, go after it, not before it.
+         * The tag's ="" is compared NOCASE: '' equals only '' as it does compared BINARY, so the
+         * same songs in the same order, and Albums' two search songtable_album (coverflow.c) where
+         * they read the table. The other tags have no index: theirs read the table, the check to
+         * the first such song. ponytail: this needs stock's where (Album Artist's after its
+         * rewrite) to be one term with no space that ends ="" (the five NULL queries are,
+         * internals.md Unknown rows); any other shape is wrapped as before. */
+        int n = strstr(rest, " where ") == rest && !strstr(rest + 7, " ") &&
+                        !strcmp(rest + strlen(rest) - 3, "=\"\"")
+                    ? tk_snprintf(filtered, sizeof filtered, "%s collate nocase and (%s)%s", sql,
+                                  MUSIC_WHERE, limit)
+                    : tk_snprintf(filtered, sizeof filtered,
+                                  "%.*s from (select * from songtable where %s)%s%s",
+                                  (int)(from - sql), sql, MUSIC_WHERE, rest, limit);
         if (n < 0 || (unsigned)n >= sizeof filtered) return -1;
         sql = filtered;
     }
