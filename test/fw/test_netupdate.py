@@ -2944,15 +2944,13 @@ def test_cancelling_a_chained_install_stops_the_chain(fw):
     assert s.run() == 0 and s.sh.job == 0 and s.labels()[2] == 'Install'
 
 
-def test_an_unusable_zip_brings_nothing(fw):
+def test_an_install_that_fails_part_way_brings_nothing(fw):
     s, card = needing(fw, plex=b'needs=vault\n')
     s.run()
-    bad = app_zip({'../x': b'x', '.plex/q2app': b'needs=vault\n'})
-    s.net.replies[b'https://h/'] = (0, 200, None, bad)
-    s.net.replies[b'https://api'] = (0, 200, None, github('2.0', ('app.zip', len(bad))))
+    card.unpack_fails = 1
     s.click(1)
     assert s.run() == 0 and s.sh.job == 0 and s.sh.queued == 0
-    assert s.toasts[-1] == 'The download is not a usable app'
+    assert s.toasts[-1] == "Can't write to the card" and not [t for t in s.toasts if t.startswith('Also')]
 
 
 def test_a_chained_install_without_wifi_doesn_t_start_the_next(fw):
