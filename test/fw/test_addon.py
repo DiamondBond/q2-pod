@@ -13,7 +13,7 @@ import host
 from conftest import O, SPOT_FAIL, SPOT_NOSOCK, SPOT_OK, Config, Deques, Dirent, Game, block, card_fread, claim, fake_lists, high_halves, libc, text
 from fuzz import hostile
 from test_coverflow import png  # an icon's header
-from test_netupdate import JOB_INSTALL, JOB_REMOVE, SH_CANCELLED, SH_CARD, SH_NET, SH_OK, Sh  # test_netupdate.py keeps netupdate.c's App Store mirror
+from test_netupdate import JOB_INSTALL, JOB_REMOVE, SH_CANCELLED, SH_CARD, SH_NET, SH_OK, Sh, Store, needing  # test_netupdate.py keeps netupdate.c's App Store mirror
 from test_radio import Rd, execl, mixer  # noqa: F401  the mirror; the child's execl calls; USB_MIXER, for a USB DAC's volume
 from test_tidal import Au, Queue, free_stubbed  # test_tidal.py keeps tidal.c's au mirror
 from test_nav_loop import toasts
@@ -441,6 +441,53 @@ def test_a_needed_app_whose_binary_has_gone_since_the_scan_is_skipped(fw):
 
 def test_a_needed_app_being_replaced_isn_t_started_but_the_app_is(fw):
     assert wake_with_needs(fw, {'a': b'root=1\nneeds=v\n', 'v': b'root=1\n'}, replacing=b'v') == [b'a']
+
+
+def running_needer(fw, **needing_args):
+    """The App Store over Plex (needs=vault) and Vault, Plex installed and its chained install of Vault under way, Plex
+    running (launched, its pid file there) when Vault's install is to end. Returns the Store, the card."""
+    s, card = needing(fw, **needing_args)
+    s.run()
+    s.click(1)
+    s.run()
+    assert s.sh.app == 1 and s.sh.chained == 1
+    scan(fw)
+    ap(fw).a[0].launched = 1
+    card.files[b'/tmp/q2-plex'] = b'1'
+    return s, card
+
+
+def vault_runs(card):
+    return [c[0] for c in card.of('system') if b'/.vault/run' in c[0]]
+
+
+def test_a_needed_app_installed_after_its_app_started_starts_when_its_install_ends(fw):
+    s, card = running_needer(fw)
+    assert s.run() == 0 and s.sh.job == 0 and s.toasts[-1] == 'Vault is ready in Streaming'
+    assert len(vault_runs(card)) == 1 and [a.id for a in list(ap(fw).a)[:ap(fw).n] if a.launched] == [b'plex', b'vault']
+
+
+def test_a_chained_install_nothing_running_needs_isn_t_started(fw):
+    s, card = running_needer(fw)
+    del card.files[b'/tmp/q2-plex']  # Plex ended meanwhile
+    assert s.run() == 0 and s.sh.job == 0 and vault_runs(card) == []
+
+
+def test_a_chained_install_no_running_app_needs_isn_t_started(fw):
+    s, card = running_needer(fw, plex=b'needs=vault,x\n')
+    ap(fw).a[0].nneeds = 0  # what Plex is running with does not name Vault
+    assert s.run() == 0 and s.sh.job == 0 and vault_runs(card) == []
+
+
+def test_a_user_s_install_of_a_needed_app_isn_t_started(fw):
+    s, card = needing(fw, installed=[b'plex'])
+    s.run()
+    scan(fw)
+    ap(fw).a[0].launched = 1
+    card.files[b'/tmp/q2-plex'] = b'1'
+    s.click(2)  # Vault's row: the user's own install
+    assert s.sh.chained == 0
+    assert s.run() == 0 and s.sh.job == 0 and vault_runs(card) == []
 
 
 def test_with_the_card_away_nothing_needed_starts(fw):
