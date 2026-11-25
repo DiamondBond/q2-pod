@@ -2856,6 +2856,17 @@ def test_an_install_brings_what_it_needs(fw):
     assert s.labels() == ['Installed', 'Installed', 'Install'] and b'/mnt/mmc/.vault/q2-vault' in card.files
 
 
+def test_an_update_brings_the_needs_it_adds(fw):
+    s, card = needing(fw, plex=b'needs=vault\n', installed=[b'plex'])
+    card.files[b'/mnt/mmc/.plex/q2app'] = b'name=Plex\n'  # the installed Plex needs nothing yet
+    card.files[b'/mnt/mmc/.q2/apps/plex.tag'] = b'1.0'  # listed at 2.0: an update
+    s.run()
+    s.click(1)
+    assert s.run() == 0 and s.toasts[-2:] == ['Plex is ready in Streaming', 'Also installing Vault, which Plex needs']
+    assert s.sh.job == JOB_INSTALL and s.sh.app == 2 - 1 and s.sh.chained == 1
+    assert s.run() == 0 and s.sh.job == 0 and b'/mnt/mmc/.vault/q2-vault' in card.files
+
+
 def test_a_needed_app_already_installed_isn_t_installed_again(fw):
     s, card = needing(fw, installed=[b'vault'])
     s.run()
@@ -2870,7 +2881,7 @@ def test_a_needed_app_not_listed_is_skipped(fw):
     assert s.run() == 0 and s.sh.job == 0 and s.toasts[-1] == 'Plex is ready in Streaming'
 
 
-@pytest.mark.parametrize('how', ['no release', 'cancelled'])
+@pytest.mark.parametrize('how', ['no network', 'cancelled'])
 def test_a_failed_or_cancelled_install_brings_nothing(fw, how):
     s, card = needing(fw)
     s.run()
