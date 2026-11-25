@@ -179,7 +179,9 @@ static int qm_query(void *r) {
 static void folder_tracks(const char *path, void *add, int depth) {
     int n;
     void *rows = staged(directory, (void *)path, &n);
-    for (unsigned i = 0; i < deque_size(rows); ++i) {
+    /* Add to Playlist takes PL_ADD_MAX at most: one past it, the rest of the tree isn't listed */
+    unsigned most = qm.qm_action == QA_PLAYLIST ? PL_ADD_MAX : ~0u;
+    for (unsigned i = 0; i < deque_size(rows) && deque_size(add) <= most; ++i) {
         void *t = deque_at(rows, i);
         const char *name = P(t, REC_NAME);
         if (I(t, REC_TYPE) == 8)
@@ -401,7 +403,7 @@ static int qm_run(const void *unused) {
             qm_select();
         if (!n || n > PL_ADD_MAX) {
             qm_songs_free();
-            toast(n ? tr("Too many songs to add") : tr("Could not save playlist"));
+            toast(n ? tr("Too many songs to add") : tr("No songs yet"));
             return 0;
         }
         navigator_to_with_context(

@@ -761,13 +761,11 @@ void *click_bound(widget_t *w, const void *fn); /* w's EVT_CLICK item bound to f
 void qm_playlist_bind(widget_t *w, int depth, int (*pick)(void *, event_t *));
 void qm_select(void);
 int qm_own_songs(void); /* queue_menu.c: the class a row of songs' own add takes them as, else 0 */
-/* The most songs one Add to Playlist adds (pl_add_songs), the editor's PLE_ROWS. Stock's add has no
- * limit: batch_add_file (0x4ff344) runs a copy check, a highest-id read and an insert committed on
- * its own for each song, here on the UI thread as stock's add from Now Playing (0x4b4a40), and a
- * folder's file has its tags read first. ponytail: the screen holds still for that long; each
- * statement waits at most 500 ms for another connection (stock_db_open), so 500 songs' 1500 can
- * wait 750 s of the watchdog's long span (WDT_LONG_MS, 900 s). A larger add needs slices from a
- * timer. */
+/* The most songs one Add to Playlist adds (playlists.c pl_add_songs): the editor's PLE_ROWS, and
+ * the bound on how long an add runs behind the picker, a slice a pass of the UI's loop. Stock's add
+ * has no limit: batch_add_file (0x4ff344) runs a copy check, a highest-id read and an insert
+ * committed on its own for each song, and reads a folder file's tags first. ponytail: the
+ * editor's number, to tune on a Q2. */
 #define PL_ADD_MAX 500
 int qm_playlist_gone(void *ctx, event_t *event);
 int qm_playlist_pick(void *ctx, event_t *event);

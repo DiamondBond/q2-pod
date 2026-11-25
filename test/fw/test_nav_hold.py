@@ -2103,6 +2103,10 @@ def picker(hold, recs, ui, fw, playlists=2):
 
     def open_(ctx):
         win = ui.window('playlist_page')
+        nav = ui.child(win, 'view')
+        ui.nodes[nav].name = 'view_navbar'
+        title = ui.child(nav, 'hscroll_label')
+        ui.nodes[title].name, ui.nodes[title].text = 'scrlabel_title', 'local_playlist'  # stock's tr_text (0x4b4ecc)
         for i in range(playlists):
             rows.append(ui.child(win, 'button'))
             ui.nodes[rows[-1]].name = str(i)
@@ -2128,32 +2132,37 @@ def selections(fw):
 
 
 class Lists:
-    """The playlist table under the menu's own add: batch_add_file writing each song stock's selection holds that the
-    playlist lacks (its copy check), checkPlayListExist, and the count pl_add_songs reads before and after on a
-    connection of its own (library_count). full: stock's insert fails, without a word, as it does; unread: the
-    count can't be had; gone: the songs' files that aren't there, None every one (the card away). calls: each add's
-    (class, the songs selected, cd_num); during runs inside the add."""
+    """The playlist table under the menu's own add: batch_add_file writing its list's one song unless the playlist has
+    it (stock's copy check), checkPlayListExist, and the count pl_add_songs reads before and after on a connection of
+    its own (library_count). full: stock's insert fails, without a word, as it does; unread: the count can't be had;
+    gone: the songs' files that aren't there, None every one (the card away). calls: (class, the song, cd_num) an
+    add; during runs inside one. The clock moves a millisecond a read and cost more a song added."""
     def __init__(self, hold, fw):
-        self.hold, self.fw, self.rows, self.calls, self.handles = hold, fw, [], [], []
+        self.hold, self.fw, self.rows, self.calls = hold, fw, [], []
         self.full = self.unread = False
-        self.during, self.gone = None, set()
+        self.during, self.gone, self.now, self.cost = None, set(), 0, 0
         fw.mock('fw_access', lambda path, *_: -1 if self.gone is None or cstr(path) in self.gone else 0)
         fw.mock('batch_add_file', self.add)
+        fw.mock('_create_vector', lambda *_: 0x7e)  # the one private selection (pl_add_one)
+        fw.mock('time_now_ms', self.clock)
         fw.mock('checkPlayListExist', lambda r, dest, *_: (C.c_int(dest).value, field(r, REC_PATH)) in self.rows)
         fw.mock('sqlite3_open', lambda path, db, *_: setattr(C.c_void_p.from_address(db), 'value', 0x5d))
         fw.mock('sqlite3_exec', self.exec)
 
+    def clock(self, *_):
+        self.now += 1
+        return self.now
+
     def add(self, cls, into, songs, select, dest, *_):
-        size, chosen = selections(self.fw)[-1]
-        records, dest = self.hold.deques[songs], C.c_int(dest).value
-        assert into == 0xf00b and size == len(records) and all(0 <= i < size for i in chosen)
-        self.handles.append(songs & 0xffffffff)
-        self.calls.append((cls, [records[i] for i in chosen], dest))
+        records, dest = list(self.hold.deques[songs]), C.c_int(dest).value
+        assert into == 0xf00b and select == 0x7e and len(records) == 1
+        self.calls += [(cls, r, dest) for r in records]
+        self.now += self.cost * len(records)
         if self.during:
             self.during()
-        for i in chosen:
-            if not self.full and (dest, field(records[i], REC_PATH)) not in self.rows:
-                self.rows.append((dest, field(records[i], REC_PATH)))
+        for r in records:
+            if not self.full and (dest, field(r, REC_PATH)) not in self.rows:
+                self.rows.append((dest, field(r, REC_PATH)))
         return 1
 
     def exec(self, db, sql, callback, ctx, *_):
@@ -2168,6 +2177,34 @@ class Lists:
 
     def paths(self, dest):
         return [p for d, p in self.rows if d == dest]
+
+
+def passes(ui, most=600):
+    """The add's timer run to its end, a pass a turn of the UI's loop: how many it took. An add that never ends fails
+    here, at once."""
+    for n in range(most):
+        if not ui.due('pl_add_pass'):
+            return n
+    raise AssertionError('the add never ends')
+
+
+def pick(ui, row):
+    """A playlist's row picked in the picker, and the add it starts run to its end: the passes it took."""
+    assert ui.click(row) == 0
+    return passes(ui)
+
+
+def adding(ui):
+    """The add's pass as it waits its turn: the gap it asked for, None with no add under way."""
+    waits = [ms for fn, _, ms in ui.timers.values() if fn == ui.fn('pl_add_pass')]
+    assert len(waits) < 2
+    return waits[0] if waits else None
+
+
+def title(ui, row):
+    """The picker's title, as its navbar's label has it: (the text, whether stock's own, set by its key)."""
+    label = ui.nodes[ui.lookup(ui.nodes[row].parent, 'scrlabel_title', 1)]
+    return label.text, bool(getattr(label, 'tr', False))
 
 
 def held_cover(hold, recs, ui, fw, songs):
@@ -2191,15 +2228,17 @@ def test_a_covers_add_to_playlist_never_selects_outside_the_record_it_sized(hold
     held_cover(hold, recs, ui, fw, songs)
     hold.pick('Add to Playlist')
     assert selections(fw) == []  # a cover is no row of any list: nothing to select as the picker opens
-    ui.click(rows[1])
-    assert selections(fw) == [(3, [0, 1, 2])] and lists.calls == [(0xf001, songs, 2)]
+    pick(ui, rows[1])
+    assert selections(fw) == [] and lists.calls == [(0xf001, r, 2) for r in songs]  # nor does its add: a selection of its own
     assert ui.toasts == ['Added to Playlist'] and ui.top() != ui.nodes[rows[1]].parent
 
 
-def test_the_rows_selection_never_names_an_index_outside_its_record(fw, st):
-    st('qm_idx', C.c_uint).value, st('qm_rows', C.c_uint).value = 5, 3
+@pytest.mark.parametrize('idx, rows, chosen', [(5, 3, []), (3, 3, []), (0, 0, []), (2, 3, [2]), (0, 1, [0])])
+def test_the_rows_selection_never_names_an_index_outside_its_record(fw, st, idx, rows, chosen):
+    """0 of 0 is a cover's first hold since boot: stock's set would write through the empty record's NULL."""
+    st('qm_idx', C.c_uint).value, st('qm_rows', C.c_uint).value = idx, rows
     fw.fn('qm_select', None)()
-    assert selections(fw) == [(3, [])]
+    assert selections(fw) == [(rows, chosen)]
 
 
 def test_a_song_rows_add_to_playlist_stays_stocks_with_the_row_selected(hold, recs, ui, st, fw):
@@ -2257,13 +2296,13 @@ def test_a_row_of_songs_adds_the_songs_play_next_would_queue(hold, recs, ui, st,
     hold.pick('Add to Playlist')
     assert selections(fw) == [] and st('qm_playlist', C.c_void_p).value == ui.top()
     assert all(ui.handlers(r, EVT_CLICK) == [ui.fn('qm_playlist_pick')] for r in rows)  # never stock's pick
-    ui.click(rows[0])
-    assert lists.calls == [(cls, songs, 1)] and lists.paths(1) == [field(r, REC_PATH) for r in songs]
+    pick(ui, rows[0])
+    assert lists.calls == [(cls, r, 1) for r in songs] and lists.paths(1) == [field(r, REC_PATH) for r in songs]
     assert ui.toasts == ['Added to Playlist'] and not st('qm_playlist', C.c_void_p).value
 
 
 @pytest.mark.parametrize('kind', ROWS_OF_SONGS + ('cover',))
-@pytest.mark.parametrize('count, toast', [(0, 'Could not save playlist'), (500, None), (501, 'Too many songs to add')])
+@pytest.mark.parametrize('count, toast', [(0, 'No songs yet'), (500, None), (501, 'Too many songs to add')])
 def test_add_to_playlist_is_refused_before_the_picker_for_no_songs_or_too_many(hold, recs, ui, st, fw, kind, count, toast):
     songs = [song(recs, 0)] * count
     rows, headers = picker(hold, recs, ui, fw)
@@ -2298,7 +2337,7 @@ def test_the_picked_row_must_be_a_playlist_of_the_list(hold, recs, ui, fw, name,
     rows, headers, lists = added(hold, recs, ui, fw, [song(recs, i, track=i + 1) for i in range(2)])
     ui.nodes[rows[0]].name = name
     struct.pack_into('<i', (C.c_char * 0x60).from_address(headers[0]), O['REC_DISC'], cd_num)
-    assert ui.click(rows[0]) == 0
+    pick(ui, rows[0])
     assert bool(lists.calls) == adds and ui.toasts == ['Added to Playlist' if adds else 'Could not save playlist']
     assert (ui.nodes[rows[0]].parent in ui.stack) == (not adds)  # a refusal leaves the picker for another pick
 
@@ -2310,15 +2349,15 @@ def test_only_songs_with_a_file_there_are_added(hold, recs, ui, fw):
     songs = [good[0], folder, gone, good[1]]
     rows, headers, lists = added(hold, recs, ui, fw, songs)
     lists.gone = {field(gone, REC_PATH)}
-    ui.click(rows[0])
-    assert selections(fw) == [(4, [0, 3])] and lists.calls == [(0xf001, good, 1)] and ui.toasts == ['Added to Playlist']
+    pick(ui, rows[0])
+    assert lists.calls == [(0xf001, r, 1) for r in good] and ui.toasts == ['Added to Playlist']
 
 
 def test_songs_with_no_file_there_write_nothing(hold, recs, ui, fw):
     """The card taken out under the picker: stock's tag read never meets a file that isn't there."""
     rows, headers, lists = added(hold, recs, ui, fw, [song(recs, i, track=i + 1) for i in range(2)])
     lists.gone = None
-    ui.click(rows[0])
+    pick(ui, rows[0])
     assert not lists.calls and ui.toasts == ['Could not save playlist'] and ui.nodes[rows[0]].parent in ui.stack
 
 
@@ -2326,26 +2365,27 @@ def test_an_add_that_wrote_nothing_says_so_and_leaves_the_picker_for_another(hol
     songs = [song(recs, i, track=i + 1) for i in range(2)]
     rows, headers, lists = added(hold, recs, ui, fw, songs)
     lists.full = True
-    ui.click(rows[0])
+    pick(ui, rows[0])
     assert ui.toasts == ['Could not save playlist'] and st('qm_playlist', C.c_void_p).value == ui.top()
+    assert title(ui, rows[0]) == ('local_playlist', True)  # stock's again
     lists.full = False
-    ui.click(rows[1])
+    pick(ui, rows[1])
     assert ui.toasts[1:] == ['Added to Playlist'] and lists.paths(2) == [field(r, REC_PATH) for r in songs]
-    assert not st('qm_playlist', C.c_void_p).value and len(lists.calls) == 2
+    assert not st('qm_playlist', C.c_void_p).value and [dest for _, _, dest in lists.calls] == [1, 1, 2, 2]
 
 
 def test_songs_the_playlist_holds_already_say_so(hold, recs, ui, st, fw):
     songs = [song(recs, i, track=i + 1) for i in range(2)]
     rows, headers, lists = added(hold, recs, ui, fw, songs)
     lists.rows = [(1, field(r, REC_PATH)) for r in songs]
-    ui.click(rows[0])
+    pick(ui, rows[0])
     assert ui.toasts == ['Already in playlist'] and len(lists.rows) == 2 and st('qm_playlist', C.c_void_p).value == ui.top()
 
 
 def test_a_playlist_table_that_cant_be_read_is_not_written(hold, recs, ui, fw):
     rows, headers, lists = added(hold, recs, ui, fw, [song(recs, i, track=i + 1) for i in range(2)])
     lists.unread = True
-    ui.click(rows[0])
+    pick(ui, rows[0])
     assert not lists.calls and ui.toasts == ['Could not save playlist']
 
 
@@ -2357,21 +2397,189 @@ def test_a_scan_under_the_picker_refuses_the_add(hold, recs, ui, fw):
     saved = C.string_at(O['SCAN_DONE'], 8)
     try:
         C.c_int.from_address(O['SCAN_THREAD']).value, C.c_int.from_address(O['SCAN_DONE']).value = 1, 0
-        ui.click(rows[0])
+        pick(ui, rows[0])
         assert not lists.calls and ui.toasts == ['Could not save playlist'] and ui.nodes[rows[0]].parent in ui.stack
     finally:
         C.memmove(O['SCAN_DONE'], saved, 8)
 
 
-def test_the_add_runs_under_the_watchdogs_long_span(hold, recs, ui, fw):
-    """Three statements a song on the UI thread: the watchdog's usual span would reset the unit mid-add."""
+def test_the_add_asks_for_no_long_watchdog_span(hold, recs, ui, fw):
+    """A pass is a slice's work and the loop feeds the watchdog between them."""
     rows, headers, lists = added(hold, recs, ui, fw, [song(recs, i, track=i + 1) for i in range(2)])
     wdt = Watchdog(fw)
     wdt.poll()
-    lists.during = lambda: seen.extend(wdt.calls[1:])
-    seen: list = []
+    pick(ui, rows[0])
+    assert lists.calls and wdt.calls == [(5, WDT_START, WDT_MS)]
+
+
+SLICE_MS, GAP_MS, WAIT_MS = 100, 10, 250  # playlists.c PL_ADD_SLICE_MS, PL_ADD_GAP_MS, PL_ADD_WAIT_MS
+
+
+def test_the_pick_writes_nothing_and_the_add_runs_a_slice_a_pass(hold, recs, ui, st, fw):
+    """Each pass adds songs, a list of one each, until its slice is used, then asks for the next after the loop's
+    turn: paints, keys, stock's idle tick and the watchdog's feed run between them."""
+    songs = [song(recs, i, track=i + 1) for i in range(7)]
+    rows, headers, lists = added(hold, recs, ui, fw, songs)
+    lists.cost = 40  # ms a song: the third ends a pass's 100
+    assert ui.click(rows[0]) == 0
+    assert not lists.calls and not ui.toasts and adding(ui) == GAP_MS and title(ui, rows[0]) == ('Working…', False)
+    took = []
+    while ui.due('pl_add_pass'):
+        took.append((len(lists.calls), adding(ui), list(ui.toasts)))
+        assert len(took) < 9
+    assert took == [(3, GAP_MS, []), (6, GAP_MS, []), (7, None, ['Added to Playlist'])]
+    assert lists.calls == [(0xf001, r, 1) for r in songs] and selections(fw) == []
+    assert not st('qm_playlist', C.c_void_p).value and ui.nodes[rows[0]].parent not in ui.stack
+
+
+def test_a_pass_adds_a_song_however_long_one_takes(hold, recs, ui, fw):
+    rows, headers, lists = added(hold, recs, ui, fw, [song(recs, i, track=i + 1) for i in range(3)])
+    lists.cost = 5 * SLICE_MS
+    assert pick(ui, rows[0]) == 3 and len(lists.calls) == 3 and ui.toasts == ['Added to Playlist']
+
+
+def test_a_pick_while_an_add_is_under_way_does_nothing(hold, recs, ui, fw):
+    songs = [song(recs, i, track=i + 1) for i in range(4)]
+    rows, headers, lists = added(hold, recs, ui, fw, songs)
+    lists.cost = SLICE_MS
     ui.click(rows[0])
-    assert seen == [(5, WDT_STOP, None), (5, WDT_START, WDT_LONG_MS)] and lists.calls
+    ui.due('pl_add_pass')
+    assert ui.click(rows[1]) == 0 and adding(ui) == GAP_MS and not ui.toasts
+    passes(ui)
+    assert [dest for _, _, dest in lists.calls] == [1] * 4 and not lists.paths(2) and ui.toasts == ['Added to Playlist']
+
+
+def test_the_picker_going_stops_the_add_and_frees_its_songs(hold, recs, ui, st, fw):
+    """Return, Home held, anything: what was written stays, and nothing is said."""
+    made = len(hold.deques.lists) + 2  # the playlists', the covers'
+    rows, headers, lists = added(hold, recs, ui, fw, [song(recs, i, track=i + 1) for i in range(4)])
+    lists.cost = SLICE_MS
+    ui.click(rows[0])
+    ui.due('pl_add_pass')
+    ui.close(ui.top())
+    assert adding(ui) is None and len(hold.deques.lists) == made and not st('qm_playlist', C.c_void_p).value
+    assert passes(ui) == 0 and len(lists.paths(1)) == 1 and not ui.toasts and not ui.errors
+
+
+def test_a_scan_starting_under_an_add_holds_it_until_the_scan_ends(hold, recs, ui, fw):
+    """The scan writes on stock's shared connection from its own thread."""
+    songs = [song(recs, i, track=i + 1) for i in range(3)]
+    rows, headers, lists = added(hold, recs, ui, fw, songs)
+    lists.cost = SLICE_MS
+    ui.click(rows[0])
+    ui.due('pl_add_pass')
+    claim(O['SCAN_THREAD'])
+    saved = C.string_at(O['SCAN_DONE'], 8)
+    try:
+        C.c_int.from_address(O['SCAN_THREAD']).value, C.c_int.from_address(O['SCAN_DONE']).value = 1, 0
+        ui.due('pl_add_pass'), ui.due('pl_add_pass')
+        assert len(lists.calls) == 1 and adding(ui) == WAIT_MS and not ui.toasts
+    finally:
+        C.memmove(O['SCAN_DONE'], saved, 8)
+    passes(ui)
+    assert lists.calls == [(0xf001, r, 1) for r in songs] and ui.toasts == ['Added to Playlist']
+
+
+def test_a_scan_starting_as_the_last_song_lands_holds_the_adds_end(hold, recs, ui, fw):
+    """The end asks stock whether the playlist has the first song, on that connection."""
+    songs = [song(recs, i, track=i + 1) for i in range(2)]
+    rows, headers, lists = added(hold, recs, ui, fw, songs)
+    claim(O['SCAN_THREAD'])
+    saved = C.string_at(O['SCAN_DONE'], 8)
+
+    def scan():
+        if len(lists.calls) == len(songs):
+            C.c_int.from_address(O['SCAN_THREAD']).value, C.c_int.from_address(O['SCAN_DONE']).value = 1, 0
+    lists.during = scan
+    try:
+        ui.click(rows[0])
+        ui.due('pl_add_pass'), ui.due('pl_add_pass')
+        assert len(lists.calls) == 2 and adding(ui) == WAIT_MS and not ui.toasts and not fw.calls('checkPlayListExist')
+    finally:
+        C.memmove(O['SCAN_DONE'], saved, 8)
+    assert passes(ui) == 1 and ui.toasts == ['Added to Playlist']
+
+
+def test_classics_bar_reads_the_pickers_title_as_it_changes(fw, ui, st, recs, mcl):
+    """Classic hides the navbar: its bar is the title on show, written with the label, not at the bar's next paint."""
+    use_set(st, CLASSIC)
+    hold = Hold(fw, ui, st, recs, mcl)
+    rows, headers, lists = added(hold, recs, ui, fw, [song(recs, i, track=i + 1) for i in range(2)])
+    st('bar_title', C.c_void_p).value = bar = ui.child(0, 'label')
+    lists.full = True
+    ui.click(rows[0])
+    assert ui.nodes[bar].text == 'Working…'
+    passes(ui)
+    assert ui.nodes[bar].text == 'local_playlist' and ui.toasts == ['Could not save playlist']
+
+
+@pytest.mark.parametrize('how', ['covered', 'sliding'])
+def test_the_adds_end_waits_for_the_picker_on_top_and_still(hold, recs, ui, st, fw, how):
+    """Under the lock screen, another toast or the picker's own close as it slides, the songs go on being added; the
+    toast would nest in theirs, and the close meet a window that is going."""
+    songs = [song(recs, i, track=i + 1) for i in range(3)]
+    rows, headers, lists = added(hold, recs, ui, fw, songs)
+    win, over = ui.top(), 0
+    ui.click(rows[0])
+    if how == 'covered':
+        over = ui.window('saverscreen_page')
+    else:
+        fw.mock('window_manager_is_animating', lambda *_: 1)
+    ui.due('pl_add_pass'), ui.due('pl_add_pass')
+    assert lists.calls == [(0xf001, r, 1) for r in songs] and not ui.toasts and adding(ui) == WAIT_MS and win in ui.stack
+    if over:
+        ui.close(over)
+    fw.mock('window_manager_is_animating', lambda *_: 0)
+    assert passes(ui) == 1 and ui.toasts == ['Added to Playlist'] and win not in ui.stack and adding(ui) is None
+
+
+def test_an_add_whose_pass_cant_be_asked_for_says_so(hold, recs, ui, fw):
+    rows, headers, lists = added(hold, recs, ui, fw, [song(recs, i, track=i + 1) for i in range(2)])
+    fw.mock('timer_add', lambda *_: 0)
+    pick(ui, rows[0])
+    assert not lists.calls and ui.toasts == ['Could not save playlist'] and title(ui, rows[0]) == ('local_playlist', False)
+    assert ui.nodes[rows[0]].parent in ui.stack
+
+
+def test_an_add_whose_next_pass_cant_be_asked_for_ends_with_what_it_wrote(hold, recs, ui, fw):
+    rows, headers, lists = added(hold, recs, ui, fw, [song(recs, i, track=i + 1) for i in range(3)])
+    lists.cost = SLICE_MS
+    ui.click(rows[0])
+    fw.mock('timer_add', lambda *_: 0)
+    assert passes(ui) == 1 and len(lists.calls) == 1 and ui.toasts == ['Added to Playlist'] and adding(ui) is None
+
+
+@pytest.mark.parametrize('full, toast', [(False, 'Added to Playlist'), (True, 'Could not save playlist')])
+def test_a_count_that_cant_be_read_after_the_add_goes_by_its_first_song(hold, recs, ui, fw, full, toast):
+    """Not a refusal's words over songs that were written."""
+    rows, headers, lists = added(hold, recs, ui, fw, [song(recs, i, track=i + 1) for i in range(2)])
+    lists.full = full
+    lists.during = lambda: setattr(lists, 'unread', True)
+    pick(ui, rows[0])
+    assert ui.toasts == [toast] and (ui.nodes[rows[0]].parent in ui.stack) == full
+
+
+@pytest.mark.parametrize('row, listed', [('Add to Playlist', 3), ('Play Next', 4)])
+def test_a_folders_walk_stops_past_the_most_add_to_playlist_adds(hold, recs, ui, fw, mcl, row, listed):
+    """Jazz's three folders of 300 songs: the third is never listed for an add of 500 at most. Play Next takes all."""
+    C.memmove(C.addressof(fw.var('fw_ctx_g_folder_path', C.c_char)), b'/mnt/mmc/Music\0', 15)
+    hold.songs_page('folder_page', [recs(name='Jazz', kind=4)], sel=0)
+    tree = {'/mnt/mmc/Music/Jazz': [recs(name=n, kind=4) for n in 'abc']}
+    tree.update({f'/mnt/mmc/Music/Jazz/{n}': [song(recs, 0)] * 300 for n in 'abc'})
+    read, loaded = [], []
+
+    def directory(path, *_):
+        read.append(cstr(path))
+        hold.deques[fw.var('fw_ctx_tools_pdeq_directory', C.c_uint).value].extend(tree[cstr(path)])
+        return 0
+    fw.mock('toolsLoadDirectory', directory)
+    fw.var('fw_ctx_mcl_pdeqplaylist', C.c_uint).value = hold.deques.new()
+    mcl.type = 1
+    fw.mock('mclLoadPlayList', lambda q, at, cls, *_: loaded.append(len(hold.deques[q])))
+    hold.hold()
+    hold.menu()
+    hold.pick(row)
+    assert len(read) == listed and (loaded == [900] if row == 'Play Next' else ui.toasts == ['Too many songs to add'])
 
 
 def during_the_toast(ui, act):
@@ -2386,21 +2594,21 @@ def during_the_toast(ui, act):
     ui.go = toasted
 
 
-def test_a_picker_closed_under_the_adds_toast_is_not_closed_again(hold, recs, ui, st, fw):
+def test_a_picker_closed_under_the_adds_toast_is_not_closed_again(hold, recs, ui, st, qm, fw):
     """Home held while the toast shows: the picker and its rows are gone when the toast's loop returns."""
     rows, headers, lists = added(hold, recs, ui, fw, [song(recs, i, track=i + 1) for i in range(2)])
-    win = ui.top()
+    win, songs = ui.top(), qm('qm_songs', C.c_void_p).value & 0xffffffff
     during_the_toast(ui, lambda: ui.close(win))
-    ui.click(rows[0])
+    pick(ui, rows[0])
     assert ui.toasts == ['Added to Playlist'] and win not in [a[0] for _, a in fw.calls('window_close')]
-    assert [a[0] & 0xffffffff for _, a in fw.calls('fw_deque_destroy')].count(lists.handles[0]) == 1 and not ui.errors
+    assert [a[0] & 0xffffffff for _, a in fw.calls('fw_deque_destroy')].count(songs) == 1 and not ui.errors
 
 
 def test_a_second_pick_under_the_adds_toast_adds_nothing(hold, recs, ui, st, fw):
     rows, headers, lists = added(hold, recs, ui, fw, [song(recs, i, track=i + 1) for i in range(2)])
-    during_the_toast(ui, lambda: ui.click(rows[1]))
-    ui.click(rows[0])
-    assert ui.toasts == ['Added to Playlist'] and len(lists.calls) == 1 and not lists.paths(2)
+    during_the_toast(ui, lambda: pick(ui, rows[1]))
+    pick(ui, rows[0])
+    assert ui.toasts == ['Added to Playlist'] and [dest for _, _, dest in lists.calls] == [1, 1] and not lists.paths(2)
 
 
 def test_a_picker_that_did_not_open_keeps_no_songs(hold, recs, ui, st, fw):
@@ -2433,8 +2641,8 @@ def test_an_albums_rows_add_leaves_the_kept_albums_list_as_it_was(hold, recs, ui
     load = fw.fn('ringnav_localclass', C.c_int, C.c_int)
     hold.pick('Add to Playlist')
     load(0xf00b)  # the picker's own load, as its init runs it: Playlists', which fills another deque
-    ui.click(rows[0])
-    assert lists.calls == [(0xf001, songs, 1)] and ui.toasts == ['Added to Playlist']
+    pick(ui, rows[0])
+    assert lists.calls == [(0xf001, r, 1) for r in songs] and ui.toasts == ['Added to Playlist']
     assert load(0xf003) == 2  # the album page back on top: its load again, served from the rows kept
     assert [a[0] for _, a in fw.calls('stock_localclass_trampoline')] == [0xf00b]
     assert fw.var('fw_ctx_p_deque_showlist', C.c_uint).value == show
