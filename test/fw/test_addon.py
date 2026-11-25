@@ -372,14 +372,16 @@ def test_a_drop_that_doesn_t_take_ends_the_child_before_anything_runs(fw, fails)
     assert os.waitpid(child, 0)[1] == 126 << 8  # the next drop (97) and the exec (99) never came
 
 
-def wake_with_needs(fw, apps, wake=b'a', files=(), busy=None):
+def wake_with_needs(fw, apps, wake=b'a', files=(), replacing=None):
     """The runs (their /bin/sh lines) addon_wake(wake) starts on a card of apps (all root=1, so system() records them)."""
     world = card(fw, **apps)
     world.files.update({k: b'1' for k in files})
     scan(fw)
-    if busy:
-        name = C.create_string_buffer(busy)
-        fw.mock('shelf_busy', lambda *_: C.addressof(name))
+    if replacing:  # the App Store installing it
+        table = C.addressof(C.c_char.in_dll(fw.lib, 'shelf_apps'))
+        fw.var('shelf_n', C.c_int).value = fw.fn('shelf_sources', C.c_int, C.c_char_p, C.c_void_p, C.c_int)(b'me/' + replacing, table, 1)
+        sh = fw.var('netupdate__sh', Sh)
+        sh.running, sh.job, sh.app = 1, JOB_INSTALL, 0
     assert fw.fn('addon_wake', C.c_int, C.c_char_p)(wake) == 1
     return [r[0].split(b'/')[-2].lstrip(b'.') for r in world.of('system')]
 
@@ -414,7 +416,7 @@ def test_a_needed_app_the_user_stopped_still_starts(fw):
 
 
 def test_a_needed_app_being_replaced_isn_t_started_but_the_app_is(fw):
-    assert wake_with_needs(fw, {'a': b'root=1\nneeds=v\n', 'v': b'root=1\n'}, busy=b'/v') == [b'a']
+    assert wake_with_needs(fw, {'a': b'root=1\nneeds=v\n', 'v': b'root=1\n'}, replacing=b'v') == [b'a']
 
 
 def test_with_the_card_away_nothing_needed_starts(fw):
