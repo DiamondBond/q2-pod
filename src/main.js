@@ -15,9 +15,11 @@ const SCREENS = [
   ['now-playing', 'Now Playing'],
   ['lyrics', 'Synced lyrics, full screen'],
   ['albums', 'Albums'],
-  ['eq', 'Advanced EQ, with an imported headphone preset'],
   ['quick-settings', 'Quick Settings'],
-  ['light', 'Light Mode'],
+  ['classic-home', 'Classic: Home'],
+  ['classic-now-playing', 'Classic: Now Playing'],
+  ['classic-cover-flow', 'Classic: Cover Flow'],
+  ['eq', 'Advanced EQ, with an imported headphone preset'],
 ];
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = (s) => document.querySelector(s);
