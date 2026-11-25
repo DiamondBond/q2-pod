@@ -8658,11 +8658,13 @@ static void resume_poll(void) {
  * gone) and hciplayer (which holds the DAC's PCM) are stopped, and demo is killed outright, so no
  * exit handler can hang it. */
 void ringnav_hand_over(void) {
+    int quiet_bt = bt_handover_route(); /* latch the output before stopping its producer */
     playback_save();
     save_memoryplay_info();
     player_stop();
     radio_stop();
     addon_stop(); /* the card apps' loops run on past demo: each asked to end */
+    bt_handover_quiet(quiet_bt);
     if (st.charge_held) switch_charge_enable(1);
     /* An app's software mixer would be capped by the headset's absolute volume, left at the Q2's:
      * open it to the maximum volume limit. Demo syncs it back on return. */
