@@ -372,6 +372,60 @@ def test_a_drop_that_doesn_t_take_ends_the_child_before_anything_runs(fw, fails)
     assert os.waitpid(child, 0)[1] == 126 << 8  # the next drop (97) and the exec (99) never came
 
 
+def wake_with_needs(fw, apps, wake=b'a', files=(), busy=None):
+    """The runs (their /bin/sh lines) addon_wake(wake) starts on a card of apps (all root=1, so system() records them)."""
+    world = card(fw, **apps)
+    world.files.update({k: b'1' for k in files})
+    scan(fw)
+    if busy:
+        name = C.create_string_buffer(busy)
+        fw.mock('shelf_busy', lambda *_: C.addressof(name))
+    assert fw.fn('addon_wake', C.c_int, C.c_char_p)(wake) == 1
+    return [r[0].split(b'/')[-2].lstrip(b'.') for r in world.of('system')]
+
+
+def test_a_needed_app_starts_first(fw):
+    assert wake_with_needs(fw, {'a': b'root=1\nneeds=v\n', 'v': b'root=1\n'}) == [b'v', b'a']
+
+
+def test_a_running_needed_app_isn_t_started_again(fw):
+    assert wake_with_needs(fw, {'a': b'root=1\nneeds=v\n', 'v': b'root=1\n'}, files=[b'/tmp/q2-v']) == [b'a']
+
+
+def test_a_needed_app_not_on_the_card_is_skipped(fw):
+    assert wake_with_needs(fw, {'a': b'root=1\nneeds=v\n'}) == [b'a']
+
+
+def test_needs_are_followed_one_level(fw):
+    apps = {'a': b'root=1\nneeds=v\n', 'v': b'root=1\nneeds=w\n', 'w': b'root=1\n'}
+    assert wake_with_needs(fw, apps) == [b'v', b'a']
+
+
+def test_an_app_needing_itself_starts_once(fw):
+    assert wake_with_needs(fw, {'a': b'root=1\nneeds=a\n'}) == [b'a']
+
+
+def test_a_needed_app_the_user_stopped_still_starts(fw):
+    world = card(fw, a=b'root=1\nneeds=v\n', v=b'root=1\nwifi=1\n')
+    scan(fw)
+    ap(fw).a[1].wifi_off = 1
+    assert fw.fn('addon_wake', C.c_int, C.c_char_p)(b'a') == 1
+    assert [r[0] for r in world.of('system')] == [b'/bin/sh /mnt/mmc/.v/run', b'/bin/sh /mnt/mmc/.a/run']
+
+
+def test_a_needed_app_being_replaced_isn_t_started_but_the_app_is(fw):
+    assert wake_with_needs(fw, {'a': b'root=1\nneeds=v\n', 'v': b'root=1\n'}, busy=b'/v') == [b'a']
+
+
+def test_with_the_card_away_nothing_needed_starts(fw):
+    world = card(fw, a=b'root=1\nneeds=v\n', v=b'root=1\n')
+    scan(fw)
+    for k in [k for k in world.files if k.startswith(b'/mnt/mmc/')]:
+        del world.files[k]
+    assert fw.fn('addon_wake', C.c_int, C.c_char_p)(b'a') == 0
+    assert world.of('system') == []
+
+
 def test_an_app_the_card_doesn_t_hold_isn_t_woken(fw):
     slots(fw, b'a')
     assert fw.fn('addon_wake', C.c_int, C.c_char_p)(b'b') == 0
