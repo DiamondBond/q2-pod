@@ -146,7 +146,8 @@ static struct {
         rows[4][APPS_MAX]; /* by ROW_*: how many rows, and their slots on the card by name */
 } ap __attribute__((section(".scratch")));
 
-/* raw's needs= into ids: comma-separated, spaces trimmed, a bad id skipped, NEEDS_MAX kept; how many. */
+/* raw's needs= into ids: comma-separated, spaces trimmed, a bad id skipped, NEEDS_MAX kept; how
+ * many. */
 int needs_ids(const char *raw, char ids[][APP_ID]) {
     char list[96];
     int n = 0;

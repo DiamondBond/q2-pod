@@ -795,9 +795,9 @@ static struct {
     unsigned long long checked;                           /* boot_ms of the last whole check */
     shelf_app next[SH_MAX]; /* the check's list (n apps), the page's once the check ends */
     widget_t *page, *row[SH_MAX + 1];
-    int tab;         /* the open tab: 0 Apps, 1 Games; kept while the Q2 is on */
-    widget_t *strip; /* the tabs (app_store.c store_tabs) */
-    int clicks;      /* sh_click's running, which a job's end waits for (sh_wait) */
+    int tab;                      /* the open tab: 0 Apps, 1 Games; kept while the Q2 is on */
+    widget_t *strip;              /* the tabs (app_store.c store_tabs) */
+    int clicks;                   /* sh_click's running, which a job's end waits for (sh_wait) */
     int queue[NEEDS_MAX], queued; /* the apps a finished install needs, not yet installed */
     int chained;                  /* the job running is one of those, not the user's */
     char needer[32];              /* the app that needs them */
