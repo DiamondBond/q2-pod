@@ -43,7 +43,8 @@ class App(C.Structure):
                 *((n, C.c_int) for n in ('qr', 'game', 'audio', 'view', 'hidden', 'present', 'launched', 'hold', 'relaunch', 'restart', 'nostop',
                                          'nowifi', 'row', 'wifi', 'wifi_off')),
                 *((n, C.c_uint) for n in ('polled', 'launch_at', 'restart_at', 'play')), ('baricon', C.c_char * 56),
-                ('barword', C.c_char * 12), ('barw', C.c_int), ('root', C.c_int), ('takeover', C.c_int)]
+                ('barword', C.c_char * 12), ('barw', C.c_int), ('root', C.c_int), ('takeover', C.c_int),
+                ('needs', (C.c_char * 16) * 4), ('nneeds', C.c_int)]
 
 
 class Ap(C.Structure):
@@ -536,6 +537,25 @@ def test_caps_has_wifi_and_network(fw):
     scan(fw)
     words = world.files[b'/tmp/q2-addon.caps'].split()
     assert b'wifi' in words and b'network' in words
+
+
+def test_caps_has_needs(fw):
+    world = card(fw, one=b'name=N\n')
+    scan(fw)
+    words = world.files[b'/tmp/q2-addon.caps'].split()
+    assert b'needs' in words
+
+
+@pytest.mark.parametrize('manifest,ids', [
+    (b'needs=vault\n', [b'vault']), (b'needs=vault,b\r\n', [b'vault', b'b']), (b'needs= vault , b \n', [b'vault', b'b']),
+    (b'name=A\n', []), (b'needs=\n', []), (b'needs=Bad!,x y,,c-d,,UPPER,\n', [b'c-d']),
+    (b'needs=a,b,c,d,e\n', [b'a', b'b', b'c', b'd'])])
+def test_needs_lists_the_ids(fw, manifest, ids):
+    card(fw, foo=manifest)
+    scan(fw)
+    a = ap(fw).a[0]
+    assert a.id == b'foo'
+    assert [bytes(a.needs[i].value) if hasattr(a.needs[i], 'value') else C.string_at(a.needs[i]) for i in range(a.nneeds)] == ids
 
 
 def test_a_wifi_app_does_not_hold_the_radio(fw):
