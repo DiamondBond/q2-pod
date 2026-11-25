@@ -10,6 +10,7 @@
   - Apps: File Browser's **Edit Tags** lists the song playing at the top again. Since 1.9.1 apps run without root and couldn't see which song the player had open; Q2 Pod now tells them (File Browser 1.5 and later).
   - Cover Flow: under Classic and Classic Modern, an album turns over to its songs from the moment you press Centre and slows into place, and Return turns it back the same way. The turn hardly moved in its first frames.
   - Cover Flow: under Classic and Classic Modern, a playlist of up to 500 songs turns over to its songs, with their total time. Only playlists of up to 200 did; a longer one opened as a list, as it still does past 500.
+  - Power: turning **Auto-standby** on now shows **Standby can freeze or restart the Q2. Auto-shutdown is safer**. The switch still turns on, and the message changes no setting. A Standby that was already on shows no message: the user guide's **Power and battery** covers it.
   - User guide: it has a release of its own, [User Guide](https://github.com/DiamondBond/q2-pod/releases/tag/guide), as PDF, EPUB and Markdown, so a version's release carries only update.tar.
   - User guide: **Power and battery** now says that waking from Standby can freeze or restart the Q2 and that **Auto-shutdown** is the safer choice. An update keeps the settings you had, so a Standby that Shanling's firmware or an older Q2 Pod left on is still on: have a look at **System settings → Power → Standby**. Troubleshooting now says that a Q2 frozen going into or out of Standby may not restart by itself.
 - **1.9.2**:

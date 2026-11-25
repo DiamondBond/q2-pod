@@ -19,6 +19,8 @@ static struct {
     volatile int logo_busy;
     const char *volatile logo_err;
     int config_mutex[6]; /* one settings save at a time: MIPS glibc's zero-initialized mutex */
+    /* Standby's warning: Auto-standby read off on the last pass (standby_warn_poll) */
+    int standby_was_off;
 } pw __attribute__((section(".scratch")));
 
 /* Standby unloads the card's driver and waits at most 1.55 s for the mount after reloading it, so
@@ -422,6 +424,24 @@ static void standby_poll(void) {
     pw.standby_off = 0;
     if (!g_usbdet_value && mclGetPlayStatus() != 2) navigator_to("poweroff_page");
 }
+/* Standby's warning (docs/internals.md#standby-limit): waking from Standby can freeze or
+ * restart a Q2, and the watchdog is stopped across the suspend. Stock's Auto-standby switch is
+ * g_standbyflag, which config_init loads from SYSSET STANDBYMODE and only the Standby page's
+ * click writes after. The pass that reads it on after a pass that read it off comes once that
+ * click has returned, its key saved, its counters reloaded and its rows rebuilt, and toasts
+ * the warning over that page. It only reads: no setting, counter or save.
+ * ponytail: it follows the switch, it doesn't ask first (that takes a hook on stock's click);
+ * one that can't show on that pass (dark, another window in front) is dropped, not kept, so
+ * there is no late pop-up; and a Standby on since the start, as Shanling's default leaves it,
+ * says nothing here: the guide does. */
+static void standby_warn_poll(void) {
+    int was_off = pw.standby_was_off;
+    pw.standby_was_off = !g_standbyflag; /* first: a toast's dialog polls here again */
+    if (!was_off || pw.standby_was_off || !usable()) return;
+    widget_t *top = window_manager_get_top_window(window_manager());
+    if (top && !tk_strcmp(widget_get_prop_str(top, "name", ""), "standby_page"))
+        toast(tr("Standby can freeze or restart the Q2. Auto-shutdown is safer"));
+}
 /* Standby's card unmount (docs/internals.md#standby-limit): device_standby runs
  * system("umount /mnt/mmc") 100 ms after it stops the player, ignores the result and removes the
  * card's driver (rmmod soc_msc) next. A file still open on the card (the player letting go of its
@@ -582,6 +602,7 @@ void power_poll(void) {
     coverflow_tail();
     charge_poll();
     standby_poll();
+    standby_warn_poll();
     card_theme_poll();
     logo_poll();
     ratings_copy_poll();

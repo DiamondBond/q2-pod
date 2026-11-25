@@ -170,6 +170,109 @@ def test_the_suspend_is_recorded_and_the_watchdog_sleeps_through_it(fw, power):
     assert b'power:running' in rtc.files[STATE]
 
 
+# Standby's warning (docs/internals.md#standby-limit).
+STANDBY_WARNING = b'Standby can freeze or restart the Q2. Auto-shutdown is safer'
+
+
+class Switch:
+    """What standby_warn_poll reads: stock's Auto-standby switch (g_standbyflag), the screen and the top window by name
+    (None for none); what it toasted is in said."""
+    def __init__(self, fw, on=0, top=b'standby_page'):
+        self.fw, self.said = fw, toasts(fw)
+        self.flag, self.lit = fw.var('g_standbyflag', C.c_ubyte), fw.var('g_backlight_status', C.c_ubyte)
+        self.flag.value, self.lit.value = on, 1
+        self.top(top)
+        fw.mock('window_manager_get_top_window', lambda *_: C.addressof(self.name) if self.name else 0)
+        fw.mock('widget_get_prop_str', lambda w, key, default, *_: w if self.name and w == C.addressof(self.name) else default)  # the top window here is its name
+
+    def top(self, name):
+        self.name = C.create_string_buffer(name) if name else None
+
+    def poll(self, times=1):
+        for _ in range(times):
+            self.fw.fn('system__standby_warn_poll', None)()
+        return self.said
+
+    def turn(self, on):
+        """Stock's click on the Standby page as the poll sees it: the switch set, then the next pass."""
+        self.flag.value = on
+        return self.poll()
+
+
+@pytest.mark.parametrize('on', [0, 1])
+def test_auto_standby_left_as_it_was_is_warned_of_nothing_and_asks_stock_nothing(fw, power, on):
+    """Off, or on since the start (config_init's: a setting carried over), on Home and on the Standby page."""
+    switch = Switch(fw, on)
+    before = len(fw.calls())
+    for top in (b'home_page', b'standby_page'):
+        switch.top(top)
+        assert switch.poll(3) == []
+    assert power('standby_was_off').value == 1 - on
+    assert len(fw.calls()) == before  # not one stock call: every other test's pass, and the emulator's, is as it was
+
+
+def test_turning_auto_standby_on_is_warned_of_once(fw, power):
+    switch = Switch(fw)
+    assert switch.poll() == []
+    assert switch.turn(1) == [STANDBY_WARNING] and power('standby_was_off').value == 0
+    assert switch.poll(3) == [STANDBY_WARNING] and switch.flag.value == 1  # once, and the switch stays stock's
+
+
+def test_each_turning_on_of_auto_standby_is_warned_of(fw):
+    switch = Switch(fw, on=1)  # on since the start: nothing until it has been seen off
+    for times in (1, 2):
+        assert switch.turn(0) == [STANDBY_WARNING] * (times - 1)  # turned off, or Auto-shutdown turned on, which clears it
+        assert switch.turn(1) == [STANDBY_WARNING] * times
+
+
+def test_the_standby_warning_is_latched_before_its_toast(fw, power):
+    """The toast's dialog runs the UI loop, which polls again inside it (power_on, below): nothing more is said."""
+    switch = Switch(fw)
+    switch.poll()
+    seen = []
+    def toast(name, info, *_):
+        seen.append((C.string_at(info + 8), power('standby_was_off').value))
+        if len(seen) < 4:
+            switch.poll()
+        return 0
+    fw.mock('navigator_to_with_context', toast)
+    switch.turn(1)
+    switch.poll(2)
+    assert seen == [(STANDBY_WARNING, 0)]
+
+
+@pytest.mark.parametrize('why', ['dark', 'no window', 'another page'])
+def test_a_standby_warning_that_cant_show_is_dropped_not_kept(fw, power, why):
+    switch = Switch(fw)
+    switch.poll()
+    if why == 'dark':
+        switch.lit.value = 0
+    else:
+        switch.top(None if why == 'no window' else b'home_page')
+    assert switch.turn(1) == [] and power('standby_was_off').value == 0
+    switch.lit.value = 1
+    switch.top(b'standby_page')
+    assert switch.poll(3) == []  # no late pop-up
+    switch.turn(0)
+    assert switch.turn(1) == [STANDBY_WARNING]  # the next turning on
+
+
+def test_the_standby_warning_saves_nothing_and_reloads_no_counter(fw):
+    switch = Switch(fw)
+    switch.poll()
+    assert switch.turn(1) == [STANDBY_WARNING] and switch.flag.value == 1
+    for name in ('write_int_config', 'stock_write_config_trampoline', 'toolsWriteConfig', 'reset_poweroptions_timer', 'fw_fwrite', 'fw_rename'):
+        assert not fw.calls(name), name
+
+
+def test_the_power_poll_runs_the_standby_warning(fw, power):
+    Clock(fw)
+    Card(fw, {})
+    Config(fw)
+    fw.fn('power_poll', None)()
+    assert power('standby_was_off').value == 1  # Auto-standby off, seen: only standby_warn_poll sets it
+
+
 # The boot logo (docs/boot.md).
 LOGO_SRC, LOGO_DST, LOGO_ROT = '/mnt/mmc/Q2Pod/boot/boot-logo.jpg', '/mnt/data/boot-logo.jpg', '/tmp/boot-logo.jpg'
 

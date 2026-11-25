@@ -1791,6 +1791,7 @@ GLOBALS = ['tidal_albuminfo_thread_run', 'tidal_collection_thread_run',  # 2: a 
            'g_power_longkey', 'g_ingore_bootkey_flag', 'g_equalizer_flag', 'g_navbar_status', 'g_playcover_type',
            'g_keytone_flag', 'g_folder_layer', 'g_otg_status', 'g_delete_flag', 'g_volume', 'g_maxvolume',
            'g_sleepflag',  # the Sleep Timer's switch: 1 while its count (g_sleep_time) runs (sleep_row.c)
+           'g_standbyflag',  # Auto-standby's switch (SYSSET STANDBYMODE): 1 on (system.c standby_warn_poll)
            'g_po_status', 'g_bal_status',  # 3.5 mm and 4.4 mm jacks: 1 plugged (check_headset_status)
            # one-shot flags Now Playing's update consumes: a track change, a forced refresh, the cover parsed (ringnav_np_tick)
            'g_autochange_flag', 'g_forcerefresh_flag', 'g_playcover_finishflag',
