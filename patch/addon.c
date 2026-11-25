@@ -103,7 +103,7 @@
 #define ADDON_CAPS                                                                                 \
     "playlist progress pages library goto sleep game audio sections art window urls sort field "   \
     "more fav now fieldtext wake audio2 dim gameview eq screen volume wifi network bar switch "    \
-    "playkept playing takeover"
+    "playkept playing takeover needs"
 #define ADDON_SECTIONS 8  /* sections an app's first page may have */
 #define SWIPE_CLAIM_PX 24 /* a sideways move this far, twice as far as up or down, is a swipe's */
 #define SWIPE_PX 60       /* and this far at the lift, more than up or down, changes section */
@@ -135,6 +135,8 @@ typedef struct {
     int barw;     /* the icon's width, for its slot in the bar */
     int root;     /* q2app's root=1: it runs as root, not as APP_UID (app_user.c) */
     int takeover; /* q2app's takeover=1: it runs in demo's place (takeover) */
+    char needs[NEEDS_MAX][APP_ID]; /* q2app's needs: the ids of the apps it needs (needs_read) */
+    int nneeds;
 } app_t;
 enum { ROW_STREAMING, ROW_GAMES, ROW_LIBRARY, ROW_NETWORK }; /* as addon_scan's rows[] names them */
 
@@ -143,6 +145,23 @@ static struct {
     int n, cnt[4],
         rows[4][APPS_MAX]; /* by ROW_*: how many rows, and their slots on the card by name */
 } ap __attribute__((section(".scratch")));
+
+/* raw's needs= into a's ids: comma-separated, spaces trimmed, a bad id skipped, NEEDS_MAX kept. */
+static void needs_read(app_t *a, const char *raw) {
+    char list[96];
+    field(raw, "needs", list, sizeof list);
+    a->nneeds = 0;
+    for (char *p = list; *p && a->nneeds < NEEDS_MAX;) {
+        char *e = p;
+        while (*e && *e != ',') ++e;
+        char *next = *e ? e + 1 : e;
+        *e = 0;
+        while (*p == ' ') ++p;
+        while (e > p && (e[-1] == ' ' || e[-1] == '\r')) *--e = 0;
+        if (valid_id(p)) tk_snprintf(a->needs[a->nneeds++], APP_ID, "%s", p);
+        p = next;
+    }
+}
 
 /* An id goes into shell commands: lowercase letters, digits and '-' only. */
 int valid_id(const char *s) {
@@ -208,6 +227,7 @@ static void slots_read(void) {
         a->hidden = number(raw, "hidden") == 1;
         a->root = number(raw, "root") == 1;
         a->takeover = number(raw, "takeover") == 1;
+        needs_read(a, raw);
         /* its row where row says, else as firmware without the key lists it: Games for a game,
          * Streaming for any other */
         static const char *const rows[] = { "streaming", "games", "library", "network" };
