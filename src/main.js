@@ -10,15 +10,15 @@ import {
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
 const SCREENS = [
+  ['classic-home', 'Classic: Home'],
+  ['classic-now-playing', 'Classic: Now Playing'],
+  ['classic-cover-flow', 'Classic: Cover Flow'],
   ['home', 'Home'],
   ['cover-flow', 'Cover Flow'],
   ['now-playing', 'Now Playing'],
   ['lyrics', 'Synced lyrics, full screen'],
   ['albums', 'Albums'],
   ['quick-settings', 'Quick Settings'],
-  ['classic-home', 'Classic: Home'],
-  ['classic-now-playing', 'Classic: Now Playing'],
-  ['classic-cover-flow', 'Classic: Cover Flow'],
   ['eq', 'Advanced EQ, with an imported headphone preset'],
 ];
 const AUTO_MS = 3500; // left alone for this long, the Q2 shows the next screen by itself
