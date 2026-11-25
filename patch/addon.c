@@ -146,22 +146,25 @@ static struct {
         rows[4][APPS_MAX]; /* by ROW_*: how many rows, and their slots on the card by name */
 } ap __attribute__((section(".scratch")));
 
-/* raw's needs= into a's ids: comma-separated, spaces trimmed, a bad id skipped, NEEDS_MAX kept. */
-static void needs_read(app_t *a, const char *raw) {
+/* raw's needs= into ids: comma-separated, spaces trimmed, a bad id skipped, NEEDS_MAX kept; how many. */
+int needs_ids(const char *raw, char ids[][APP_ID]) {
     char list[96];
+    int n = 0;
     field(raw, "needs", list, sizeof list);
-    a->nneeds = 0;
-    for (char *p = list; *p && a->nneeds < NEEDS_MAX;) {
+    for (char *p = list; *p && n < NEEDS_MAX;) {
         char *e = p;
         while (*e && *e != ',') ++e;
         char *next = *e ? e + 1 : e;
         *e = 0;
         while (*p == ' ') ++p;
         while (e > p && (e[-1] == ' ' || e[-1] == '\r')) *--e = 0;
-        if (valid_id(p)) tk_snprintf(a->needs[a->nneeds++], APP_ID, "%s", p);
+        if (valid_id(p)) tk_snprintf(ids[n++], APP_ID, "%s", p);
         p = next;
     }
+    return n;
 }
+
+static void needs_read(app_t *a, const char *raw) { a->nneeds = needs_ids(raw, a->needs); }
 
 /* An id goes into shell commands: lowercase letters, digits and '-' only. */
 int valid_id(const char *s) {

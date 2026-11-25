@@ -841,6 +841,7 @@ void language_removing(const char *dir);
 void language_keyboard(widget_t *kb);
 int valid_id(const char *s); /* addon.c: a card app's id */
 #define NEEDS_MAX 4          /* the most apps a card app's q2app needs= may name */
+int needs_ids(const char *raw, char ids[][16]); /* addon.c: raw's needs= ids, how many */
 /* smart_wifi.c: its radio woken, 1 while its link comes up; its radio off; an action
  * held for that link (fn(ctx, 0) once it is up, if page, or any page when 0, is still in use) */
 int smart_wifi_wait(void), smart_wifi_off(void);
