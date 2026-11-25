@@ -21,6 +21,7 @@ const SCREENS = [
   ['classic-cover-flow', 'Classic: Cover Flow'],
   ['eq', 'Advanced EQ, with an imported headphone preset'],
 ];
+const AUTO_MS = 3500; // left alone for this long, the Q2 shows the next screen by itself
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = (s) => document.querySelector(s);
 const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
@@ -170,7 +171,7 @@ function start() {
 
   // Screens: preload, then fade the next one in over the last.
   const imgs = SCREENS.map(([f]) => { const i = new Image(); i.src = `img/${f}.png`; return i; });
-  let cur = 0, from = null, fadeT = 1;
+  let cur = 0, from = null, fadeT = 1, idle = 0;
   const draw = () => {
     sctx.globalAlpha = 1;
     sctx.imageSmoothingQuality = 'high';
@@ -180,10 +181,12 @@ function start() {
     screenTex.needsUpdate = true;
   };
   imgs[0].onload = () => { draw(); invalidate(); };
-  const go = (i) => {
+  const go = (i, auto) => {
     from = imgs[cur];
     cur = (i + SCREENS.length) % SCREENS.length;
     fadeT = 0;
+    idle = 0;
+    cap.setAttribute('aria-live', auto ? 'off' : 'polite'); // a screen reader says the screens you ask for, not these
     cap.textContent = SCREENS[cur][1];
     canvas.setAttribute('aria-label', 'Q2 Pod on a Shanling Q2: ' + SCREENS[cur][1]);
     invalidate();
@@ -354,6 +357,16 @@ function start() {
     if (e.key === 'ArrowLeft') { push('left'); e.preventDefault(); }
     if (e.key === 'ArrowRight' || e.key === 'Enter' || e.key === ' ') { push('right'); e.preventDefault(); }
   });
+
+  // Left alone, the screens go by on their own while the Q2 faces you with its whole screen in view, below the
+  // top bar. A turn in progress, keyboard focus or reduced motion holds them.
+  if (!reduced) setInterval(() => {
+    const r = canvas.getBoundingClientRect(), y = (mm) => r.top + r.height * (0.5 - mm / visH);
+    const seen = p > 0.78 && !drag && !document.hidden && !canvas.matches(':focus-visible')
+      && y(GY + DH / 2) >= 52 && y(GY - DH / 2) <= innerHeight;
+    idle = seen ? idle + 500 : 0;
+    if (idle >= AUTO_MS) go(cur + 1, true);
+  }, 500);
 
   new ResizeObserver(resize).observe(canvas);
   new IntersectionObserver(([en]) => { onScreen = en.isIntersecting; if (onScreen) invalidate(); }).observe(stage);
