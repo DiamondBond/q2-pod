@@ -413,6 +413,30 @@ def test_a_needed_app_the_user_stopped_still_starts(fw):
     ap(fw).a[1].wifi_off = 1
     assert fw.fn('addon_wake', C.c_int, C.c_char_p)(b'a') == 1
     assert [r[0] for r in world.of('system')] == [b'/bin/sh /mnt/mmc/.v/run', b'/bin/sh /mnt/mmc/.a/run']
+    assert ap(fw).a[1].launched == 1
+
+
+def test_a_needed_app_named_twice_starts_once(fw):
+    assert wake_with_needs(fw, {'a': b'root=1\nneeds=v,v\n', 'v': b'root=1\n'}) == [b'v', b'a']
+
+
+def test_a_needed_app_starts_when_its_app_is_relaunched_after_usb_storage(fw):
+    world = card(fw, a=b'root=1\nneeds=v\n', v=b'root=1\n')
+    scan(fw)
+    a = ap(fw).a[0]
+    a.relaunch = 1
+    fw.mock('navigator_window_is_exist', lambda *_: 0)
+    world.ms = 2000
+    fw.fn('addon__poll_one', None, C.POINTER(App))(C.pointer(a))
+    assert [r[0] for r in world.of('system')] == [b'/bin/sh /mnt/mmc/.v/run', b'/bin/sh /mnt/mmc/.a/run']
+
+
+def test_a_needed_app_whose_binary_has_gone_since_the_scan_is_skipped(fw):
+    world = card(fw, a=b'root=1\nneeds=v\n', v=b'root=1\n')
+    scan(fw)
+    del world.files[b'/mnt/mmc/.v/q2-v']
+    assert fw.fn('addon_wake', C.c_int, C.c_char_p)(b'a') == 1
+    assert [r[0] for r in world.of('system')] == [b'/bin/sh /mnt/mmc/.a/run']
 
 
 def test_a_needed_app_being_replaced_isn_t_started_but_the_app_is(fw):

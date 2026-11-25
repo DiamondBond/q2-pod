@@ -369,7 +369,7 @@ static void launch_one(app_t *a) {
         app_system(a->run);
 }
 
-/* The slot of app id, if it has one (slot makes one). */
+/* The slot of app id, if it has one. */
 static app_t *found(const char *id) {
     for (int i = 0; i < ap.n; ++i)
         if (!strcmp(ap.a[i].id, id)) return &ap.a[i];
@@ -382,7 +382,11 @@ static void launch(app_t *a) {
     for (int i = 0; i < a->nneeds; ++i) {
         if (!strcmp(a->needs[i], a->id)) continue;
         app_t *n = found(a->needs[i]);
-        if (n && n->present && access(n->pid, 0)) launch_one(n);
+        /* on the card, no pid file, and not started in the last ADDON_START_MS (its pid file is
+         * not written yet): the test addon_wake makes */
+        if (n && !access(n->bin, 0) && access(n->pid, 0) &&
+            (!n->launched || time_now_ms() - n->launch_at >= ADDON_START_MS))
+            launch_one(n);
     }
     launch_one(a);
 }
