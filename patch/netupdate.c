@@ -1155,7 +1155,7 @@ static int sh_wait(const void *unused) {
      * under its own click, so the end waits until the press has returned. */
     if (sh.clicks) return 8;
     pthread_join(sh.thread, 0);
-    int job = sh.job, r = sh.result, i = sh.app, manual = sh.manual;
+    int job = sh.job, r = sh.result, i = sh.app, manual = sh.manual, chained = sh.chained;
     sh.job = 0;
     /* a user's install that ended well queues the apps it needs, before the toasts below that a
      * press can run inside and clear it */
@@ -1177,6 +1177,10 @@ static int sh_wait(const void *unused) {
     sh_rows();
     if (r == SH_OK && (job == JOB_REMOVE || job == JOB_INSTALL))
         addon_apps_sync(0, 0); /* Library's Apps row or page, if on top */
+    /* an app that is running needs this one, installed after it started (a chained install): the
+     * card is read again for its slot, then it starts */
+    if (job == JOB_INSTALL && r == SH_OK && chained && addon_needed(apps[i].id))
+        addon_scan(), addon_wake(apps[i].id);
     if (job == JOB_CHECK && !sh.cancel && sh.page &&
         window_manager_get_top_window(window_manager()) == sh.page) /* not left or covered */
         sh_told(manual, r ? tr(said[r]) : 0);

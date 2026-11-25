@@ -380,19 +380,33 @@ static app_t *found(const char *id) {
     return 0;
 }
 
+/* No pid file, and not started in the last ADDON_START_MS (its pid file is not written yet): not
+ * running, as addon_wake and launch take it. */
+static int idle(const app_t *a) {
+    return access(a->pid, 0) && (!a->launched || time_now_ms() - a->launch_at >= ADDON_START_MS);
+}
+
 /* The apps a's q2app needs start first, those on the card and not running (one level: a needed
  * app's own needs are not followed), then a. */
 static void launch(app_t *a) {
     for (int i = 0; i < a->nneeds; ++i) {
         if (!strcmp(a->needs[i], a->id)) continue;
         app_t *n = found(a->needs[i]);
-        /* on the card, no pid file, and not started in the last ADDON_START_MS (its pid file is
-         * not written yet): the test addon_wake makes */
-        if (n && !access(n->bin, 0) && access(n->pid, 0) &&
-            (!n->launched || time_now_ms() - n->launch_at >= ADDON_START_MS))
-            launch_one(n);
+        if (n && !access(n->bin, 0) && idle(n)) launch_one(n);
     }
     launch_one(a);
+}
+
+/* Whether an app that was started and still runs (its pid file) lists id in its needs: one that
+ * came after it (the App Store's chained install) is for addon_wake to start. */
+int addon_needed(const char *id) {
+    for (int i = 0; i < ap.n; ++i) {
+        const app_t *a = &ap.a[i];
+        if (!a->launched || access(a->pid, 0) || !strcmp(a->id, id)) continue;
+        for (int k = 0; k < a->nneeds; ++k)
+            if (!strcmp(a->needs[k], id)) return 1;
+    }
+    return 0;
 }
 
 /* On the card and not running: its page starts it (page_at), and once more when it ended itself
@@ -413,15 +427,11 @@ static int startable(const app_t *a) {
  * browse socket, the first keeps the relay port, and the pid file names only one. page_at taking
  * the same window, or a lock in the app's run, would close both. */
 int addon_wake(const char *id) {
-    app_t *a = 0;
-    for (int i = 0; i < ap.n && !a; ++i)
-        if (!strcmp(ap.a[i].id, id)) a = &ap.a[i];
+    app_t *a = found(id);
     if (!a) return 0;
     /* a Retry's restart or USB storage's relaunch pending: poll_one starts it, the song waits */
     int pending = (a->restart || a->relaunch) && !access(a->bin, 0);
-    if (!pending && access(a->pid, 0) && !access(a->bin, 0) &&
-        (!a->launched || time_now_ms() - a->launch_at >= ADDON_START_MS))
-        launch(a);
+    if (!pending && !access(a->bin, 0) && idle(a)) launch(a);
     return pending || (a->launched && time_now_ms() - a->launch_at < ADDON_START_MS);
 }
 

@@ -2863,7 +2863,7 @@ def test_an_update_brings_the_needs_it_adds(fw):
     s.run()
     s.click(1)
     assert s.run() == 0 and s.toasts[-2:] == ['Plex is ready in Streaming', 'Also installing Vault, which Plex needs']
-    assert s.sh.job == JOB_INSTALL and s.sh.app == 2 - 1 and s.sh.chained == 1
+    assert s.sh.job == JOB_INSTALL and s.sh.app == 1 and s.sh.chained == 1
     assert s.run() == 0 and s.sh.job == 0 and b'/mnt/mmc/.vault/q2-vault' in card.files
 
 

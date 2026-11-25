@@ -618,6 +618,8 @@ int addon_fav_path(const char *path, int on);
 /* addon.c: a URL queue's app started, if it isn't running, before the player asks it for a song
  * (tidal.c app_track): whether it started lately; and whether its socket takes a connection yet */
 int addon_wake(const char *id), addon_answers(const char *id);
+/* addon.c: whether an app that is running lists id in its q2app's needs= */
+int addon_needed(const char *id);
 extern unsigned auto_nexts;    /* playback.c ringnav_next: tracks that ended by themselves */
 int stream_cache(int spotify); /* navigation.c: Streaming's Configuration, a cap of 512 << it MB */
 void album_memory(void *r);
