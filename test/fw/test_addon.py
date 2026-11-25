@@ -474,7 +474,7 @@ def test_a_chained_install_nothing_running_needs_isn_t_started(fw):
 
 
 def test_a_chained_install_no_running_app_needs_isn_t_started(fw):
-    s, card = running_needer(fw, plex=b'needs=vault,x\n')
+    s, card = running_needer(fw)
     ap(fw).a[0].nneeds = 0  # what Plex is running with does not name Vault
     assert s.run() == 0 and s.sh.job == 0 and vault_runs(card) == []
 
