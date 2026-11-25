@@ -358,7 +358,7 @@ static void stop_cmd(const char *pid, char *cmd, unsigned n) {
         snprintf(cmd, n, "rm -f %s", pid);
 }
 
-static void launch(app_t *a) {
+static void launch_one(app_t *a) {
     const char *busy = shelf_busy();
     if (busy && !strcmp(busy + 1, a->id)) return; /* the Apps page is replacing its files */
     a->launched = 1;
@@ -367,6 +367,24 @@ static void launch(app_t *a) {
         system(a->run);
     else
         app_system(a->run);
+}
+
+/* The slot of app id, if it has one (slot makes one). */
+static app_t *found(const char *id) {
+    for (int i = 0; i < ap.n; ++i)
+        if (!strcmp(ap.a[i].id, id)) return &ap.a[i];
+    return 0;
+}
+
+/* The apps a's q2app needs start first, those on the card and not running (one level: a needed
+ * app's own needs are not followed), then a. */
+static void launch(app_t *a) {
+    for (int i = 0; i < a->nneeds; ++i) {
+        if (!strcmp(a->needs[i], a->id)) continue;
+        app_t *n = found(a->needs[i]);
+        if (n && n->present && access(n->pid, 0)) launch_one(n);
+    }
+    launch_one(a);
 }
 
 /* On the card and not running: its page starts it (page_at), and once more when it ended itself
