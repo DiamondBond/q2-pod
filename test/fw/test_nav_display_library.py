@@ -3381,11 +3381,11 @@ def test_the_unknown_check_tests_the_tag_before_the_music_filter(fw, records):
     query(None, b'select * from songtable where album="" order by id', none, 0)
     query(None, b'select * from songtable where album="" or 1', none, 0)
     tag_first, wrapped, spaced = db.sent[-3:]
-    assert tag_first.startswith('select * from songtable where album="" and (fileurl not like') and tag_first.endswith(') limit 1')
+    assert tag_first.startswith('select * from songtable where album="" collate nocase and (fileurl not like') and tag_first.endswith(') limit 1')
     assert wrapped.startswith('select * from (select * from songtable where fileurl not like') and wrapped.endswith('order by id limit 1')
     assert spaced.startswith('select * from (select * from songtable where fileurl not like') and spaced.endswith(' or 1 limit 1')
     query(None, b'select * from songtable where albumsonger=""', none, 0)  # Album Artist's, after its rewrite
-    assert db.sent[-1].startswith("select * from songtable where ifnull(nullif(albumsonger,''),songer)=\"\" and (fileurl not like")
+    assert db.sent[-1].startswith("select * from songtable where ifnull(nullif(albumsonger,''),songer)=\"\" collate nocase and (fileurl not like")
     assert db.sent[-1].endswith(') limit 1')
     first.value = 0
     query(None, b'select * from songtable where album=""', none, 0)
@@ -3393,3 +3393,32 @@ def test_the_unknown_check_tests_the_tag_before_the_music_filter(fw, records):
     assert [r[0] for r in db.rows(tag_first)] == [r[0] for r in db.rows(db.sent[-1])][:1] == [b'9']  # the loose song
     db.db.execute("update songtable set album = 'Loose' where id = 9")
     assert db.rows(tag_first) == []  # no untagged music song: the audiobook and the hidden one aren't found
+
+
+def test_the_unknown_check_compares_the_tag_nocase_and_albums_searches_its_index(fw, records):
+    """The check's tag test is compared NOCASE. It finds the songs stock's own comparison finds, whatever a tag holds,
+    and with songtable_album, which any scanned library has, Albums' check searches that index, not the table."""
+    db = Songtable(fw, Library(fw), records, index=True)
+    query = fw.fn('ringnav_library_query', C.c_int, C.c_void_p, C.c_char_p, C.c_void_p, C.c_int)
+    music, first = fw.var('navigation__library_music', C.c_int), fw.var('navigation__library_first', C.c_int)
+    none = C.cast(ROW(lambda *_: 0), C.c_void_p)
+    music.value = first.value = 1
+    query(None, b'select * from songtable where album=""', none, 0)
+    query(None, b'select * from songtable where songer=""', none, 0)
+    album, artist = db.sent[-2:]
+    stock = album.replace(' collate nocase', '')  # the tag compared as stock's own text compares it
+    assert stock != album and ' collate nocase and (' in artist
+
+    def plan(sql):
+        return ' '.join(str(step[-1]) for step in db.db.execute('explain query plan ' + sql))
+    assert 'USING INDEX songtable_album' in plan(album)
+    assert 'songtable_album' not in plan(stock) and 'songtable_album' not in plan(artist)  # no index answers these
+    # a row a value: only the empty text is "no tag", compared either way, with the index and without it
+    values = ['', ' ', 'a', 'A', '0', 0, None, b'', '\0', 'a\0', chr(0xc9), chr(0xe9), chr(0x200b)]
+    for index in (True, False):
+        if not index:
+            db.db.execute('drop index songtable_album')
+        for value in values:
+            db.db.execute('delete from songtable')
+            db.db.execute("insert into songtable(id, fileurl, album) values (1, '/mnt/mmc/Music/x.flac', ?)", (value,))
+            assert db.rows(album) == db.rows(stock) and bool(db.rows(album)) == (value == ''), (index, value)
