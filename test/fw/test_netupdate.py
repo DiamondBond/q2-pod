@@ -2505,6 +2505,7 @@ class Store:
     def __init__(self, fw, card, wifi=1, thread=0, free=1 << 30):
         self.fw, self.card, self.wifi, self.free, self.seconds, self.slept = fw, card, wifi, free, 5000, 0
         self.text, self.toasts, self.timers, self.workers, self.held, self.props = {}, [], [], [], [], {}
+        self.net = None  # a test's Net, kept so its mocks live
         fw.mock('get_wifisignal', lambda *_: self.wifi)
         fw.mock('window_create', lambda *_: 77)
         fw.mock('window_manager_get_top_window', lambda *_: 77)
