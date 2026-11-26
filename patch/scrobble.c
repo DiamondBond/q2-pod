@@ -20,7 +20,14 @@
 #define LB_URL "https://api.listenbrainz.org/1/submit-listens"
 #define FM_URL "https://ws.audioscrobbler.com/2.0/"
 
-enum { LB_TOKEN, FM_USER, FM_PASS, FM_KEY, FM_SECRET, FM_SK, CONFIG_N };
+/* .scrobble.ini's keys; VAULT=1: the section's secrets are in the Vault (patch/vault.c) */
+enum { LB_TOKEN, FM_USER, FM_PASS, FM_KEY, FM_SECRET, FM_SK, LB_VAULT, FM_VAULT, CONFIG_N };
+static const char *const keys[CONFIG_N] = { "TOKEN",      "USER",        "PASSWORD", "API_KEY",
+                                            "API_SECRET", "SESSION_KEY", "VAULT",    "VAULT" };
+#define LASTFM_KEY(i) ((i) >= FM_USER && (i) <= FM_SK || (i) == FM_VAULT)
+#define SECTION(i) (LASTFM_KEY(i) ? "LASTFM" : "LISTENBRAINZ")
+#define SECRET(i) ((i) == LB_TOKEN || ((i) >= FM_PASS && (i) <= FM_SK))
+#define VAULT_TRIES 20 /* 250 ms apart: a Vault starting gets 5 s */
 typedef struct {
     char *p;
     unsigned n, cap; /* n == cap: overflowed */
@@ -42,6 +49,10 @@ static struct {
     unsigned long thread;
     volatile int running, done, ok, sent;
     char cfg[CONFIG_N][256];
+    /* The Vault: used for this upload; the file holds secret lines; ask (the file's secrets in the
+     * Vault and no Keep yet), note (another Last.fm user in the file) for scrobble_ui.c; keep: the
+     * user's Keep, written into the Vault's blob at the next upload */
+    int vault, had, ask, note, keep;
 } up __attribute__((section(".scratch")));
 
 static const char header[] = "#AUDIOSCROBBLER/1.1\n#TZ/UTC\n#CLIENT/Q2 Pod\n";
@@ -50,16 +61,145 @@ static const char header[] = "#AUDIOSCROBBLER/1.1\n#TZ/UTC\n#CLIENT/Q2 Pod\n";
  * tools/lastfm_key.py puts in the password's place) or with the user and password that fetch one
  * at each upload. toolsReadConfig leaves the value alone for a missing file. */
 static int read_config(char c[][256]) {
-    static const char *const keys[] = { "TOKEN",   "USER",       "PASSWORD",
-                                        "API_KEY", "API_SECRET", "SESSION_KEY" };
     for (int i = 0; i < CONFIG_N; i++) {
         c[i][0] = 0;
-        toolsReadConfig(INI_FILE, i ? "LASTFM" : "LISTENBRAINZ", keys[i], c[i], "");
+        toolsReadConfig(INI_FILE, SECTION(i), keys[i], c[i], "");
     }
-    return (c[LB_TOKEN][0] != 0) |
-           (c[FM_KEY][0] && c[FM_SECRET][0] && (c[FM_SK][0] || (c[FM_USER][0] && c[FM_PASS][0])))
-               << 1;
+    /* VAULT=1 counts too, the secrets fetched at the upload (never here: the UI's thread) */
+    int lb_vault = !strcmp(c[LB_VAULT], "1"), fm_vault = !strcmp(c[FM_VAULT], "1");
+    return (c[LB_TOKEN][0] || lb_vault) | ((c[FM_KEY][0] && c[FM_SECRET][0] &&
+                                            (c[FM_SK][0] || (c[FM_USER][0] && c[FM_PASS][0]))) ||
+                                           (fm_vault && c[FM_USER][0]))
+                                              << 1;
 }
+
+/* The Vault's blob: the secrets as .scrobble.ini lines, [LASTFM] then [LISTENBRAINZ], then [ASK]
+ * KEEP=1 once the user picked Keep; the same secrets, the same bytes. PASSWORD only until a
+ * session key replaces it. */
+static unsigned blob_write(char *o, unsigned cap, char c[][256], int keep) {
+    static const int fm[] = { FM_USER, FM_PASS, FM_KEY, FM_SECRET, FM_SK };
+    unsigned n = 0;
+    if (c[FM_PASS][0] || c[FM_KEY][0] || c[FM_SECRET][0] || c[FM_SK][0]) {
+        n += (unsigned)tk_snprintf(o + n, cap - n, "[LASTFM]\n");
+        for (unsigned i = 0; i < sizeof fm / sizeof *fm; i++)
+            if (c[fm[i]][0] && (fm[i] != FM_PASS || !c[FM_SK][0]) && n < cap)
+                n += (unsigned)tk_snprintf(o + n, cap - n, "%s=%s\n", keys[fm[i]], c[fm[i]]);
+    }
+    if (c[LB_TOKEN][0] && n < cap)
+        n += (unsigned)tk_snprintf(o + n, cap - n, "[LISTENBRAINZ]\nTOKEN=%s\n", c[LB_TOKEN]);
+    if (keep && n && n < cap) n += (unsigned)tk_snprintf(o + n, cap - n, "[ASK]\nKEEP=1\n");
+    return n < cap ? n : cap; /* cap: it didn't fit */
+}
+
+/* Whether line, a "[NAME]" header, is name's. */
+static int in_section(const char *line, const char *name) {
+    unsigned n = (unsigned)strlen(name);
+    return line[0] == '[' && !strncmp(line + 1, name, n) && line[1 + n] == ']' && !line[2 + n];
+}
+
+/* The blob s into b (the secrets and USER, by section); *keep its [ASK] KEEP=1. */
+static void blob_read(char *s, char b[][256], int *keep) {
+    const char *section = "";
+    for (char *line = s, *next; line && *line; line = next) {
+        next = line;
+        while (*next && *next != '\n') ++next;
+        if (*next)
+            *next++ = 0;
+        else
+            next = 0;
+        if (*line == '[') {
+            section = line;
+            continue;
+        }
+        char *eq = line;
+        while (*eq && *eq != '=') ++eq;
+        if (!*eq) continue;
+        *eq = 0;
+        if (!strcmp(section, "[ASK]") && !strcmp(line, "KEEP")) *keep = !strcmp(eq + 1, "1");
+        for (int i = 0; i < LB_VAULT; i++)
+            if (!strcmp(line, keys[i]) && in_section(section, SECTION(i)) && strlen(eq + 1) < 256)
+                tk_snprintf(b[i], 256, "%s", eq + 1);
+        *eq = '=';
+    }
+}
+
+/* Before the batches, on the upload's thread: with the Vault installed and the file holding secrets
+ * or VAULT=1, its blob merged into up.cfg (the file's lines win; another Last.fm USER voids the
+ * blob's Last.fm, up.note; a section the file no longer has leaves it). old: the blob as it was.
+ * -1 when a VAULT=1 section's secrets can't be had: nothing goes, so no listen leaves the log. */
+static int vault_load(char *old) {
+    up.vault = up.ask = up.note = up.had = 0;
+    old[0] = 0;
+    for (int i = 0; i < CONFIG_N; i++) up.had |= SECRET(i) && up.cfg[i][0];
+    int lb_marked = !strcmp(up.cfg[LB_VAULT], "1"), fm_marked = !strcmp(up.cfg[FM_VAULT], "1");
+    if ((!up.had && !lb_marked && !fm_marked) || !vault_installed()) return 0;
+    int got = -1;
+    for (int i = 0; i < VAULT_TRIES && (got = vault_get(old, VAULT_MAX + 1)) < 0; i++) {
+        if (!i) addon_wake("vault"); /* closed: the card app starts it, root=1 */
+        usleep(250000);
+    }
+    if (got < 0) {
+        old[0] = 0;
+        return (lb_marked && !up.cfg[LB_TOKEN][0]) || (fm_marked && !up.cfg[FM_KEY][0]) ? -1 : 0;
+    }
+    up.vault = 1;
+    if (!got) old[0] = 0;
+    char b[LB_VAULT][256] = { { 0 } }, copy[VAULT_MAX + 1];
+    int keep = 0;
+    tk_snprintf(copy, sizeof copy, "%s", old);
+    blob_read(copy, b, &keep);
+    memset(copy, 0, sizeof copy);
+    int fm_file = 0, lb_file = up.cfg[LB_TOKEN][0] || lb_marked;
+    for (int i = FM_USER; i <= FM_SK; i++) fm_file |= up.cfg[i][0] != 0;
+    fm_file |= fm_marked;
+    int fm_secrets =
+        up.cfg[FM_PASS][0] || up.cfg[FM_KEY][0] || up.cfg[FM_SECRET][0] || up.cfg[FM_SK][0];
+    if (b[FM_USER][0] && up.cfg[FM_USER][0] && strcmp(b[FM_USER], up.cfg[FM_USER])) {
+        for (int i = FM_USER; i <= FM_SK; i++) b[i][0] = 0; /* never the old account's key */
+        up.note = !fm_secrets;
+    }
+    if (!fm_file)
+        for (int i = FM_USER; i <= FM_SK; i++) b[i][0] = 0;
+    if (!lb_file) b[LB_TOKEN][0] = 0;
+    for (int i = 0; i < LB_VAULT; i++)
+        if (!up.cfg[i][0] && b[i][0]) tk_snprintf(up.cfg[i], 256, "%s", b[i]);
+    memset(b, 0, sizeof b);
+    if (up.note) up.cfg[FM_KEY][0] = 0; /* Last.fm off for this upload */
+    int fm_ready = up.cfg[FM_KEY][0] && up.cfg[FM_SECRET][0] &&
+                   (up.cfg[FM_SK][0] || (up.cfg[FM_USER][0] && up.cfg[FM_PASS][0]));
+    if (fm_marked && !up.note && !fm_ready) return -1;
+    return lb_marked && !up.cfg[LB_TOKEN][0] ? -1 : 0;
+}
+
+/* After the batches: a session key in the password's place, and the blob put back when it changed
+ * (deleted when nothing is left). The user's Keep holds while the secrets stay the same. */
+static void vault_save(const char *old, const char *got) {
+    if (!up.vault) return;
+    if (got[0]) tk_snprintf(up.cfg[FM_SK], 256, "%s", got), up.cfg[FM_PASS][0] = 0;
+    char *now = calloc(1, VAULT_MAX + 1);
+    if (!now) return;
+    unsigned n = blob_write(now, VAULT_MAX + 1, up.cfg, 0), was = (unsigned)strlen(old);
+    const char tail[] = "[ASK]\nKEEP=1\n";
+    int kept = was >= sizeof tail - 1 && !strcmp(old + was - (sizeof tail - 1), tail);
+    int same = (kept ? was - (sizeof tail - 1) : was) == n && !strncmp(old, now, n);
+    int keep = (same && kept) || up.keep;
+    if (keep) n = blob_write(now, VAULT_MAX + 1, up.cfg, 1);
+    int ok = 1;
+    if (n > VAULT_MAX)
+        ok = 0;
+    else if (!n)
+        ok = !was || vault_delete() > 0;
+    else if (strcmp(now, old))
+        ok = vault_put(now, n) > 0;
+    if (ok) up.keep = 0;
+    up.ask = ok && n && up.had && !keep;
+    memset(now, 0, VAULT_MAX + 1);
+    free(now);
+}
+
+int scrobble_ask(void) { return up.ask; }
+int scrobble_note(void) { return up.note; }
+void scrobble_keep(void) { up.keep = 1, up.ask = 0; }
 
 int scrobble_ready(void) {
     char c[CONFIG_N][256];
@@ -353,11 +493,12 @@ static int retire(unsigned done) {
 static void *worker(void *unused) {
     reply_t r;
     entry_t e[BATCH];
-    char got[64] = "";
+    char got[64] = "", *old = calloc(1, VAULT_MAX + 1);
+    int loaded = old ? vault_load(old) : -1;
     const char *sk = up.cfg[FM_SK][0] ? up.cfg[FM_SK] : got; /* the file's key, else session()'s */
     unsigned size;
     int lb = !!up.cfg[LB_TOKEN][0], fm = !!up.cfg[FM_KEY][0], sent = 0;
-    buf_t b = { calloc(1, BODY_MAX), 0, BODY_MAX };
+    buf_t b = { loaded < 0 ? 0 : calloc(1, BODY_MAX), 0, BODY_MAX };
     int ok = b.p != 0;
     /* A window at a time, each retired before the next is read, until one comes back short. A full
      * window always retires something (whole lines, or the junk), so the passes end. ponytail: each
@@ -393,6 +534,11 @@ static void *worker(void *unused) {
         if (done && !retire(done)) ok = 0;
     }
     free(b.p);
+    if (old) {
+        if (loaded >= 0) vault_save(old, got);
+        memset(old, 0, VAULT_MAX + 1);
+        free(old);
+    }
     up.sent = sent;
     up.ok = ok;
     up.done = 1;

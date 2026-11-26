@@ -639,3 +639,187 @@ def test_no_thread_is_no_upload(fw):
     fw.mock('fw_pthread_create', lambda *_: 11)  # EAGAIN
     assert fw.fn('scrobble_start', C.c_int)() == -1
     assert fw.fn('scrobble_poll', C.c_int, C.POINTER(C.c_int))(C.byref(C.c_int())) == 0  # nothing to report
+
+
+# The logins kept in the Vault card app (patch/vault.c), when it's installed.
+
+VAULT_SOCK, VAULT_BIN = b'/tmp/q2-vault.sock', b'/mnt/mmc/.vault/q2-vault'
+SK_ACCOUNT = {k: v for k, v in ACCOUNT.items() if k[1] != 'PASSWORD'} | {('LASTFM', 'SESSION_KEY'): 'SK0'}
+MOVED = b'[LASTFM]\nUSER=u\nAPI_KEY=key\nAPI_SECRET=sec\nSESSION_KEY=SK123\n[LISTENBRAINZ]\nTOKEN=tok\n'
+
+
+class FakeVault:
+    """The Vault's socket as the card app answers it: get, put and delete of one blob. up_after: the socket shows only
+    after that many stat calls (a Vault starting); away: never there."""
+    def __init__(self, fw, card, blob=None, installed=True, up_after=0, away=False):
+        self.blob, self.ops, self.req, self.reply = blob, [], b'', b''
+        self.stats, self.up_after, self.away, self.slept = 0, up_after, away, 0
+        card_access = card.access if hasattr(card, 'access') else None
+
+        def stat(ver, path, st, *_):
+            if C.string_at(path) != VAULT_SOCK:
+                return -1
+            self.stats += 1
+            if self.away or self.stats <= self.up_after:
+                return -1
+            words = C.cast(st, C.POINTER(C.c_uint))
+            words[5], words[7] = 0o140000, 0
+            return 0
+
+        def access(path, *_):
+            p = C.string_at(path)
+            if p == VAULT_BIN:
+                return 0 if installed else -1
+            return 0 if p.decode() in card.files else -1
+
+        def send(fd, buf, n, *_):
+            self.req += C.string_at(buf, n)
+            return n
+
+        def recv(fd, buf, n, *_):
+            if self.req is not None:
+                self.reply, self.req = self.answer(self.req), None
+            piece, self.reply = self.reply[:n], self.reply[n:]
+            C.memmove(buf, piece, len(piece))
+            return len(piece)
+
+        def clock(which, ts, *_):
+            t = C.cast(ts, C.POINTER(C.c_long))
+            t[0], t[1] = len(self.ops), 0
+
+        def connect(*_):
+            self.req = b''
+            return 0
+
+        fw.mock('fw___xstat', stat)
+        fw.mock('fw_access', access)
+        fw.mock('fw_clock_gettime', clock)
+        fw.mock('fw_socket', lambda *_: 5)
+        fw.mock('fw_connect', connect)
+        fw.mock('fw_select', lambda *_: 1)
+        fw.mock('fw_send', send)
+        fw.mock('fw_recv', recv)
+        fw.mock('fw_usleep', lambda us, *_: setattr(self, 'slept', self.slept + 1))
+
+    def answer(self, req):
+        head, op, body = req.split(b'\n', 2)
+        assert head == b'Q2VAULT/1'
+        self.ops.append(op)
+        if op == b'get':
+            return b'Q2VAULT/1\nnone\n' if self.blob is None else b'Q2VAULT/1\nok\n' + self.blob
+        if op == b'put':
+            self.blob = body
+        if op == b'delete':
+            self.blob = None
+        return b'Q2VAULT/1\nok\n'
+
+
+def vault_upload(fw, values, blob=None, log=HEADER + line(), reply=None, **kw):
+    config(fw, values)
+    card = Card(fw, {LOG: log} if log is not None else {})
+    vault = FakeVault(fw, card, blob, **kw)
+    net = Net(fw, reply)
+    return Upload(fw).run(), card, net, vault
+
+
+def ask(fw):
+    return fw.fn('scrobble_ask', C.c_int)()
+
+
+def note(fw):
+    return fw.fn('scrobble_note', C.c_int)()
+
+
+@pytest.mark.parametrize('values, want', (
+    ({('LISTENBRAINZ', 'VAULT'): '1'}, 1),
+    ({('LASTFM', 'VAULT'): '1', ('LASTFM', 'USER'): 'u'}, 2),
+    ({('LASTFM', 'VAULT'): '1'}, 0),  # Last.fm in the Vault still names its user in the file
+    ({('LISTENBRAINZ', 'VAULT'): '1', ('LASTFM', 'VAULT'): '1', ('LASTFM', 'USER'): 'u'}, 3)))
+def test_ready_with_the_vault_marker(fw, values, want):
+    config(fw, values)
+    assert fw.fn('scrobble_ready', C.c_int)() == want
+
+
+def test_ready_never_asks_the_vault(fw):
+    config(fw, {('LISTENBRAINZ', 'VAULT'): '1'})
+    vault = FakeVault(fw, Card(fw))
+    fw.fn('scrobble_ready', C.c_int)()
+    assert vault.ops == [] and vault.stats == 0
+
+
+def test_the_file_s_secrets_move_in(fw):
+    (started, result, sent), card, net, vault = vault_upload(fw, ACCOUNT)
+    assert (started, result, sent) == (1, 1, 1)
+    assert vault.blob == MOVED  # the session key in the password's place: the password never stored
+    assert b'PASSWORD' not in vault.blob and ask(fw) == 1
+
+
+def test_an_upload_from_the_vault_alone(fw):
+    marked = {('LISTENBRAINZ', 'VAULT'): '1', ('LASTFM', 'VAULT'): '1', ('LASTFM', 'USER'): 'u'}
+    (started, result, sent), card, net, vault = vault_upload(fw, marked, blob=MOVED)
+    assert (started, result, sent) == (1, 1, 1)
+    assert ['Authorization: Token tok' in h for _, h, _, _ in net.to('listenbrainz')] == [True]
+    assert [f['sk'] for f in net.forms()] == ['SK123'] and not [f for f in net.forms() if 'password' in f]
+    assert vault.ops == [b'get'] and ask(fw) == 0  # nothing changed, nothing on the card to remove
+
+
+def test_the_file_s_lines_win(fw):
+    values = SK_ACCOUNT | {('LISTENBRAINZ', 'TOKEN'): 'new'}
+    (started, result, _), card, net, vault = vault_upload(fw, values, blob=MOVED)
+    assert result == 1 and b'TOKEN=new\n' in vault.blob
+    assert ['Authorization: Token new' in h for _, h, _, _ in net.to('listenbrainz')] == [True]
+
+
+def test_another_user_in_the_file_voids_the_vault_s_last_fm(fw):
+    values = {('LISTENBRAINZ', 'VAULT'): '1', ('LASTFM', 'VAULT'): '1', ('LASTFM', 'USER'): 'v'}
+    (started, result, sent), card, net, vault = vault_upload(fw, values, blob=MOVED)
+    assert net.to('audioscrobbler') == []  # never the old account's key
+    assert len(net.to('listenbrainz')) == 1 and result == 1 and note(fw) == 1
+    assert b'[LASTFM]' not in vault.blob and b'TOKEN=tok' in vault.blob
+
+
+def test_a_section_taken_out_of_the_file_leaves_the_vault(fw):
+    (_, result, _), card, net, vault = vault_upload(fw, {('LISTENBRAINZ', 'VAULT'): '1'}, blob=MOVED)
+    assert result == 1 and vault.blob == b'[LISTENBRAINZ]\nTOKEN=tok\n'
+
+
+def test_no_section_left_starts_nothing_and_the_vault_page_removes_it(fw):
+    config(fw, {('LISTENBRAINZ', 'TOKEN'): 'tok'})
+    card = Card(fw, {LOG: HEADER + line()})
+    vault = FakeVault(fw, card, MOVED)
+    Net(fw)
+    Upload(fw).run()
+    config(fw, {})  # both sections gone from the file: no upload starts, and the Vault keeps them until one does
+    assert fw.fn('scrobble_start', C.c_int)() == -1
+
+
+def test_the_vault_away_with_only_its_marker_fails_and_keeps_everything(fw):
+    marked = {('LISTENBRAINZ', 'VAULT'): '1'}
+    log = HEADER + line()
+    (started, result, sent), card, net, vault = vault_upload(fw, marked, log=log, away=True)
+    assert (started, result) == (1, -1) and net.requests == []
+    assert card.files[LOG] == log and ask(fw) == 0
+
+
+def test_no_vault_is_today_s_upload(fw):
+    (started, result, sent), card, net, vault = vault_upload(fw, ACCOUNT, installed=False)
+    assert (started, result, sent) == (1, 1, 1) and vault.ops == [] and vault.stats == 0
+    assert [f.get('password') for f in net.forms()][0] == 'p&w'
+
+
+def test_a_starting_vault_is_waited_for(fw):
+    (started, result, sent), card, net, vault = vault_upload(fw, ACCOUNT, up_after=3)
+    assert result == 1 and vault.slept >= 3 and vault.blob == MOVED
+
+
+def test_a_failed_sign_in_keeps_the_password_in_the_vault(fw):
+    def reply(url, body):
+        return (200, '{"message":"down","error":11}') if 'auth.getMobileSession' in body else Net.ok(url, body)
+    (_, result, _), card, net, vault = vault_upload(fw, ACCOUNT, reply=reply)
+    assert result == -1 and b'PASSWORD=p&w\n' in vault.blob and b'SESSION_KEY' not in vault.blob
+
+
+def test_keep_is_remembered(fw):
+    fw.fn('scrobble_keep', None)()
+    (_, result, _), card, net, vault = vault_upload(fw, ACCOUNT)
+    assert result == 1 and vault.blob.endswith(b'[ASK]\nKEEP=1\n') and ask(fw) == 0
