@@ -57,6 +57,8 @@ HOOKS = {
     # Library lists: an Unknown row with no songs is dropped
     'load_localclass_list': (0x51357c, 'ringnav_localclass', 'localclass'),
     'toolsQueryDbTableAndSort': (0x5daf44, 'ringnav_sorted_query', 'sorted_query'),
+    'library_name_cmp_pinyin': (0x5cc870, 'ringnav_name_cmp_pinyin', 'name_cmp_pinyin'),
+    'library_name_cmp': (0x5cd188, 'ringnav_name_cmp', 'name_cmp'),
     'toolsQueryDbTable': (0x5dad14, 'ringnav_library_query', 'dbquery'),
     # An artist's albums tab (getAlbumByAlbumArtist): the same album-artist rewrite
     'toolsQueryContentDbTable': (0x5db30c, 'ringnav_content_query', 'content_query'),
@@ -1753,6 +1755,8 @@ FUNCTIONS = {
 }
 # Local stock routines in the SHA-256-pinned V1.36 executable.
 PRIVATE_FUNCTIONS = {
+    'library_name_cmp_pinyin': 0x5cc870,
+    'library_name_cmp': 0x5cd188,
     "playlist_delete_click": 0x4b62c8,
     'keylock_rows': HOOKS['keylock_rows'][0],
     'timezone_row': HOOKS['timezone_row'][0],
