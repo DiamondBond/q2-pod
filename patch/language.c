@@ -168,6 +168,10 @@ static void lang_load(void) {
     lg.zh = code[0] == 'z' && code[1] == 'h';
 }
 
+/* Whether the language in use is Chinese, as lang_load last read it: a flag alone, safe off the UI
+ * thread, 0 before the first text is asked for. */
+int language_zh(void) { return lg.zh; }
+
 /* Q2 Pod's own English, translated: the same pointer when the language has no line for it. */
 const char *tr(const char *en) {
     if (!lg.loaded) lang_load();

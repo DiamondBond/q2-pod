@@ -364,6 +364,7 @@ int bar_repaint(const void *info);
 void clock_text(widget_t *label, int negative, int t);
 widget_t *list_row(widget_t *view, const char *icon, int (*click)(void *, event_t *), void *ctx);
 int language_offered(void); /* language.c */
+int language_zh(void);      /* language.c: the language pack in use is Chinese */
 widget_t *list_row_core(widget_t *view, const char *icon, int (*click)(void *, event_t *),
                         void *ctx, int w, int into);
 int media_find(int kind, char *path);
@@ -652,6 +653,9 @@ void smart_poll(void);
 /* the automatic scrobble upload's smart_wifi_wait, and its try over */
 int smart_wifi_auto(void);
 void smart_wifi_release(void);
+
+/* navigation.c: the length of a leading "The ", "A " or "An " that library sorting skips, else 0 */
+unsigned article(const char *s);
 
 /* battery.c */
 void battery_tick(int level, int cable);

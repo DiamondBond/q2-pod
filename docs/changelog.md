@@ -7,6 +7,7 @@
   - Library: going back to **Albums** from an album, Now Playing or the hold menu shows the list at once, unless the library has changed or is updating. It used to read and sort the whole library again each time.
   - Library: **Unknown Album** opens sooner on a big library.
   - Library: under Classic, **Play All** at the top of an album's songs is a row like the one on **Songs**, with the songs right under it, and tapping it plays the album from its first song and opens Now Playing. It sat in a taller band, and tapping it did nothing.
+  - Library: names that start with Chinese, Japanese or Korean characters come after the A–Z names in **Artists**, **Albums**, **Songs**, **Genres** and **Composers**, in Unicode order. Chinese names were filed among A–Z by their pinyin. With a Chinese language pack, the lists keep their pinyin order.
 - **1.9.4**:
   - Playlists: holding Play/Pause on a Cover Flow cover offers **Add to Playlist**, which adds that album's songs. From an **Albums** row it adds only that album, not every album with the same name.
   - Apps: **Rockbox** is an app on **Library → Apps**, with Rockbox 3.24 or later from the App Store. Pick it to start Rockbox; Q2 Pod comes back when Rockbox shuts down. Installing Rockbox no longer makes the Q2 start in it: **System settings → Power → Boot to: Rockbox** does, and without that choice the Q2 starts in Q2 Pod.
