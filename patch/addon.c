@@ -146,6 +146,16 @@ static struct {
         rows[4][APPS_MAX]; /* by ROW_*: how many rows, and their slots on the card by name */
 } ap __attribute__((section(".scratch")));
 
+/* An id goes into shell commands: lowercase letters, digits and '-' only. */
+int valid_id(const char *s) {
+    unsigned k = 0;
+    for (; s[k]; ++k)
+        if (k + 1 >= APP_ID ||
+            !((s[k] >= 'a' && s[k] <= 'z') || (s[k] >= '0' && s[k] <= '9') || s[k] == '-'))
+            return 0;
+    return k > 0;
+}
+
 /* raw's needs= into ids: comma-separated, spaces trimmed, a bad id skipped, NEEDS_MAX kept; how
  * many. */
 int needs_ids(const char *raw, char ids[][APP_ID]) {
@@ -167,16 +177,6 @@ int needs_ids(const char *raw, char ids[][APP_ID]) {
 
 static void needs_read(app_t *a, const char *raw) { a->nneeds = needs_ids(raw, a->needs); }
 
-/* An id goes into shell commands: lowercase letters, digits and '-' only. */
-int valid_id(const char *s) {
-    unsigned k = 0;
-    for (; s[k]; ++k)
-        if (k + 1 >= APP_ID ||
-            !((s[k] >= 'a' && s[k] <= 'z') || (s[k] >= '0' && s[k] <= '9') || s[k] == '-'))
-            return 0;
-    return k > 0;
-}
-
 #define PLAY_RAW 192 /* an app's .play as far as it is read */
 /* An app's .play into raw, PLAY_RAW bytes: the bytes read, and *h their hash | 1 (0: none). */
 static unsigned play_read(const char *id, char *raw, unsigned *h) {
@@ -187,9 +187,16 @@ static unsigned play_read(const char *id, char *raw, unsigned *h) {
     return got;
 }
 
-static app_t *slot(const char *id) {
+/* The slot of app id, if it has one. */
+static app_t *found(const char *id) {
     for (int i = 0; i < ap.n; ++i)
         if (!strcmp(ap.a[i].id, id)) return &ap.a[i];
+    return 0;
+}
+
+static app_t *slot(const char *id) {
+    app_t *had = found(id);
+    if (had) return had;
     if (ap.n == APPS_MAX) return 0;
     app_t *a = &ap.a[ap.n++];
     tk_snprintf(a->id, sizeof a->id, "%s", id);
@@ -373,13 +380,6 @@ static void launch_one(app_t *a) {
         app_system(a->run);
 }
 
-/* The slot of app id, if it has one. */
-static app_t *found(const char *id) {
-    for (int i = 0; i < ap.n; ++i)
-        if (!strcmp(ap.a[i].id, id)) return &ap.a[i];
-    return 0;
-}
-
 /* No pid file, and not started in the last ADDON_START_MS (its pid file is not written yet): not
  * running, as addon_wake and launch take it. */
 static int idle(const app_t *a) {
@@ -389,10 +389,14 @@ static int idle(const app_t *a) {
 /* The apps a's q2app needs start first, those on the card and not running (one level: a needed
  * app's own needs are not followed), then a. */
 static void launch(app_t *a) {
+    const char *busy = shelf_busy();
+    if (busy && !strcmp(busy + 1, a->id)) return; /* being replaced: neither it nor what it needs */
     for (int i = 0; i < a->nneeds; ++i) {
         if (!strcmp(a->needs[i], a->id)) continue;
         app_t *n = found(a->needs[i]);
-        if (n && !access(n->bin, 0) && idle(n)) launch_one(n);
+        /* one marked to start again (USB storage's relaunch, Retry's restart) is its own
+         * poll_one's: started here as well, it would start twice before its pid file is there */
+        if (n && !n->relaunch && !n->restart && !access(n->bin, 0) && idle(n)) launch_one(n);
     }
     launch_one(a);
 }
