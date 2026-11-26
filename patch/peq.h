@@ -593,6 +593,12 @@ int spot_reply(char *buf, unsigned len, char **f, int max);
 int spot_exchange(const char *path, unsigned wait_ms, unsigned max, char *buf, unsigned len,
                   unsigned *n, volatile int *cancel);
 enum { SPOT_OK, SPOT_NOSOCK, SPOT_FAIL }; /* spot_exchange's results */
+/* vault.c: the Vault card app's socket, on a worker thread only. vault_get: 1 the saved secret in
+ * out (NUL-terminated within max), 0 none saved, -1 no Vault or not now; vault_put and vault_delete
+ * 1 or -1. */
+#define VAULT_MAX 16384
+int vault_installed(void), vault_get(char *out, unsigned max),
+    vault_put(const char *body, unsigned len), vault_delete(void);
 unsigned curl_save(const void *data, unsigned size, unsigned n, void *file); /* netupdate.c */
 /* scrobble.c: a libcurl handle for url, verified with the firmware's CA file */
 void *tls_easy(const char *url, long connect_s, long timeout_s);
