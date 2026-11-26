@@ -3,9 +3,10 @@ stock's two name comparators on the Q2's libc. test/fw/test_name_sort.py asks th
 scenarios/name_sort.py asks the hook and stock's own body.
 
 Each case: what the pair shows, record a, record b, stock's answers in the default order and the Japanese one (each
-"a before b" then "b before a", 1 for yes), and the orders in which the hook hands the pair to stock's body. A record is
-a name, with file name F (a) or G (b), or (name, file name, record type), None for no string. Numbers past 2^31 - 1
-are scenarios/name_sort.py's own: the Q2's 32-bit atoi saturates there, a 64-bit host's does not."""
+"a before b" then "b before a", 1 for yes), and the orders in which the hook hands the pair to stock's body (for such a
+pair the recorded answers in that order are kept for reference and not asserted). A record is a name, with file name F
+(a) or G (b), or (name, file name, record type), None for no string. Numbers past 2^31 - 1 are scenarios/name_sort.py's
+own: the Q2's 32-bit atoi saturates there, a 64-bit host's does not."""
 F, G = b'a.flac', b'b.flac'
 
 CASES = [

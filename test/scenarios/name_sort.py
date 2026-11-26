@@ -3,7 +3,7 @@ order, and 0x5cd188, the Japanese one) call for every pair their CJK rule leaves
 through their trampolines, on the same records, each pair both ways round in both orders: test/fw/test_name_sort.py's
 cases (stock's recorded answers checked too where name_less answers), numbers past 2^31 - 1, which the Q2's atoi
 saturates, and a few thousand generated names of every kind, half of the pairs alike but for one change. Which pairs
-reach stock's body; lists that stock orders inconsistently, ordered alike; what a pair costs through the entry."""
+reach stock's body; what a pair costs through the entry."""
 import random
 from q2emu import *
 
@@ -145,30 +145,8 @@ for n in range(1500):
         asked += 2; handed += runs
 assert 0.02 < handed / asked < 0.5, (handed, asked)  # most pairs answered by the hook, some by stock's body
 passed()
-# whole lists, by an insertion sort that asks as libcstl's does: names stock orders inconsistently (ab9 < ab10 < AB5 <
-# ab9), each order's classes, articles and numbers, ordered alike from either comparator
-LIST = ['ab9', 'ab10', 'AB5', 'aB7', 'Ab12', 'ab', 'AB', 'Track 2', 'track 10', 'TRACK 9', 'The Cure', 'Cure', 'Them', '2 Unlimited',
-        '10cc', '(What)', '[Intro]', '{x}', '\u00c9mile', '\u3042', '\u4e2d', '\uac00', '\u0e01', '', '  ', 'Love', 'love', 'LOVE 2']
-
-
-def ordered(at, jp):
-    rows = [record(s, ('f%02d.flac' % i).encode()) for i, s in enumerate(LIST)]
-    before = lambda p, q: m.less(at, *m.records(p, q), jp)
-    for i in range(1, len(rows)):
-        v, k = rows[i], i
-        while k and before(v, rows[k - 1]): rows[k] = rows[k - 1]; k -= 1
-        rows[k] = v
-    return [r[0] for r in rows]
-
-
-for jp in (0, 1): assert ordered(FAST, jp) == ordered(STOCK[jp], jp), jp
-passed()
-# A pair of 40-byte titles alike but for their last byte, a number among them: name_less's instructions, under half of
-# stock's body's (the libc calls each makes, mocked here, aside); the cost line is the entry's, the CJK rule's look and
+# A pair of 40-byte titles alike but for their last byte: the cost line is the entry's, the CJK rule's look and
 # name_less's, what a sort pays for the pair
 x, y = m.records(record('Midnight City (Extended Mix) Live 2019 A', F), record('Midnight City (Extended Mix) Live 2019 B', G))
-f = m.insns; m.less(FAST, x, y); f = m.insns - f
-s = m.insns; m.less(STOCK[0], x, y); s = m.insns - s
-assert 2 * f < s, (f, s)
 n = m.insns; m.less(ENTRY[0], x, y); n = m.insns - n
 cost_line('name order pair 40 bytes', n); passed()

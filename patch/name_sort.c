@@ -111,16 +111,13 @@ static unsigned place(unsigned c, int jp) {
 
 /* The text stock compares a record by: its name (+0x10) past the blanks toolsTrimLeft takes (tab,
  * line feed, return, space: its own test) and the article ringnav_sort_key drops, or, with nothing
- * left, its file name (+0x08) as it is. 0 when the name is missing or starts with more blanks than
- * NEAR allows for. */
-static const unsigned char *name_key(const void *row) {
-    const unsigned char *s = *(const unsigned char *const *)((const char *)row + 0x10);
-    unsigned n = 0, c;
-    if (!s) return 0;
-    while (n < 24 && (c = s[n] - 9u) < 24 && (0x800013u >> c & 1)) ++n;
-    if (n == 24) return 0;
-    if (!s[n]) return *(const unsigned char *const *)((const char *)row + 8);
-    return s + n + article((const char *)s + n);
+ * left, its file name (+0x08) as it is. 0 when the name is missing or starts with more than 23
+ * blanks. */
+static const unsigned char *name_key(void *row) {
+    const char *s = P(row, REC_TITLE), *t = trimmed(s);
+    if (!s || t - s > 23) return 0;
+    if (!*t) return P(row, REC_NAME);
+    return (const unsigned char *)(t + article(t));
 }
 
 /* atoi of a number's first ten digits, which is all stock takes of it */
@@ -134,17 +131,16 @@ static int name_number(const unsigned char *s) {
 
 /* Stock's order, for each pair sort_decided leaves to it: most pairs a name sort weighs. Each call
  * of stock's comparator copies both names into 1 KB buffers it has cleared, and looks for a number
- * in each with a strlen for every byte: about 6,000 instructions a pair of 16-byte names, 15,000
- * at 40 bytes. The answer is the same here from the records' own strings, read once as far as the
- * names differ. Stock's own body still answers the pairs its tables decide (BY_STOCK), a record
- * without a name, and a pair NEAR bytes don't settle. */
+ * in each with a strlen for every byte. The answer is the same here from the records' own strings,
+ * read once as far as the names differ. Stock's own body still answers the pairs its tables decide
+ * (BY_STOCK), a record without a name, and a pair NEAR bytes don't settle. Not inlined: that keeps
+ * the two entries' frames small under stock's 5,832-byte one when a pair is handed to stock's body.
+ */
 __attribute__((noinline)) static void name_less(void *ra, void *rb, unsigned *less, int jp) {
-    unsigned ta = *(const unsigned *)((const char *)ra + 0x34),
-             tb = *(const unsigned *)((const char *)rb + 0x34);
-    const unsigned char *a = *(const unsigned char *const *)((const char *)ra + 0x10),
-                        *b = *(const unsigned char *const *)((const char *)rb + 0x10);
+    unsigned ta = (unsigned)I(ra, REC_TYPE), tb = (unsigned)I(rb, REC_TYPE);
+    const unsigned char *a = P(ra, REC_TITLE), *b = P(rb, REC_TITLE);
     unsigned i = 0;
-    if (ta + tb == 12 && (ta == 4 || ta == 8)) { /* record types 4 and 8: 4 first */
+    if ((ta == 4 && tb == 8) || (ta == 8 && tb == 4)) { /* record types 4 and 8: 4 first */
         *less = ta == 4;
         return;
     }
