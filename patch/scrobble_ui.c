@@ -88,6 +88,18 @@ static int upload_wait(const void *unused) {
     tk_snprintf(s, sizeof s, done < 0 ? tr("Upload failed, %d sent") : tr("Scrobbles sent: %d"),
                 sent);
     toast(done > 0 && !sent ? tr("Nothing to upload") : s);
+    if (scrobble_note()) toast(tr("Last.fm: add the new account's password to .scrobble.ini"));
+    /* the logins went into the Vault (scrobble.c): offered off the card, once; Keep is remembered
+     */
+    if (scrobble_ask()) {
+        if (confirm_over(
+                tr("Logins saved in the Vault. Remove your password and tokens from the card?"),
+                tr("Remove"), 0) == 10)
+            toast(scrobble_strip() ? tr("Logins removed from the card")
+                                   : tr("Couldn't change .scrobble.ini"));
+        else
+            scrobble_keep();
+    }
     return 0;
 }
 

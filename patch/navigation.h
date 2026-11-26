@@ -326,6 +326,8 @@ extern int stock_keyup_trampoline(void *, event_t *), stock_touch_trampoline(voi
     stock_stream_row_trampoline(widget_t *, event_t *),
     stock_standby_row_trampoline(widget_t *, event_t *),
     stock_netservice_row_trampoline(widget_t *, event_t *), stock_online_match_trampoline(void *);
+extern int scrobble_ask(void), scrobble_note(void), scrobble_strip(void), scrobble_had(void);
+extern void scrobble_keep(void);
 extern int scrobble_ready(void), scrobble_start(void), scrobble_poll(int *sent),
     scrobble_flag(const char *key), scrobble_value(const char *key);
 extern const char *now_tag(void *r, int field);

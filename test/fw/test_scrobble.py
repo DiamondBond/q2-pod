@@ -823,3 +823,63 @@ def test_keep_is_remembered(fw):
     fw.fn('scrobble_keep', None)()
     (_, result, _), card, net, vault = vault_upload(fw, ACCOUNT)
     assert result == 1 and vault.blob.endswith(b'[ASK]\nKEEP=1\n') and ask(fw) == 0
+
+
+
+# Remove: .scrobble.ini rewritten without its secret lines (scrobble_strip), on the UI's thread after the prompt.
+
+INI_FILE = b"""; my scrobbling
+[SCROBBLE]
+AUTO=1
+PERCENT=60
+
+[LASTFM]
+USER=u
+PASSWORD=p&w
+API_KEY=key
+API_SECRET=sec
+
+[LISTENBRAINZ]
+TOKEN=tok
+"""
+STRIPPED = b"""; my scrobbling
+[SCROBBLE]
+AUTO=1
+PERCENT=60
+
+[LASTFM]
+VAULT=1
+USER=u
+
+[LISTENBRAINZ]
+VAULT=1
+"""
+
+
+def strip(fw, files, fail=()):
+    card = Card(fw, files)
+    card.fail |= set(fail)
+    return fw.fn('scrobble_strip', C.c_int)(), card
+
+
+def test_strip_keeps_everything_but_the_secrets(fw):
+    ok, card = strip(fw, {INI: INI_FILE})
+    assert ok == 1 and card.files[INI] == STRIPPED and INI + '.tmp' not in card.files
+    for secret in (b'PASSWORD', b'API_KEY', b'API_SECRET', b'SESSION_KEY', b'TOKEN', b'p&w', b'tok', b'sec'):
+        assert secret not in card.files[INI]
+
+
+def test_strip_keeps_crlf_lines_and_one_vault_marker(fw):
+    ok, card = strip(fw, {INI: INI_FILE.replace(b'\n', b'\r\n').replace(b'USER=u', b'VAULT=1\r\nUSER=u')})
+    assert ok == 1 and card.files[INI].count(b'VAULT=1') == 2 and b'PASSWORD' not in card.files[INI]
+
+
+@pytest.mark.parametrize('fail', ['write:' + INI + '.tmp', 'sync', 'close', 'rename'])
+def test_a_strip_that_fails_leaves_the_file_whole(fw, fail):
+    ok, card = strip(fw, {INI: INI_FILE}, fail={fail})
+    assert ok == 0 and card.files[INI] == INI_FILE and INI + '.tmp' not in card.files
+
+
+def test_no_file_nothing_to_strip(fw):
+    ok, card = strip(fw, {})
+    assert ok == 0 and card.files == {}

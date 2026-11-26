@@ -197,6 +197,70 @@ static void vault_save(const char *old, const char *got) {
     free(now);
 }
 
+/* The secret keys' line in section (LASTFM, LISTENBRAINZ), or its VAULT marker: line's key, its
+ * spaces trimmed, before the '='. */
+static int secret_line(const char *section, const char *line, unsigned n) {
+    while (n && (*line == ' ' || *line == '\t')) ++line, --n;
+    unsigned k = 0;
+    while (k < n && line[k] != '=' && line[k] != ' ' && line[k] != '\t') ++k;
+    for (int i = 0; i < CONFIG_N; i++)
+        if ((SECRET(i) || i == LB_VAULT || i == FM_VAULT) && in_section(section, SECTION(i)) &&
+            strlen(keys[i]) == k && !strncmp(line, keys[i], k))
+            return 1;
+    return 0;
+}
+
+/* Remove, after the prompt (scrobble_ui.c): .scrobble.ini written again without its secret lines, a
+ * VAULT=1 under each section they were in, every other line as it was. Written beside it and
+ * renamed over it, so a power cut leaves the old file or the new one; 0 and the file as it was on
+ * any failure. ponytail: the old contents may stay in the card's free space. */
+int scrobble_strip(void) {
+    unsigned size;
+    char *p = read_all(INI_FILE, 64 << 10, &size), section[32] = "";
+    if (!p) return 0;
+    int marked[2] = { 0, 0 }; /* LISTENBRAINZ, LASTFM: a secret or marker in it */
+    for (int pass = 0, ok = 1; pass < 2; pass++) {
+        void *f = pass ? fopen(INI_FILE ".tmp", "wb") : 0;
+        if (pass && !f) break;
+        section[0] = 0;
+        for (unsigned at = 0, end; at < size; at = end) {
+            for (end = at; end < size && p[end++] != '\n';) {}
+            unsigned n = end - at, body = n;
+            while (body && (p[at + body - 1] == '\n' || p[at + body - 1] == '\r')) --body;
+            if (p[at] == '[') {
+                tk_snprintf(section, sizeof section, "%.*s", body < sizeof section ? body : 0,
+                            p + at);
+                if (pass) ok = ok && fwrite(p + at, n, 1, f) == 1;
+                int m = in_section(section, "LASTFM")         ? 1
+                        : in_section(section, "LISTENBRAINZ") ? 0
+                                                              : -1;
+                if (pass && m >= 0 && marked[m])
+                    ok = ok && fwrite("VAULT=1", 7, 1, f) == 1 &&
+                         fwrite(p + at + body, n - body, 1, f) == 1; /* the header's line end */
+                continue;
+            }
+            if (secret_line(section, p + at, body)) {
+                marked[in_section(section, "LASTFM")] = 1;
+                continue;
+            }
+            if (pass) ok = ok && fwrite(p + at, n, 1, f) == 1;
+        }
+        if (pass) {
+            if (fflush(f) || fsync(fileno(f))) ok = 0;
+            if (fclose(f)) ok = 0;
+            if (ok) ok = !rename(INI_FILE ".tmp", INI_FILE);
+            if (!ok) unlink(INI_FILE ".tmp");
+            memset(p, 0, size);
+            free(p);
+            return ok;
+        }
+    }
+    memset(p, 0, size);
+    free(p);
+    return 0;
+}
+
+int scrobble_had(void) { return up.had; }
 int scrobble_ask(void) { return up.ask; }
 int scrobble_note(void) { return up.note; }
 void scrobble_keep(void) { up.keep = 1, up.ask = 0; }

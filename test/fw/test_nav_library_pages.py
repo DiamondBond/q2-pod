@@ -1053,7 +1053,8 @@ def test_a_file_two_cue_tracks_run_to_the_end_of_is_kept_once(fw, ui, song, cloc
 # Upload Scrobbles.
 class Up(C.Structure):
     _fields_ = [('lock', C.c_uint * 16), ('thread', C.c_ulong), ('running', C.c_int), ('done', C.c_int), ('ok', C.c_int),
-                ('sent', C.c_int), ('cfg', (C.c_char * 256) * 6)]
+                ('sent', C.c_int), ('cfg', (C.c_char * 256) * 8), ('vault', C.c_int), ('had', C.c_int), ('ask', C.c_int),
+                ('note', C.c_int), ('keep', C.c_int)]
 
 
 class Scrobbler:
@@ -3621,3 +3622,61 @@ def test_a_database_that_refuses_leaves_the_playlist(fw, song, fail, rolled):
 def test_a_database_that_will_not_open_is_left(fw, song):
     db = Playlists(fw, {}, opens=False)
     assert mutate(fw, 3, entry(song, 201, b'/m/a.flac')) == 0 and db.log == []
+
+
+# After Upload Scrobbles: the logins moved into the Vault, the Remove or Keep prompt (scrobble.c's scrobble_ask).
+
+from test_nav_display_library import Prompts  # noqa: E402  (navigator_to_with_context's confirms)
+
+ASK = 'Logins saved in the Vault. Remove your password and tokens from the card?'
+
+
+def texts(prompts):
+    return [t for _, _, _, t in prompts.seen]
+
+
+@pytest.mark.parametrize('answer', [10, 0])
+def test_after_an_upload_the_logins_in_the_vault_are_offered_off_the_card(fw, ui, answer):
+    """Remove rewrites .scrobble.ini (scrobble_strip: test_scrobble.py); none here, so it says it couldn't. Keep is
+    remembered for the next upload's blob."""
+    scrobbler = Scrobbler(fw)
+    prompts = Prompts(fw, answer=answer)
+    call(fw, 'upload_scrobbles')
+    scrobbler.ends(1, 1)
+    scrobbler.up.ask = 1
+    ui.fire('upload_wait')
+    assert texts(prompts).count(ASK) == 1
+    if answer == 10:
+        assert texts(prompts)[-1] == "Couldn't change .scrobble.ini" and scrobbler.up.keep == 0
+    else:
+        assert texts(prompts)[-1] == ASK and scrobbler.up.keep == 1 and scrobbler.up.ask == 0
+
+
+def test_no_prompt_without_the_vault_s_ask(fw, ui):
+    scrobbler = Scrobbler(fw)
+    prompts = Prompts(fw, answer=10)
+    call(fw, 'upload_scrobbles')
+    scrobbler.ends(1, 1)
+    ui.fire('upload_wait')
+    assert ASK not in texts(prompts)
+
+
+def test_an_automatic_upload_never_prompts(fw, ui):
+    scrobbler = Scrobbler(fw, auto=b'1')
+    prompts = Prompts(fw, answer=10)
+    scrobbler.sa.pending, scrobbler.sa.first_at = 1, 0
+    scrobbler.sa.running, scrobbler.up.running = 1, 1
+    scrobbler.ends(1, 1)
+    scrobbler.up.ask = 1
+    call(fw, 'scrobble_auto')
+    assert ASK not in texts(prompts) and scrobbler.up.ask == 1  # asked at the next Upload Scrobbles
+
+
+def test_another_last_fm_user_is_told(fw, ui):
+    scrobbler = Scrobbler(fw)
+    prompts = Prompts(fw)
+    call(fw, 'upload_scrobbles')
+    scrobbler.ends(1, 1)
+    scrobbler.up.note = 1
+    ui.fire('upload_wait')
+    assert "Last.fm: add the new account's password to .scrobble.ini" in texts(prompts)
