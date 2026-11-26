@@ -53,6 +53,7 @@ static struct {
      * Vault and no Keep yet), note (another Last.fm user in the file) for scrobble_ui.c; keep: the
      * user's Keep, written into the Vault's blob at the next upload */
     int vault, had, ask, note, keep;
+    int fm_off; /* Last.fm off for this upload (incomplete), its keys kept for the Vault */
 } up __attribute__((section(".scratch")));
 
 static const char header[] = "#AUDIOSCROBBLER/1.1\n#TZ/UTC\n#CLIENT/Q2 Pod\n";
@@ -69,7 +70,7 @@ static int read_config(char c[][256]) {
     int lb_vault = !strcmp(c[LB_VAULT], "1"), fm_vault = !strcmp(c[FM_VAULT], "1");
     return (c[LB_TOKEN][0] || lb_vault) | ((c[FM_KEY][0] && c[FM_SECRET][0] &&
                                             (c[FM_SK][0] || (c[FM_USER][0] && c[FM_PASS][0]))) ||
-                                           (fm_vault && c[FM_USER][0]))
+                                           fm_vault)
                                               << 1;
 }
 
@@ -132,7 +133,10 @@ static int vault_load(char *old) {
     old[0] = 0;
     for (int i = 0; i < CONFIG_N; i++) up.had |= SECRET(i) && up.cfg[i][0];
     int lb_marked = !strcmp(up.cfg[LB_VAULT], "1"), fm_marked = !strcmp(up.cfg[FM_VAULT], "1");
-    if ((!up.had && !lb_marked && !fm_marked) || !vault_installed()) return 0;
+    /* a VAULT=1 section with nothing of its own, and no Vault to fill it: nothing may go */
+    int missing = (lb_marked && !up.cfg[LB_TOKEN][0]) || (fm_marked && !up.cfg[FM_KEY][0]);
+    if (!up.had && !lb_marked && !fm_marked) return 0;
+    if (!vault_installed()) return missing ? -1 : 0;
     int got = -1;
     for (int i = 0; i < VAULT_TRIES && (got = vault_get(old, VAULT_MAX + 1)) < 0; i++) {
         if (!i) addon_wake("vault"); /* closed: the card app starts it, root=1 */
@@ -140,7 +144,7 @@ static int vault_load(char *old) {
     }
     if (got < 0) {
         old[0] = 0;
-        return (lb_marked && !up.cfg[LB_TOKEN][0]) || (fm_marked && !up.cfg[FM_KEY][0]) ? -1 : 0;
+        return missing ? -1 : 0;
     }
     up.vault = 1;
     if (!got) old[0] = 0;
@@ -152,22 +156,22 @@ static int vault_load(char *old) {
     int fm_file = 0, lb_file = up.cfg[LB_TOKEN][0] || lb_marked;
     for (int i = FM_USER; i <= FM_SK; i++) fm_file |= up.cfg[i][0] != 0;
     fm_file |= fm_marked;
-    int fm_secrets =
-        up.cfg[FM_PASS][0] || up.cfg[FM_KEY][0] || up.cfg[FM_SECRET][0] || up.cfg[FM_SK][0];
-    if (b[FM_USER][0] && up.cfg[FM_USER][0] && strcmp(b[FM_USER], up.cfg[FM_USER])) {
-        for (int i = FM_USER; i <= FM_SK; i++) b[i][0] = 0; /* never the old account's key */
-        up.note = !fm_secrets;
-    }
+    /* another Last.fm user: never the old account's session (nor password); the API pair is the
+     * user's application's, not the account's, and stays */
+    if (b[FM_USER][0] && up.cfg[FM_USER][0] && strcmp(b[FM_USER], up.cfg[FM_USER]))
+        b[FM_USER][0] = b[FM_PASS][0] = b[FM_SK][0] = 0;
     if (!fm_file)
         for (int i = FM_USER; i <= FM_SK; i++) b[i][0] = 0;
     if (!lb_file) b[LB_TOKEN][0] = 0;
+    /* the file's password signs in again, as without the Vault: a revoked key isn't kept over it */
+    if (up.cfg[FM_PASS][0]) b[FM_SK][0] = 0;
     for (int i = 0; i < LB_VAULT; i++)
         if (!up.cfg[i][0] && b[i][0]) tk_snprintf(up.cfg[i], 256, "%s", b[i]);
     memset(b, 0, sizeof b);
-    if (up.note) up.cfg[FM_KEY][0] = 0; /* Last.fm off for this upload */
     int fm_ready = up.cfg[FM_KEY][0] && up.cfg[FM_SECRET][0] &&
                    (up.cfg[FM_SK][0] || (up.cfg[FM_USER][0] && up.cfg[FM_PASS][0]));
-    if (fm_marked && !up.note && !fm_ready) return -1;
+    up.fm_off = !fm_ready; /* off, as an incomplete Last.fm is, ListenBrainz still going */
+    up.note = fm_marked && !fm_ready;
     return lb_marked && !up.cfg[LB_TOKEN][0] ? -1 : 0;
 }
 
@@ -189,8 +193,12 @@ static void vault_save(const char *old, const char *got) {
         ok = 0;
     else if (!n)
         ok = !was || vault_delete() > 0;
-    else if (strcmp(now, old))
-        ok = vault_put(now, n) > 0;
+    else if (strcmp(now, old) && (ok = vault_put(now, n) > 0)) {
+        /* given back as put, or the card's copy stays the only good one: no Remove offered */
+        char *back = calloc(1, VAULT_MAX + 1);
+        ok = back && vault_get(back, VAULT_MAX + 1) > 0 && !strcmp(back, now);
+        if (back) memset(back, 0, VAULT_MAX + 1), free(back);
+    }
     if (ok) up.keep = 0;
     up.ask = ok && n && up.had && !keep;
     memset(now, 0, VAULT_MAX + 1);
@@ -561,8 +569,9 @@ static void *worker(void *unused) {
     int loaded = old ? vault_load(old) : -1;
     const char *sk = up.cfg[FM_SK][0] ? up.cfg[FM_SK] : got; /* the file's key, else session()'s */
     unsigned size;
-    int lb = !!up.cfg[LB_TOKEN][0], fm = !!up.cfg[FM_KEY][0], sent = 0;
-    buf_t b = { loaded < 0 ? 0 : calloc(1, BODY_MAX), 0, BODY_MAX };
+    int lb = !!up.cfg[LB_TOKEN][0], fm = up.cfg[FM_KEY][0] && !up.fm_off, sent = 0;
+    /* no service to take the batches (the Vault's Last.fm voided, say): none may leave the log */
+    buf_t b = { loaded < 0 || (!lb && !fm) ? 0 : calloc(1, BODY_MAX), 0, BODY_MAX };
     int ok = b.p != 0;
     /* A window at a time, each retired before the next is read, until one comes back short. A full
      * window always retires something (whole lines, or the junk), so the passes end. ponytail: each
@@ -613,8 +622,8 @@ static void *worker(void *unused) {
 int scrobble_start(void) {
     if (up.running) return 0;
     int on = read_config(up.cfg);
-    if (!on) return -1; /* nothing would take the batches, so none may leave the log */
-    if (!(on & 2)) up.cfg[FM_KEY][0] = 0; /* an incomplete Last.fm is off */
+    if (!on) return -1;    /* nothing would take the batches, so none may leave the log */
+    up.fm_off = !(on & 2); /* an incomplete Last.fm is off; its keys still go into the Vault */
     up.done = 0;
     if (pthread_create(&up.thread, 0, worker, 0)) return -1;
     up.running = 1;

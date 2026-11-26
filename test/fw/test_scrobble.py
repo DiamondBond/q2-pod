@@ -654,6 +654,7 @@ class FakeVault:
     def __init__(self, fw, card, blob=None, installed=True, up_after=0, away=False):
         self.blob, self.ops, self.reply = blob, [], b''
         self.req: bytes | None = b''  # the request being sent; None once answered
+        self.garble = False  # a get after a put gives back other bytes
         self.stats, self.up_after, self.away, self.slept = 0, up_after, away, 0
         card_access = card.access if hasattr(card, 'access') else None
 
@@ -707,6 +708,8 @@ class FakeVault:
         assert head == b'Q2VAULT/1'
         self.ops.append(op)
         if op == b'get':
+            if self.garble and b'put' in self.ops:
+                return b'Q2VAULT/1\nok\n' + b'[LISTENBRAINZ]\nTOKEN=other\n'
             return b'Q2VAULT/1\nnone\n' if self.blob is None else b'Q2VAULT/1\nok\n' + self.blob
         if op == b'put':
             self.blob = body
@@ -734,7 +737,7 @@ def note(fw):
 @pytest.mark.parametrize('values, want', (
     ({('LISTENBRAINZ', 'VAULT'): '1'}, 1),
     ({('LASTFM', 'VAULT'): '1', ('LASTFM', 'USER'): 'u'}, 2),
-    ({('LASTFM', 'VAULT'): '1'}, 0),  # Last.fm in the Vault still names its user in the file
+    ({('LASTFM', 'VAULT'): '1'}, 2),  # a session key's file needs no USER, today or in the Vault
     ({('LISTENBRAINZ', 'VAULT'): '1', ('LASTFM', 'VAULT'): '1', ('LASTFM', 'USER'): 'u'}, 3)))
 def test_ready_with_the_vault_marker(fw, values, want):
     config(fw, values)
@@ -776,7 +779,7 @@ def test_another_user_in_the_file_voids_the_vault_s_last_fm(fw):
     (started, result, sent), card, net, vault = vault_upload(fw, values, blob=MOVED)
     assert net.to('audioscrobbler') == []  # never the old account's key
     assert len(net.to('listenbrainz')) == 1 and result == 1 and note(fw) == 1
-    assert b'[LASTFM]' not in vault.blob and b'TOKEN=tok' in vault.blob
+    assert b'SESSION_KEY' not in vault.blob and b'API_KEY=key' in vault.blob and b'TOKEN=tok' in vault.blob
 
 
 def test_a_section_taken_out_of_the_file_leaves_the_vault(fw):
@@ -884,3 +887,66 @@ def test_a_strip_that_fails_leaves_the_file_whole(fw, fail):
 def test_no_file_nothing_to_strip(fw):
     ok, card = strip(fw, {})
     assert ok == 0 and card.files == {}
+
+
+
+# The final review's findings.
+
+def test_the_vault_uninstalled_keeps_every_listen(fw):
+    """C1: VAULT=1 for ListenBrainz, the Vault removed since: Last.fm alone would take the batches and retire them, and
+    ListenBrainz's copy would be lost. The upload fails and keeps them."""
+    values = {k: v for k, v in SK_ACCOUNT.items() if k[0] == 'LASTFM'} | {('LISTENBRAINZ', 'VAULT'): '1'}
+    log = HEADER + line()
+    (started, result, _), card, net, vault = vault_upload(fw, values, log=log, installed=False)
+    assert (started, result) == (1, -1) and card.files[LOG] == log
+
+
+def test_no_service_left_never_retires_a_listen(fw):
+    """C1: Last.fm only, in the Vault, its USER changed: no service may take the batches, so none leaves the log, and
+    the Vault's entry stays."""
+    values = {('LASTFM', 'VAULT'): '1', ('LASTFM', 'USER'): 'v'}
+    log = HEADER + line()
+    (started, result, sent), card, net, vault = vault_upload(fw, values, log=log, blob=MOVED)
+    assert result == -1 and card.files[LOG] == log and net.requests == []
+    assert vault.blob is not None and b'API_KEY=key' in vault.blob and note(fw) == 1
+
+
+def test_the_new_account_s_password_uploads(fw):
+    """I1: after a USER change the toast says add the password; with it, Last.fm signs in as the new user with the
+    Vault's API pair, and ListenBrainz goes too."""
+    values = {('LISTENBRAINZ', 'VAULT'): '1', ('LASTFM', 'VAULT'): '1', ('LASTFM', 'USER'): 'v',
+              ('LASTFM', 'PASSWORD'): 'pw2'}
+    (_, result, _), card, net, vault = vault_upload(fw, values, blob=MOVED)
+    assert result == 1 and note(fw) == 0 and len(net.to('listenbrainz')) == 1
+    assert [f.get('username') for f in net.forms() if f.get('method') == 'auth.getMobileSession'] == ['v']
+    assert b'USER=v\n' in vault.blob and b'API_KEY=key' in vault.blob and b'pw2' not in vault.blob
+
+
+def test_the_file_s_password_beats_the_vault_s_key(fw):
+    """I2: a revoked key: the user writes the password back, and the upload signs in again rather than using the
+    Vault's key."""
+    values = {('LASTFM', 'VAULT'): '1', ('LASTFM', 'USER'): 'u', ('LASTFM', 'PASSWORD'): 'p&w'}
+    (_, result, _), card, net, vault = vault_upload(fw, values, blob=MOVED.replace(b'SK123', b'REVOKED'))
+    assert result == 1 and [f['sk'] for f in net.forms() if f.get('method') == 'track.scrobble'] == ['SK123']
+    assert b'SESSION_KEY=SK123' in vault.blob and b'REVOKED' not in vault.blob
+
+
+def test_an_incomplete_last_fm_s_keys_go_into_the_vault_too(fw):
+    """I3: Last.fm without its password yet is off, but its API pair is a secret Remove takes off the card: it must be
+    in the Vault first."""
+    values = {('LISTENBRAINZ', 'TOKEN'): 'tok', ('LASTFM', 'USER'): 'u', ('LASTFM', 'API_KEY'): 'key',
+              ('LASTFM', 'API_SECRET'): 'sec'}
+    (_, result, _), card, net, vault = vault_upload(fw, values)
+    assert result == 1 and net.to('audioscrobbler') == []
+    assert b'API_KEY=key' in vault.blob and b'API_SECRET=sec' in vault.blob and ask(fw) == 1
+
+
+def test_no_remove_offered_when_the_vault_gives_back_something_else(fw):
+    """I4: the put said ok, but the Vault gives back other bytes: the card's copy is the only good one, so Remove isn't
+    offered."""
+    config(fw, ACCOUNT)
+    card = Card(fw, {LOG: HEADER + line()})
+    vault = FakeVault(fw, card)
+    vault.garble = True
+    Net(fw)
+    assert Upload(fw).run()[1] == 1 and ask(fw) == 0

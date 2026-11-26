@@ -1054,7 +1054,7 @@ def test_a_file_two_cue_tracks_run_to_the_end_of_is_kept_once(fw, ui, song, cloc
 class Up(C.Structure):
     _fields_ = [('lock', C.c_uint * 16), ('thread', C.c_ulong), ('running', C.c_int), ('done', C.c_int), ('ok', C.c_int),
                 ('sent', C.c_int), ('cfg', (C.c_char * 256) * 8), ('vault', C.c_int), ('had', C.c_int), ('ask', C.c_int),
-                ('note', C.c_int), ('keep', C.c_int)]
+                ('note', C.c_int), ('keep', C.c_int), ('fm_off', C.c_int)]
 
 
 class Scrobbler:
