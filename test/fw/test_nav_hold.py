@@ -344,15 +344,18 @@ class Ui:
         return C.cast(getattr(self.fw.lib, name if '__' in name or name.startswith('ringnav') else ui_name(self.fw.lib, name)), C.c_void_p).value
 
     def due(self, name=None):
-        """The next loop pass: every timer pending now (or only name's) runs once, as stock's one-shots do."""
+        """The next loop pass: every timer pending now (or only name's) runs once, keeping timers that return RET_REPEAT."""
         ran = []
         for t, (fn, ctx, ms) in list(self.timers.items()):
             if name is not None and fn != self.fn(name):
                 continue
-            del self.timers[t]
+            if t not in self.timers:
+                continue
             info = C.create_string_buffer(0x40)
             C.c_void_p.from_address(C.addressof(info) + TIMER_CTX).value = ctx or None
             ran.append(C.CFUNCTYPE(C.c_int, C.c_void_p)(fn)(C.addressof(info)))
+            if ran[-1] != 8:
+                self.timers.pop(t, None)
         return ran
 
     def pending(self):
@@ -2480,7 +2483,8 @@ def test_a_scan_starting_under_an_add_holds_it_until_the_scan_ends(hold, recs, u
     assert lists.calls == [(0xf001, r, 1) for r in songs] and ui.toasts == ['Added to Playlist']
 
 
-def test_a_scan_starting_as_the_last_song_lands_holds_the_adds_end(hold, recs, ui, fw):
+@pytest.mark.parametrize('rearm', [True, False])
+def test_a_scan_starting_as_the_last_song_lands_holds_the_adds_end(hold, recs, ui, fw, rearm):
     """The end asks stock whether the playlist has the first song, on that connection."""
     songs = [song(recs, i, track=i + 1) for i in range(2)]
     rows, headers, lists = added(hold, recs, ui, fw, songs)
@@ -2493,8 +2497,10 @@ def test_a_scan_starting_as_the_last_song_lands_holds_the_adds_end(hold, recs, u
     lists.during = scan
     try:
         ui.click(rows[0])
+        if not rearm:
+            fw.mock('timer_add', lambda *_: 0)
         ui.due('pl_add_pass'), ui.due('pl_add_pass')
-        assert len(lists.calls) == 2 and adding(ui) == WAIT_MS and not ui.toasts and not fw.calls('checkPlayListExist')
+        assert len(lists.calls) == 2 and adding(ui) == (WAIT_MS if rearm else GAP_MS) and not ui.toasts and not fw.calls('checkPlayListExist')
     finally:
         C.memmove(O['SCAN_DONE'], saved, 8)
     assert passes(ui) == 1 and ui.toasts == ['Added to Playlist']
@@ -2514,19 +2520,23 @@ def test_classics_bar_reads_the_pickers_title_as_it_changes(fw, ui, st, recs, mc
 
 
 @pytest.mark.parametrize('how', ['covered', 'sliding'])
-def test_the_adds_end_waits_for_the_picker_on_top_and_still(hold, recs, ui, st, fw, how):
+@pytest.mark.parametrize('rearm', [True, False])
+def test_the_adds_end_waits_for_the_picker_on_top_and_still(hold, recs, ui, st, fw, how, rearm):
     """Under the lock screen, another toast or the picker's own close as it slides, the songs go on being added; the
     toast would nest in theirs, and the close meet a window that is going."""
     songs = [song(recs, i, track=i + 1) for i in range(3)]
     rows, headers, lists = added(hold, recs, ui, fw, songs)
     win, over = ui.top(), 0
     ui.click(rows[0])
+    if not rearm:
+        fw.mock('timer_add', lambda *_: 0)
     if how == 'covered':
         over = ui.window('saverscreen_page')
     else:
         fw.mock('window_manager_is_animating', lambda *_: 1)
     ui.due('pl_add_pass'), ui.due('pl_add_pass')
-    assert lists.calls == [(0xf001, r, 1) for r in songs] and not ui.toasts and adding(ui) == WAIT_MS and win in ui.stack
+    assert lists.calls == [(0xf001, r, 1) for r in songs] and not ui.toasts and win in ui.stack
+    assert adding(ui) == (WAIT_MS if rearm else GAP_MS)
     if over:
         ui.close(over)
     fw.mock('window_manager_is_animating', lambda *_: 0)

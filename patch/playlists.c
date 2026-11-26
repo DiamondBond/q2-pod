@@ -635,7 +635,6 @@ static int pl_add_pass(const void *unused) {
     void *songs = qm_songs();
     widget_t *wm = window_manager(), *win = st.qm_playlist;
     unsigned start = (unsigned)time_now_ms(), n = songs ? deque_size(songs) : 0;
-    pa.timer = 0;
     if (!songs) return 0; /* the picker went */
     while (!library_scanning() && pa.at < n) {
         void *t = deque_at(songs, pa.at++);
@@ -645,9 +644,16 @@ static int pl_add_pass(const void *unused) {
     /* nothing to add this pass: it waits for the scan's end, or the picker on top and still */
     int scan = library_scanning(), wait = scan || pa.at >= n;
     widget_t *top = window_manager_get_top_window(wm);
-    if ((scan || pa.at < n || top != win || window_manager_is_animating(wm)) &&
-        (pa.timer = timer_add(pl_add_pass, (void *)0, wait ? PL_ADD_WAIT_MS : PL_ADD_GAP_MS)))
-        return 0;
+    int blocked = scan || top != win || window_manager_is_animating(wm);
+    if (blocked || pa.at < n) {
+        unsigned next = timer_add(pl_add_pass, (void *)0, wait ? PL_ADD_WAIT_MS : PL_ADD_GAP_MS);
+        if (next) {
+            pa.timer = next;
+            return 0;
+        }
+        if (blocked) return 8; /* RET_REPEAT: keep this timer until finishing is safe */
+    }
+    pa.timer = 0;
     int after = pl_count(pa.dest), in = checkPlayListExist(deque_at(songs, pa.first), pa.dest);
     int added = after > pa.before || (after < 0 && in);
     const char *said = added ? tr("Added to Playlist")
