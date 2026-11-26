@@ -8,7 +8,8 @@ import struct
 
 import pytest
 
-from conftest import FNV_PRIME, O, Config, Files, block, fnv1a
+from conftest import FNV_PRIME, O, Config, Files, block, fnv1a, libc
+from test_coverflow import segment, statuses as ffmpeg
 
 ROOT = '/mnt/mmc/Photos'
 CACHE = '/mnt/mmc/.photos'
@@ -45,10 +46,6 @@ def key(path):
     return fnv1a(path.encode()) * FNV_PRIME & 0xffffffff
 
 
-LIBC = C.CDLL(None)  # this file's own handle: its argtypes are its own
-LIBC.mmap.restype, LIBC.mmap.argtypes = C.c_void_p, [C.c_void_p, C.c_size_t, C.c_int, C.c_int, C.c_int, C.c_long]
-LIBC.mprotect.argtypes = [C.c_void_p, C.c_size_t, C.c_int]
-LIBC.munmap.argtypes = [C.c_void_p, C.c_size_t]
 PAGE = 0x1000
 
 
@@ -58,14 +55,14 @@ def flush(data=b'', size=None):
     with ASan or without, where a heap block's slack would let it pass."""
     size = len(data) if size is None else size
     span = -(-size // PAGE) * PAGE or PAGE
-    base = LIBC.mmap(None, span + PAGE, 3, 0x22, -1, 0)  # read/write, MAP_PRIVATE | MAP_ANONYMOUS
+    base = libc.mmap(None, span + PAGE, 3, 0x22, -1, 0)  # read/write, MAP_PRIVATE | MAP_ANONYMOUS
     assert base and base != C.c_void_p(-1).value
-    assert not LIBC.mprotect(base + span, PAGE, 0)
+    assert not libc.mprotect(base + span, PAGE, 0)
     C.memmove(base + span - size, data, len(data))
     try:
         yield base + span - size
     finally:
-        LIBC.munmap(base, span + PAGE)
+        libc.munmap(base, span + PAGE)
 
 
 # File names.
@@ -80,10 +77,6 @@ def test_photo_file(fw, name, ok):
 
 
 # The EXIF orientation.
-
-def segment(marker, body):
-    return bytes([0xff, marker]) + struct.pack('>H', len(body) + 2) + body
-
 
 def exif(entries, le=True, ifd=8, order=None, link=True):
     """An APP1 Exif body: a TIFF header in either byte order and IFD0's SHORT entries (tag, value), then (link) its
@@ -494,16 +487,6 @@ def test_a_photo_marked_bad_is_not_tried_again(fw):
     assert build(fw) == PH_BAD and thumbs.made == []
 
 
-def ffmpeg(fw, status):
-    """ffmpeg starts and ends with status: 1 << 8 its own failure, 9 killed."""
-    fw.mock('fw_fork', lambda *_: 1234)
-
-    def wait(pid, out, *_):
-        C.c_int.from_address(out).value = status
-        return pid
-    fw.mock('fw_waitpid', wait)
-
-
 def test_a_photo_nothing_decodes_gets_the_bad_marker(fw):
     path = f'{ROOT}/a.jpg'
     card = Card(fw, {path: head(1)})
@@ -514,6 +497,33 @@ def test_a_photo_nothing_decodes_gets_the_bad_marker(fw):
     assert card.files[cached(path, '.bad')] == b'' and cached(path) not in card.files and card.open == {}
     assert fw.calls('fw_fork')  # ffmpeg was the fallback
     assert (path, 0) in card.asked and {m for p, m in card.asked if p.startswith(CACHE)} == {0}  # still there? F_OK
+
+
+@pytest.mark.parametrize('ends_at, made', [(15000, True), (None, False)])
+def test_a_full_size_photo_has_ph_ff_wait_ms_not_a_cover_s_ten_seconds(fw, ends_at, made):
+    """A camera photo stock refuses goes whole to ffmpeg, which may take longer than a cover's FF_WAIT_MS (10 s): one
+    still decoding at 15 s is waited for; one still running at PH_FF_WAIT_MS (20 s) is killed, with no marker."""
+    path = f'{ROOT}/a.jpg'
+    card = Card(fw, {path: head(1)})
+    Thumbs(fw, card, bad={path})
+    now, killed = [0], []
+    fw.mock('fw_fork', lambda *_: 1234)
+    fw.mock('time_now_ms', lambda *_: now[0])
+    fw.mock('sleep_ms', lambda ms, *_: now.__setitem__(0, now[0] + ms))
+    fw.mock('chapter_kill', lambda pid, sig, *_: killed.append((pid, sig)))
+
+    def wait(pid, out, *_):
+        if not killed and (ends_at is None or now[0] < ends_at):
+            return 0
+        if not killed:
+            card.files[cached(path, '.tmp') + '.ff'] = b'jpeg'
+        C.c_int.from_address(out).value = 9 if killed else 0
+        return pid
+    fw.mock('fw_waitpid', wait)
+    worker_state(fw, [path])
+    got = build(fw)
+    assert (got != PH_BAD) == made and (cached(path) in card.files) == made and cached(path, '.bad') not in card.files
+    assert killed == ([] if made else [(1234, 9)]) and (made or 20000 <= now[0] <= 20020)
 
 
 @pytest.mark.parametrize('killed', (1, 0))
@@ -936,15 +946,9 @@ def test_return_from_an_album_s_grid_goes_back_to_the_albums(fw):
     assert visible(fw, page.ph.albums) == 1 and visible(fw, page.ph.grid) == 0 and fw.calls('navigator_back') == []
 
 
-def test_return_from_a_grid_without_albums_leaves(fw):
-    page = Page(fw, Card(fw, files('a.jpg')))
-    keyup(page)
-    page.fire()
-    assert len(fw.calls('navigator_back')) == 1
-
-
-def test_return_from_the_albums_leaves(fw):
-    page = Page(fw, Card(fw, files('Trip/1.jpg')))
+@pytest.mark.parametrize('name', ['a.jpg', 'Trip/1.jpg'], ids=['grid_without_albums', 'albums'])
+def test_return_from_a_grid_or_the_albums_leaves(fw, name):
+    page = Page(fw, Card(fw, files(name)))
     keyup(page)
     page.fire()
     assert len(fw.calls('navigator_back')) == 1

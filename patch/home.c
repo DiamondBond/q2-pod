@@ -92,6 +92,7 @@ int ringnav_localmusic(widget_t *win, void *ctx) {
                    n++);
     widget_set_visible(stock[L_FREQUENT], 0, 0); /* Most Played is its list, from every listen */
     widget_restack(stock[L_FREQUENT], n++);
+    if (pod_value(POD_HIDE_HIRES)) widget_set_visible(stock[L_HIRES], 0, 0); /* kept, as My Fav */
     widget_restack(stock[L_HIRES], n++);
     widget_restack(library_row(view, "local_longsongs", long_songs, 0, tr("Long Songs"), 1), n++);
     /* Podcasts, Audiobooks and Photos, each only with its folder. */
@@ -122,10 +123,11 @@ int ringnav_localmusic(widget_t *win, void *ctx) {
     return result;
 }
 
-/* The Library's Apps row shown (on) or not, the list's selection kept on its row: navigation.c's
- * load drops a live list's selection when its count of shown rows changes, so the index and the
- * count it keeps move with the row. */
-void library_apps_show(widget_t *row, int on) {
+/* A list's row shown (on) or not, the list's selection kept on its row: the Library's Apps row,
+ * Home's Now Playing row (coverflow_home_layout). navigation.c's load drops a live list's selection
+ * when its count of shown rows changes, so the index and the count it keeps move with the row; a
+ * selection on a row that goes stays on the row that takes its place. */
+void list_row_show(widget_t *row, int on) {
     widget_t *view = P(row, W_PARENT);
     if (!widget_get_visible(row) == !on) return;
     int sel = widget_get_prop_int(view, SEL, -1), count = widget_get_prop_int(view, COUNT, -1);
@@ -148,13 +150,6 @@ void library_rows(widget_t *list) {
     ringnav_localmusic(list, (void *)0);
     ((int (*)(void *, event_t *))LOCALMUSIC_BG)(list, (void *)0);
     widget_off_by_ctx(list, list);
-}
-
-/* Streaming's AirPlay row: stock's own receiver (Shairport 1.1.1, AirPlay 1), whose switch is on
- * System settings' Network service page; that page, one press from Streaming. */
-static int airplay_open(void *ctx, event_t *event) {
-    navigator_to("systemset/netservice_page");
-    return 0;
 }
 
 /* Whether w, or a widget in it, shows the image name. */
@@ -222,7 +217,11 @@ int ringnav_stream(widget_t *win, void *ctx) {
                 hide);
         svc_row(library_row(view, "stream_radio", radio_open, 0, tr("Internet Radio"), 1), i++,
                 hide);
-        svc_row(library_row(view, "stream_airplay", airplay_open, 0, "AirPlay", 1), i, hide);
+        /* Streaming's AirPlay row: stock's own receiver (Shairport 1.1.1, AirPlay 1), whose switch
+         * is on System settings' Network service page; that page, one press from Streaming. */
+        svc_row(library_row(view, "stream_airplay", to_page, (void *)"systemset/netservice_page",
+                            "AirPlay", 1),
+                i, hide);
         library_row(view, "stream_config", stream_config, 0, tr("Configuration"), 1);
     }
     return result;

@@ -41,7 +41,6 @@ int ipod_times(widget_t *elapsed, widget_t *remain, widget_t *bar, int sec) {
  * lost with the frame's dirty rects (#116). Minimal's and Modern's sit in the rect the slider's and
  * the elapsed time's repaint takes each second; only times beside the bar (np_beside) need it. */
 int remain_due(const void *info) {
-    (void)info;
     st.np_remain_timer = 0;
     if (st.np_remain) widget_invalidate_force(st.np_remain, (void *)0);
     return 0;
@@ -58,7 +57,6 @@ int np_beside(void) {
 /* Classic's times and bar fitted to the playing track's length (the slider's max), off the paint
  * whose np_sync found them stale. */
 int np_fit_due(const void *info) {
-    (void)info;
     st.np_fit_timer = 0;
     if (np_beside())
         ipod_times(st.np_elapsed, st.np_remain, st.np_slider,
@@ -117,10 +115,9 @@ static widget_t *page_of(widget_t *top) {
  * clock; a pop-up or keyboard leaves the bar as it is. USB mode's page has neither title nor
  * clock, with Time in Title on or off, in every theme and Status Bar look; nor has Classic's lock
  * screen, whose date and clock are its own. The own pages' Set Time and Update Library (Classic's,
- * Modern's) have no clock either, so their titles show whole in its room: beside the clock the
- * title's box has 91 px, the scan's title is 104 px and the widest date being set 90. This runs in
- * a paint, which drops the label's invalidate, so bar_repaint follows; the clock waits for its
- * timer. */
+ * Modern's) have no clock either, so their titles take its room as a title does with Time in Title
+ * off. This runs in a paint, which drops the label's invalidate, so
+ * bar_repaint follows; the clock waits for its timer. */
 void bar_title(widget_t *bar, widget_t *top) {
     static const unsigned none = 0;
     unsigned named[48]; /* Now Playing's, Cover Flow's or Home's title, read below its block */
@@ -188,7 +185,7 @@ void bar_title(widget_t *bar, widget_t *top) {
         if (!st.bar_titled) return;
         st.bar_titled = 0;
         st.clock_key = 0; /* clock_show writes it again */
-        if (bar_bold) label_font(label, 0);
+        if (bar_bold) face_states(label, "default", 0);
         font_weight_mark(label, 0); /* a CJK title's mark, under bar_bold 0 too */
         bar_bold = 0;
         rearm(&st.clock_timer, clock_due, 0);

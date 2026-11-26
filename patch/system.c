@@ -68,6 +68,44 @@ static void charge_poll(void) {
     battery_tick(level, g_usbdet_value != 0); /* Battery History's rows (battery.c) */
 }
 
+/* A row's switch off, as stock's handler reads it: Auto-standby's byte at 0, Auto-shutdown's mode
+ * (a signed byte, 1 to 4 its times) at 0 or less */
+static int switch_off(int row) { return row ? (signed char)g_savepower_mode <= 0 : !g_standbyflag; }
+
+/* The Standby page's two questions (docs/internals.md#standby-limit, #charge-limit). Waking from
+ * Standby can leave a Q2 frozen, and the watchdog is stopped across the suspend. Charge Limit runs
+ * only while demo does, so a Q2 that Auto-shutdown powered off charges to full on a charger. The
+ * page's row click is stock's (0x4d1e48, by the button's name: row 0 Auto-standby, row 1
+ * Auto-shutdown, then its times). The click that would turn Auto-standby on asks first, and so
+ * does the one that would turn Auto-shutdown on while Charge Limit is on, before that handler has
+ * changed anything. Accept runs the handler, once: the switch, the other one's turning off, the
+ * saves, the idle counters and the rows are all its own. Any other answer (Cancel, Return, a hold
+ * that cancels the prompt) leaves everything as it was. The prompt's loop ran in between, so the
+ * click goes on only while the page is still one of the window manager's windows and the switch
+ * is still off. ponytail: only these two switches ask; an Auto-standby already on is not asked
+ * about, and Standby Limit, the Sleep Timer and a shutdown by hand also leave the Q2 off,
+ * charging to 100%, and ask nothing. */
+int ringnav_standby_row(widget_t *button, event_t *event) {
+    const char *name = widget_get_prop_str(button, "name", "");
+    int row = (name[0] == '0' || name[0] == '1') && !name[1] ? name[0] - '0' : -1;
+    if (row >= 0 && (!row || st.charge_limit) && switch_off(row)) {
+        widget_t *wm = window_manager(), *page = window_of(button);
+        char ask[0x200];
+        if (row)
+            tk_snprintf(ask, sizeof ask, "%s\n%s",
+                        tr("Charge Limit is not enforced while the Q2 is off."),
+                        tr("Enable Auto-shutdown?"));
+        else
+            tk_snprintf(ask, sizeof ask, "%s\n%s", tr("Standby may leave the Q2 unresponsive."),
+                        tr("Use Auto-shutdown instead. Enable Standby?"));
+        if (confirm_over(ask, tr("Accept"), 0) != 10) return 0;
+        unsigned held = widget_count_children(wm);
+        while (held && widget_get_child(wm, held - 1) != page) --held;
+        if (!held || !switch_off(row)) return 0;
+    }
+    return stock_standby_row_trampoline(button, event);
+}
+
 /* The Wi-Fi signal (docs/internals.md#battery), for networkGetWifiSignal's two pollers: the status
  * bar's bars (get_wifisignal) and the network monitor thread's connect status, each about once a
  * second. Stock asks with SIOCGIWSTATS, which the driver answers through get_station, whose TX
@@ -103,7 +141,7 @@ int ringnav_wifi_signal(void) {
  * cuts the power. The first UI loop pass starts it counting WDT_MS and every pass feeds it, so a
  * stall that long reboots instead. It counts on the RTC clock, through a suspend, so Standby stops
  * it before and starts it again after (ringnav_standby). Its close is a no-op, so a clean end
- * (ringnav_clean_end: power-off, Restart, a firmware update, Rockbox) stops it. libhardware2's
+ * (ringnav_clean_end: power-off, Restart, a firmware update, a takeover) stops it. libhardware2's
  * watchdog_start/stop/feed ioctls; no device, or a refused start, leaves stock's behaviour.
  * ponytail: the UI loop is the only feeder, so a stalled worker thread is not caught. */
 #define WDT_DEV "/dev/jz_watchdog"
@@ -137,12 +175,8 @@ static void stall_read(char *in, const char *path) { /* the file's start, NUL-te
 }
 /* in's line that starts with key */
 static const char *stall_find(const char *in, const char *key) {
-    unsigned n = strlen(key);
-    for (const char *s = in; *s; ++s) {
-        if (!strncmp(s, key, n)) return s;
-        while (*s && *s != '\n') ++s;
-        if (!*s) break;
-    }
+    for (const char *s = strstr(in, key); s; s = strstr(s + 1, key))
+        if (s == in || s[-1] == '\n') return s;
     return 0;
 }
 static char *stall_add(char *p, char *end, const char *label, const char *s) { /* s's first line */
@@ -245,7 +279,7 @@ static void wdt_poll(void) {
     if (pw.wdt > 0 && !pthread_create(&tid, 0, stall_watch, 0)) pthread_detach(tid);
 }
 /* The state record (docs/internals.md#watchdog): /mnt/data/q2-state says what the Q2 is doing, one
- * line rewritten and synced whenever it changes: the screen, Standby's suspend, the cable, the
+ * line rewritten whole (blob_io) whenever it changes: the screen, Standby's suspend, the cable, the
  * battery, playback and its output. A clean end removes it; one still there at boot means a
  * forced restart (or the battery), and S90play puts it in q2-crash.log (docs/boot.md). */
 #define STATE_FILE "/mnt/data/q2-state"
@@ -261,17 +295,17 @@ static void state_poll(void) {
                      g_usbdet_value ? "in" : "out", pct > 100 ? 100 : pct, play[ps < 4 ? ps : 0],
                      out[ow < 3 ? ow : 0]);
     if (!tk_strcmp(s, pw.state)) return;
-    void *f = fopen(STATE_FILE, "w");
-    if (!f) return;
-    fwrite(s, 1, n, f);
-    fflush(f);
-    fsync(fileno(f));
-    fclose(f);
+    blob_io(STATE_FILE, STATE_FILE ".tmp", s, (unsigned)n, 1); /* once a change: not each pass */
     memcpy(pw.state, s, n + 1);
 }
-/* A clean end: power-off, Restart, a firmware update, Rockbox. Nothing to report at the next boot.
+/* A clean end: power-off, Restart, a firmware update, a takeover. Nothing to report at the next
+ * boot.
  */
 void ringnav_clean_end(void) {
+    /* every call's: an update's dialog is a clean end as it opens, and its reboot one more */
+    volume_save_flush();
+    playback_flush(); /* a skip's place still held: a stopped Restart saves no queue of its own */
+    xfade_save();     /* the slider page's, open as Power is held */
     if (pw.ended) return;
     pw.ended = 1;
     wdt_set(0);
@@ -401,6 +435,9 @@ int ringnav_standby(void) {
     unsigned start = st.standby_limit ? rtc_now() : 0;
     unsigned alarm = start + standby_hours[st.standby_limit] * 3600;
     int armed = start && rtc_alarm(0) && rtc_alarm(alarm);
+    volume_save_flush(); /* the battery may not last the suspend */
+    playback_flush();
+    xfade_save();
     pw.suspended = 1;
     state_poll(); /* the record a resume that never comes leaves behind */
     wdt_set(0);   /* it would count through the suspend */
@@ -502,12 +539,14 @@ static void *logo_sync(void *unused) {
     unsigned n = 0;
     unsigned char *b = 0;
     const char *err = logo_refused;
-    if (access(LOGO_SRC, 0))
-        unlink(LOGO_DST), err = 0;
-    else if ((b = read_all(LOGO_SRC, LOGO_MAX, &n)) && jpeg_size(b, n) == (375u << 16 | 320)) {
+    if (access(LOGO_SRC, 0)) {
+        /* ENOENT on a mounted card only: another error, or a card gone since the mount, keeps it */
+        err = 0;
+        if (*__errno_location() == 2 && card_mounted()) unlink(LOGO_DST);
+    } else if ((b = read_all(LOGO_SRC, LOGO_MAX, &n)) && jpeg_size(b, n) == (375u << 16 | 320)) {
         free(b),
             b = 0; /* landscape: ffmpeg turns it a quarter clockwise (coverflow.c's ff_thumb) */
-        int status, pid = fork();
+        int pid = fork();
         if (!pid) {
             child_oom_first();
             execl("/usr/bin/ffmpeg", "/usr/bin/ffmpeg", "-nostdin", "-v", "quiet", "-i", LOGO_SRC,
@@ -515,8 +554,11 @@ static void *logo_sync(void *unused) {
                   LOGO_ROT, (char *)0);
             child_exit(127);
         }
-        if (pid > 0 && waitpid(pid, &status, 0) == pid && !status)
-            b = read_all(LOGO_ROT, LOGO_MAX, &n);
+        unsigned left = FF_WAIT_MS;
+        int status = ff_reap(pid, &left); /* -1: a refused fork */
+        if (!status) b = read_all(LOGO_ROT, LOGO_MAX, &n);
+        if (status == 9)
+            err = 0; /* killed (hung, or memory short): the file's no fault, the old stays */
         unlink(LOGO_ROT);
     }
     if (b && jpeg_size(b, n) == (320u << 16 | 375)) {

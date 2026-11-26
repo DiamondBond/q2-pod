@@ -9,7 +9,7 @@ import re
 import pytest
 
 import host
-from conftest import O, Deques, Files, Game, claim, high_halves, in_fork, libc, stock_stub
+from conftest import O, Deques, Files, Game, claim, dir_readdir, high_halves, in_fork, libc, stock_stub
 from test_radio import Rd, Sp  # test_radio.py keeps the mirror
 from test_streaming import Td
 
@@ -51,14 +51,7 @@ class Card(Files):
                                                   if p.startswith(path + '/') and '/' not in p[len(path) + 1:])
         return 0x3100 + self.handles
 
-    def readdir(self, d, *_):
-        if not self.dirs[d]:
-            return 0
-        ent = C.create_string_buffer(268)  # host.py's struct dirent: d_name at 11
-        name = self.dirs[d].pop(0).encode()
-        C.memmove(C.addressof(ent) + 11, name, len(name))
-        self.ents.append(ent)
-        return C.addressof(ent)
+    readdir = dir_readdir
 
     def stat(self, version, path, st, *_):
         path = C.string_at(path).decode()
@@ -379,7 +372,7 @@ class Au(C.Structure):
                 ('hearts', C.c_int), ('now', C.c_int)]
 
 
-def free_stubbed(fw, play):
+def free_stubbed(play):
     """play(), with toolsFreeStSongInfo, called at its stock address (tidal.c's own define), a ret meanwhile: each
     record's strings stay for the asserts; the byte is put back after, as conftest's map outlives a load."""
     free_rec = int(re.findall(r'toolsFreeStSongInfo \(\(void \(\*\)\(void \*\)\)(0x[0-9a-f]+)u\)',
@@ -397,7 +390,7 @@ def urls_play(fw, files, lines, path='/tmp/q2-a.urls', header=b'#Q2URLS/1'):
     """app_urls_play over a Q2URLS/1 file of lines, put in files (conftest's Files, mocked): its result."""
     files.files[path] = header + b'\n' + b''.join(line + b'\n' for line in lines)
     fw.mock('tk_str_start_with', lambda s, p, *_: C.string_at(s).startswith(C.string_at(p)))
-    return free_stubbed(fw, lambda: fw.fn('app_urls_play', C.c_int, C.c_char_p)(path.encode()))
+    return free_stubbed(lambda: fw.fn('app_urls_play', C.c_int, C.c_char_p)(path.encode()))
 
 
 # A card app's songs' hearts (docs/librespot.md): a line's 7th field is the song's item, the app's own id for it,
@@ -527,6 +520,7 @@ class Wake:
         fw.mock('fw_socket', lambda *_: 5)
         fw.mock('fw_fcntl', lambda *_: 0)
         fw.mock('fw_connect', self.connect)
+        fw.mock('fw_clock_gettime', lambda which, ts, *_: C.memset(ts, 0, 16) and 0)  # now_ms reads 0: no wait
         fw.mock('fw_usleep', self.usleep)
         self.later = None  # what happens while the job waits, once
         for k in range(len(WAKE)):
@@ -766,6 +760,30 @@ def test_a_failed_remux_keeps_the_copy_as_downloaded_and_nothing_beside_it(fw, q
     t.play(URL, '123')
     t.run()
     assert card.listing() == ['123-0 Artist - Song.flac'] and card.files[cached('123-0 Artist - Song.flac')] == b'fLaC'
+
+
+@pytest.mark.parametrize('ends_at, tagged', [(300000 - 20, True), (None, False)])  # TIDAL_TAG_MS
+def test_a_hung_remux_is_killed_at_the_limit_and_the_copy_kept_as_downloaded(fw, queue, ends_at, tagged):
+    card = Card(fw)
+    Cdn(fw, {URL: b'fLaC'})
+    queue.row('123', 'Song', 'Artist', 'Album', '')
+    ffmpeg, now, killed = Ffmpeg(fw, card, out=b'TAGGED' if tagged else b'partial'), [0], []
+    fw.mock('time_now_ms', lambda *_: now[0])
+    fw.mock('sleep_ms', lambda ms, *_: now.__setitem__(0, now[0] + ms))
+    fw.mock('chapter_kill', lambda pid, sig, *_: killed.append((pid, sig)))
+
+    def wait(pid, status, options, *_):
+        if not killed and (ends_at is None or now[0] < ends_at):
+            return 0  # still running (a blocking wait too: answered, so an endless one fails rather than hangs)
+        ffmpeg.status = 9 if killed else 0
+        return ffmpeg.wait(pid, status, options)
+    fw.mock('fw_waitpid', wait)
+    t = Tidal(fw, card)
+    t.play(URL, '123')
+    t.run()
+    assert killed == ([] if tagged else [(4242, 9)]) and now[0] <= 300000 + 20
+    assert card.listing() == ['123-0 Artist - Song.flac']
+    assert card.files[cached('123-0 Artist - Song.flac')] == (b'TAGGED' if tagged else b'fLaC')
 
 
 @pytest.mark.parametrize('errno, tagged', [(EINTR, True), (10, False)])  # ECHILD: no child to wait for

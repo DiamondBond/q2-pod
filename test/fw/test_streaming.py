@@ -5,7 +5,7 @@ import random
 
 import pytest
 
-from conftest import Dirent, SPOT_FAIL, SPOT_NOSOCK, SPOT_OK, block, text
+from conftest import Dirent, SPOT_FAIL, SPOT_NOSOCK, SPOT_OK, block, card_fread, fake_lists, text
 from fuzz import hostile
 from test_radio import Sp, fx
 
@@ -228,11 +228,7 @@ class Files:
             f = len(self.names) + 1
             self.names[f], self.at[f] = name, 0
             return f
-        def fread(buf, size, n, f, *_):
-            piece = self.files[self.names[f]][self.at[f]:self.at[f] + size * n]
-            C.memmove(buf, piece, len(piece))
-            self.at[f] += len(piece)
-            return len(piece) // size
+        fread = lambda *a: card_fread(self, *a)
         def fseek(f, at, whence, *_):
             self.at[f] = len(self.files[self.names[f]]) if whence == 2 else at
         fw.mock('fw_fopen', fopen)
@@ -470,7 +466,7 @@ def test_nothing_to_yield(fw):
     assert yielded(fw, [], playing=0)[1] == []
 
 
-def worker(fw, script, connect=0, clock=None):
+def worker(fw, script, connect=0):
     """Spotify's worker over a socket whose recv hands out script; the reply buffer is request()'s size."""
     wk = fw.var('spotify__wk', Wk)
     wk.buf, wk.n, wk.len, wk.cancel = block(fw, b'Q2SPOT/1\n1\tcaps\n', REPLY_MAX + 2), 0, 16, 0
@@ -528,29 +524,8 @@ class Browser:
         self.fw, self.now, self.sel, self.timers, self.drawn, self.toasts = fw, 1000, 0, 0, 0, []
         self.page, self.view = block(fw, size=4096), block(fw, size=4096)  # a widget's bytes, all zero
         self.sp, self.br, self.wk = fw.var('spotify__sp', Sp), fw.var('spotify__br', Br), fw.var('spotify__wk', Wk)
-        def timer(*_):
-            self.timers += 1
-            return self.timers
-        def lists(*_):
-            self.drawn = 0
-            return self.view
-        def row(*_):
-            self.drawn += 1
-            return self.view
-        def toast(path, info, *_):
-            self.toasts.append(C.string_at(info + 8))
-        def prop(w, name, default, *_):
-            return self.sel if C.string_at(name) == b'_ringnav_index' else default
+        fake_lists(self, fw)
         fw.mock('time_now_ms', lambda *_: self.now)
-        fw.mock('fw_pthread_create', lambda *_: 0)
-        fw.mock('timer_add', timer)
-        fw.mock('window_create', lambda *_: self.page)
-        fw.mock('scroll_view_create', lists)
-        fw.mock('list_item_create', row)
-        fw.mock('widget_get_child', lambda *_: self.view)
-        fw.mock('widget_lookup', lambda *_: self.view)
-        fw.mock('navigator_to_with_context', toast)
-        fw.mock('widget_get_prop_int', prop)
         fw.fn('spot_open', C.c_int, C.c_void_p, C.c_void_p)(None, None)
 
     @property

@@ -32,6 +32,22 @@ static int ple_checked(void *ctx, int n, char **v, char **names) {
     c->seen++;
     return 0;
 }
+/* One song into playlist dest through stock's add (batch_add_file, 0x4ff344), as class cls: in a
+ * list of its own, since stock rewrites the added record's ID and cd_num, under ple_add_select.
+ * 0 with no memory for the list. Stock's insert fails without a word. */
+static int pl_add_one(int cls, void *r, int dest) {
+    void *one = _create_deque("stSongInfo");
+    if (!one) return 0;
+    deque_init(one);
+    _deque_push_back(one, r);
+    if (!ple_add_select && (ple_add_select = _create_vector("int"))) {
+        vector_init(ple_add_select);
+        _vector_push_back(ple_add_select, 1);
+    }
+    if (ple_add_select) batch_add_file(cls, 0xf00b, one, ple_add_select, dest);
+    deque_destroy(one);
+    return 1;
+}
 static int ple_changed(void *ctx, int n, char **v, char **names) {
     return n != 1 || !v[0] || atoi(v[0]) != 1;
 }
@@ -245,22 +261,10 @@ static int ple_run(const void *unused) {
                 toast(tr("Already in playlist"));
             else {
                 int before = (int)deque_size(ple.songs);
-                void *one = _create_deque("stSongInfo");
-                if (!one) {
+                if (!pl_add_one(0xf001, r, ple.dest)) {
                     toast(tr("Could not save playlist"));
                     return 0;
                 }
-                deque_init(one);
-                _deque_push_back(one, r); /* stock rewrites the added record's ID and cd_num */
-                if (!ple_add_select) {
-                    ple_add_select = _create_vector("int");
-                    if (ple_add_select) {
-                        vector_init(ple_add_select);
-                        _vector_push_back(ple_add_select, 1);
-                    }
-                }
-                if (ple_add_select) batch_add_file(0xf001, 0xf00b, one, ple_add_select, ple.dest);
-                deque_destroy(one);
                 ple_reload();
                 int added = (int)deque_size(ple.songs) > before;
                 if (added) ple_tick(widget_get_child(ple.view, (unsigned)action));
@@ -380,7 +384,10 @@ static void ple_show(void) {
     /* only the selected row's long title moves, as Songs' */
     for (int i = 0; !geom_val(V_TOOLBAR) && i < (int)widget_count_children(ple.view); ++i)
         hscroll_label_set_only_focus(widget_get_child(widget_get_child(ple.view, i), 0), 1);
-    if (n) ringnav_select(ple.view, mode == 0 ? ple.selected + 2 < n ? ple.selected + 2 : 0 : 0, n);
+    /* the song the list was on; Remove song? on its Cancel, as every confirm opens */
+    if (n)
+        ringnav_select(ple.view,
+                       mode == 0 ? ple.selected + 2 < n ? ple.selected + 2 : 0 : mode == 3, n);
 }
 static int ple_open(void *ctx, event_t *event) {
     if (ple.page) return 0;
@@ -454,11 +461,25 @@ done:
     return result;
 }
 
-/* A row action's confirm: under Classic its tray, the second cell saying verb. The prompt's
- * own text isn't read. */
-static int confirm_over(void *prompt, const char *verb) {
+/* A confirm whose second cell says verb, under a theme that dresses it the tray (a row action's:
+ * the prompt's own text isn't read) or the page. A newline in text starts a second line: stock's
+ * two-line prompt, kind 2, which reads that line at its context's 0x208. */
+int confirm_over(const char *text, const char *verb, int tray) {
+    struct {
+        int kind, ms;
+        char text[0x400];
+    } prompt = { 1, 0, "" };
+    unsigned cut = 0;
+    while (text[cut] && text[cut] != '\n') ++cut;
+    tk_snprintf(prompt.text, sizeof prompt.text, "%s", text);
+    if (text[cut] && cut < 0x200) {
+        prompt.kind = 2;
+        prompt.text[cut] = 0;
+        tk_snprintf(prompt.text + 0x200, 0x200, "%s", text + cut + 1);
+    }
     st.confirm_verb = verb;
-    int answer = navigator_to_with_context("dialog/confirminfo_dialog", prompt);
+    st.confirm_tray = tray;
+    int answer = navigator_to_with_context("dialog/confirminfo_dialog", &prompt);
     st.confirm_verb = (const char *)0;
     st.confirm_win = (void *)0;
     return answer;
@@ -469,12 +490,7 @@ int ringnav_playlist_delete(widget_t *win, event_t *event) {
     if (!list || row < 0 || (unsigned)row >= deque_size(list)) return 0;
     int id = I(deque_at(list, (unsigned)row), REC_ID);
     if (id < 0 || id >= 100) return 0;
-    struct {
-        int kind, ms;
-        char text[0x400];
-    } prompt = { 1, 0, "" };
-    tk_snprintf(prompt.text, sizeof prompt.text, "%s", tr("Delete Playlist?"));
-    if (confirm_over(&prompt, tr("Delete")) != 10) return 0;
+    if (confirm_over(tr("Delete Playlist?"), tr("Delete"), 1) != 10) return 0;
     char sql[256];
     if (pl_db(&db)) goto done;
     if (sqlite3_exec(db, "begin immediate", 0, 0, 0)) goto done;
@@ -548,16 +564,129 @@ int ringnav_playlistsmore(widget_t *win, void *ctx) {
     return result;
 }
 
-/* The row alone selected in the stock batch record, as player_addplayList (0x517d68) does. */
+/* The row alone selected in the stock batch record, as player_addplayList (0x517d68) does. Never
+ * an index outside the record just sized: stock's batch_set_selectitem (0x4ff0c8) writes there
+ * unchecked, and a record of none has no storage (a write through NULL). A cover's hold names no
+ * row, so its menu leaves qm_idx and qm_rows as they were: both 0 after boot. */
 void qm_select(void) {
     batch_init_selectrecord((int)st.qm_rows);
-    batch_set_selectitem((int)st.qm_idx);
+    if (st.qm_idx < st.qm_rows) batch_set_selectitem((int)st.qm_idx);
 }
 
 /* Stock playlist rows use the queue in add mode 2. Guard their final dispatch as well. */
 #define PLAYLIST_PICK ((int (*)(void *, event_t *))0x4b4840)
+static void *pl_record(widget_t *button);
+/* A row of songs' own (qm_own_songs, taken as the picker opened: qm_songs) into the picked
+ * playlist, in qm_collect's order. The pick starts the add and writes nothing; pl_add_pass adds a
+ * slice of the songs a pass of the UI's loop, each as the editor adds one (pl_add_one) as class
+ * cls, so the loop paints, takes keys, runs stock's idle tick (0x51f958: a song that ends plays
+ * the next) and feeds the watchdog between slices. pa is the add under way: its timer (0 none),
+ * the next song, the first there was to add, the playlist's cd_num, the class and the playlist's
+ * count before.
+ * The pick is refused, with nothing written, for a row that is no playlist of the list (its index,
+ * and a cd_num of 0-99: the table's rows above them are songs), a scan running (it writes on
+ * stock's shared connection from its own thread), a count that can't be read, no song to add, or
+ * no timer; one while an add is under way does nothing. A song is a record of type 8 whose file
+ * is there: stock's add reads a folder file's tags without a look at the file (0x522e30) and
+ * writes a NULL path as text (0x5da894).
+ * A pass adds songs until PL_ADD_SLICE_MS is used, one at least, and asks for the next after
+ * PL_ADD_GAP_MS; under a scan it adds none and looks again after PL_ADD_WAIT_MS, and so does the
+ * end, which asks stock of the first song on that connection (checkPlayListExist). The picker going
+ * (qm_playlist_gone) stops the add: what was written stays, and nothing is said. No menu opens
+ * while the picker is up (qm_hold), so no other add starts and nothing else frees the songs.
+ * The end waits, a look every PL_ADD_WAIT_MS, for the picker on top and still: under a lock
+ * screen, another's toast or its own close's slide the toast would nest and the close meet a
+ * window that is going. Stock's insert fails without a word, so the count before and after tells,
+ * as the editor's add: grown, Added to Playlist and the picker closes; unread, the same when the
+ * playlist has the first song; else Already in playlist when it has it, or Could not save
+ * playlist, the picker left with the songs for another playlist. The songs go before the toast,
+ * whose loop may close the picker or bring a second pick. The title reads Working… meanwhile
+ * (pl_title).
+ * ponytail: an add that wrote only some of its songs reads as added, as does one whose count
+ * can't be read after when the playlist had the first song before. The slice and the gap are feel
+ * numbers, to tune on a Q2: a longer slice adds sooner and answers the wheel later. Classic's
+ * rebuild of the rows (pl_rows, after New Playlist…) writes Playlists over Working… mid-add. */
+#define PL_ADD_SLICE_MS 100
+#define PL_ADD_GAP_MS 10
+#define PL_ADD_WAIT_MS 250
+static struct {
+    unsigned timer, at, first;
+    int dest, cls, before;
+} pa __attribute__((section(".scratch")));
+static int pl_song(void *t) {
+    return I(t, REC_TYPE) == 8 && P(t, REC_PATH) && !access(P(t, REC_PATH), 0);
+}
+static int pl_count(int dest) {
+    char sql[80];
+    tk_snprintf(sql, sizeof sql, "select count(*) from playlist where id>100 and cd_num=%d", dest);
+    return library_count(sql);
+}
+/* The picker's title, Working… while an add runs, else stock's (0x4b4ecc): Classic's bar is its
+ * navbar's label (bar_title_of), written with it as pl_rows does. */
+static void pl_title(widget_t *win, int adding) {
+    widget_t *title = widget_lookup(win, "scrlabel_title", 1);
+    if (adding)
+        widget_set_text_utf8(title, tr("Working…"));
+    else
+        widget_set_tr_text(title, "local_playlist");
+    bar_title_sync(win);
+}
+static int pl_add_pass(const void *unused) {
+    void *songs = qm_songs();
+    widget_t *wm = window_manager(), *win = st.qm_playlist;
+    unsigned start = (unsigned)time_now_ms(), n = songs ? deque_size(songs) : 0;
+    if (!songs) return 0; /* the picker went */
+    while (!library_scanning() && pa.at < n) {
+        void *t = deque_at(songs, pa.at++);
+        if (pl_song(t)) pl_add_one(pa.cls, t, pa.dest);
+        if ((unsigned)time_now_ms() - start >= PL_ADD_SLICE_MS) break;
+    }
+    /* nothing to add this pass: it waits for the scan's end, or the picker on top and still */
+    int scan = library_scanning(), wait = scan || pa.at >= n;
+    widget_t *top = window_manager_get_top_window(wm);
+    int blocked = scan || top != win || window_manager_is_animating(wm);
+    if (blocked || pa.at < n) {
+        unsigned next = timer_add(pl_add_pass, (void *)0, wait ? PL_ADD_WAIT_MS : PL_ADD_GAP_MS);
+        if (next) {
+            pa.timer = next;
+            return 0;
+        }
+        if (blocked) return 8; /* RET_REPEAT: keep this timer until finishing is safe */
+    }
+    pa.timer = 0;
+    int after = pl_count(pa.dest), in = checkPlayListExist(deque_at(songs, pa.first), pa.dest);
+    int added = after > pa.before || (after < 0 && in);
+    const char *said = added ? tr("Added to Playlist")
+                       : in  ? tr("Already in playlist")
+                             : tr("Could not save playlist");
+    if (added)
+        qm_songs_free();
+    else
+        pl_title(win, 0);
+    toast(said);
+    if (added && st.qm_playlist) window_close(st.qm_playlist);
+    return 0;
+}
+static int pl_add_songs(widget_t *button, int cls) {
+    void *songs = qm_songs(), *r = pl_record(button);
+    unsigned n = songs ? deque_size(songs) : 0;
+    if (!songs || pa.timer) return 0; /* added already, under its toast; or an add under way */
+    pa.dest = r ? I(r, REC_DISC) : -1;
+    pa.cls = cls;
+    pa.at = (unsigned)pa.dest < 100 && !library_scanning() ? 0 : n; /* else no song is looked for */
+    while (pa.at < n && !pl_song(deque_at(songs, pa.at))) ++pa.at;
+    pa.first = pa.at;
+    if (pa.at < n && (pa.before = pl_count(pa.dest)) >= 0 &&
+        (pa.timer = timer_add(pl_add_pass, (void *)0, PL_ADD_GAP_MS)))
+        pl_title(st.qm_playlist, 1);
+    else
+        toast(tr("Could not save playlist"));
+    return 0;
+}
 int qm_playlist_pick(void *ctx, event_t *event) {
     char click[0x30];
+    int cls = qm_own_songs();
+    if (cls) return pl_add_songs(ctx, cls);
     if (!qm_record()) {
         toast(tr("Queue unchanged"));
         return 0; /* a STOP would leave the list's scroll_view holding its grab */
@@ -570,6 +699,8 @@ int qm_playlist_pick(void *ctx, event_t *event) {
 
 int qm_playlist_gone(void *ctx, event_t *event) {
     st.qm_playlist = 0;
+    stop_timer(&pa.timer);
+    qm_songs_free();
     return 0;
 }
 
@@ -686,9 +817,6 @@ static void pl_row(widget_t *item) {
  * does) and it finds its widget by handler, as nothing stock names. The row is the action, whatever
  * scrolled: no index reaches stock. */
 static void pl_rows(widget_t *win);
-static int pl_page(widget_t *win) {
-    return win && !tk_strcmp(widget_get_prop_str(win, "name", ""), "playlist_page");
-}
 static widget_t *pl_target(widget_t *parent, unsigned fn) {
     for (unsigned i = 0, n = parent ? widget_count_children(parent) : 0; i < n; ++i)
         if (click_bound(widget_get_child(parent, i), (void *)fn))
@@ -710,7 +838,7 @@ static int pl_due(const void *info) {
     int action = (int)(long)P(info, TIMER_CTX);
     char click[0x30];
     pl_timer = 0;
-    if (!pl_page(win)) return 0;
+    if (!(win && !tk_strcmp(widget_get_prop_str(win, "name", ""), "playlist_page"))) return 0;
     widget_t *w = pl_find(win, action);
     /* Import writes every song of every list it reads: the art's build steps aside (its reads
      * would make each insert wait), and the rebuild that follows asks again */
@@ -722,7 +850,6 @@ static int pl_due(const void *info) {
 }
 /* The latest row clicked in a pass is the one that runs. */
 static int pl_click(void *action, event_t *event) {
-    (void)event;
     stop_timer(&pl_timer);
     pl_timer = timer_add(pl_due, action, 0);
     return 0;
@@ -984,7 +1111,6 @@ void playlists_edit(int edit) {
 
 /* Stock leaves its mode set for a page gone in it (held Return, to Home); its art's builds stop. */
 static int pl_gone(void *win, event_t *event) {
-    (void)event;
     if (win == pl_cf_win) {
         stop_timer(&pl_cf_timer);
         pl_cf_win = 0;

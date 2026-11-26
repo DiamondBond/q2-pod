@@ -206,12 +206,6 @@ static int watch(watched *w, const char *path, int rate, unsigned frames) {
     return w->f && *w->f > 0 ? *w->f : 0;
 }
 
-/* demo's fade for the next change. */
-static int xfade_ms(int rate, unsigned frames) {
-    static watched w = { 0, ~0u };
-    return watch(&w, XFADE_FILE, rate, frames);
-}
-
 /* n frames between a and the ring's frame at (of cap), into the ring if put: two spans where it
  * wraps. */
 static void ring_copy(float *a, unsigned at, unsigned n, unsigned cap, int nch, int put) {
@@ -225,7 +219,9 @@ static void ring_copy(float *a, unsigned at, unsigned n, unsigned cap, int nch, 
 
 /* Frames of a (interleaved, nch) put out in place: all of them, or fewer while the hold fills. */
 static unsigned crossfade(player_state *s, float *a, unsigned frames, int nch, int rate) {
-    int said = xfade_ms(rate, frames), ms = said & XF_MS, stopped = said >> XF_STOPS != xf.stops;
+    static watched fade = { 0, ~0u }; /* demo's fade for the next change */
+    int said = watch(&fade, XFADE_FILE, rate, frames), ms = said & XF_MS,
+        stopped = said >> XF_STOPS != xf.stops;
     if (!ms && !xf.len) return frames; /* no fade or held tail: skip clock and position queries */
     unsigned cap = XF_FLOATS / (unsigned)nch;
     long long now = now_ns();
@@ -1076,8 +1072,10 @@ int mp3_toc(const unsigned char *h, unsigned n, double t, double *frac, double *
     unsigned head = (unsigned)h[0] << 24 | h[1] << 16 | h[2] << 8 | h[3];
     unsigned version = head >> 19 & 3, rate = head >> 10 & 3, mono = (head >> 6 & 3) == 3;
     if (head >> 21 != 0x7ff || version == 1 || (head >> 17 & 3) != 1 || rate == 3) return 0;
-    unsigned at =
-        4 + (!(head & 0x10000) ? 2 : 0) + (version == 3 ? (mono ? 17 : 32) : (mono ? 9 : 17));
+    unsigned at = 4 + (version == 3 ? (mono ? 17 : 32) : (mono ? 9 : 17));
+    /* A CRC frame: LAME keeps the header at the same place, other encoders put it past the CRC's
+     * two bytes. Both, as mp3_gapless.c's mp3_tag takes them. */
+    if (!(head & 0x10000) && n >= at + 4 && memcmp(h + at, "Xing", 4)) at += 2;
     if (n < at + 8 + 4 + 4 + 100 || memcmp(h + at, "Xing", 4))
         return 0; /* "Info": CBR, already exact */
     const unsigned char *p = h + at + 4;
@@ -1157,7 +1155,8 @@ void id3_gain(void *s, int size) {
         while (at + 10 <= end && lseek64(fd, at, 0) == at && read(fd, h, 10) == 10 && h[0]) {
             unsigned n = id3_int(h + 4, v4), k, key;
             if (!memcmp(h, "TXXX", 4) && n <= sizeof f && read(fd, f, n) == (int)n &&
-                (k = id3_txxx(f, n, t, sizeof t)) > (key = strlen(t)) + 1)
+                (k = id3_txxx(f, n, t, sizeof t)) &&
+                k > (key = strlen(t)) + 1) /* t is written, then read */
                 AV_DICT_SET(&dict, t, t + key + 1, 0);
             at += 10LL + n; /* 32-bit, 0xfffffff6 + 10 = 0: the same frame for ever */
             /* ponytail: stock's own walker (runs first, 2 KB of frames) still hangs on such a
@@ -1318,14 +1317,12 @@ extern int hci_futex(volatile int *addr, int op, int value, const void *timeout)
 __asm__(".globl hci_futex\nhci_futex:\nli $v0, 4238\nsyscall\njr $ra\nnop\n");
 static const long wait_s[2] = { WAIT_S, 0 };
 int hci_idle_wait(unsigned us) {
-    (void)us;
     hci_futex((volatile int *)PLAY_FLAG, 128, 0, wait_s); /* FUTEX_WAIT_PRIVATE while 0 */
     return 0;
 }
 static volatile int cmd_gen;
 static int cmd_seen;
 int hci_pause_wait(unsigned us) {
-    (void)us;
     int g = __atomic_load_n(&cmd_gen, __ATOMIC_ACQUIRE);
     if (g == cmd_seen) {
         hci_futex(&cmd_gen, 128, g, wait_s); /* FUTEX_WAIT_PRIVATE while unchanged */

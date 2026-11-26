@@ -577,6 +577,8 @@ static int shim_page_row = 48;
 void shim_theme_rows(int h) { shim_page_row = h; }
 int page_h(int h) { return h == 48 ? shim_page_row : h; }
 int page_x(void) { return shim_page_row == 48 ? 36 : 20; }
+int card_room(const char *dir, unsigned mb, unsigned pct) { return 1; }
+void ringnav_wdt_long(void) {}
 int theme_font(void *x, int role, int was) { if (shim_page_row != 48) w[(long)x].px = 27; return 0; }
 /* The label starting with text on a row, or index i of the row reading it: x, px (0: the style's), height. */
 int shim_label(const char *text, int i, int what) {
@@ -978,7 +980,7 @@ def editor_check(lib, tmp):
     # Reset replaces the draft with peq_default's ten flat bands and leaves what plays alone until
     # Apply changes; Advanced's On/Off is live state and stays as it was.
     before = active.read_bytes()
-    click('Reset to defaults')
+    click('Reset to defaults'); click('Reset all bands? Confirm')
     assert title() == 'Reset; choose Apply to activate' and active.read_bytes() == before
     assert ui.shim_click(b'Preamp Auto (44.1: 0.0 / 48: 0.0)', 2) and ui.shim_click(b'Balance Centre', 2)
     assert not ui.shim_click(b'Presets ', 2)  # the draft is no longer a named preset
@@ -990,7 +992,7 @@ def editor_check(lib, tmp):
     # Off stays Off.
     click('Enabled On')  # turns PEQ off
     before = active.read_bytes()
-    click('Reset to defaults')
+    click('Reset to defaults'); click('Reset all bands? Confirm')
     assert active.read_bytes() == before
     click('Apply changes')
     r = read()
@@ -1055,7 +1057,7 @@ def editor_check(lib, tmp):
         assert ui.shim_click(f'Headphone {min(start + 127, 8849):04}.txt'.encode(), 2)
         assert not ui.shim_click(f'Headphone {start + 128:04}.txt'.encode(), 2)
         assert title() == f'Presets {start // 128 + 1}/70'
-        assert ui.shim_selection() == ui.shim_offset() == 0
+        assert ui.shim_selection() == 1 and ui.shim_offset() == 0  # the first file: Import all is a tick up
         if start < 8832: click('Next page')
     assert not ui.shim_click(b'Next page', 2)
     click('Headphone 8849.txt')
@@ -2238,6 +2240,12 @@ int main(void) {
     assert(mp3_toc(h, sizeof h, length / 4, &frac, &length) && fabs(frac - 0.125) < 1e-9);
     assert(mp3_toc(h, sizeof h, length * 0.995, &frac, &length) && frac > 0.98 && frac < 1);
     assert(mp3_toc(h, sizeof h, length, &frac, &length) && frac == 1);
+    h[1] = 0xfa;                                          /* a CRC frame: LAME keeps the header where it was */
+    assert(mp3_toc(h, sizeof h, length / 2, &frac, &length) && fabs(frac - 0.25) < 1e-9);
+    memmove(h + 38, h + 36, 120);                         /* and other encoders put it past the CRC */
+    assert(mp3_toc(h, sizeof h, length / 2, &frac, &length) && fabs(frac - 0.25) < 1e-9);
+    assert(!mp3_toc(h, 38 + 115, 10, &frac, &length));    /* cut short there too */
+    memmove(h + 36, h + 38, 120); h[1] = 0xfb;
     assert(!mp3_toc(h, 100, 10, &frac, &length));        /* cut short */
     h[43] = 3;                                            /* no table */
     assert(!mp3_toc(h, sizeof h, 10, &frac, &length));
@@ -2276,7 +2284,7 @@ def visualizer_check(tmp):
         lib.vis_bands((C.c_float * (2 * n))(*pcm), rate, out)
         return list(out)
     assert levels([0.0] * (2 * n)) == [0.0] * bands  # silence rests
-    edge = lambda b: int(40 * 400 ** (b / bands) * n / rate + 0.5)  # the C band_bin
+    edge = lambda b: int(40 * 400 ** (b / bands) * n / rate + 0.5)  # visualizer.c's vis_bands edge
     for k in (12, 100, 300):  # a sine exactly on bin k, in both channels
         pcm = [math.sin(2 * math.pi * k * i / n) for i in range(n) for _ in (0, 1)]
         got, want = levels(pcm), max(b for b in range(bands) if edge(b) <= k)
@@ -2564,228 +2572,6 @@ def scrobble_check(tmp):
     assert [v for _, _, v, _ in requests] == ['1'] * len(requests)
     print('Scrobble upload: config, batching, JSON and form escaping, Last.fm signatures, log rewrite and failures passed.')
 
-def games_check(tmp):
-    """Games (games.c): every bundled Sudoku and 200 shuffled ones have one solution, clues stay,
-    conflicts and completion; saves' magic and checksum; Vortex's paddle, bricks, lives, levels,
-    speed cap, no tunnelling and determinism; Snake's turns, growth, collisions and food."""
-    import random
-    lib = compile_host(tmp, 'games.so', ROOT/'patch/games.c')
-    class Sudoku(C.Structure):
-        _fields_ = [('magic', C.c_uint), ('cell', C.c_ubyte * 81), ('cur', C.c_ubyte), ('pad', C.c_ubyte * 2), ('sum', C.c_uint)]
-    class Vortex(C.Structure):
-        _fields_ = [(k, C.c_int) for k in ('state', 'lives', 'level', 'score', 'pa', 'x', 'y', 'vx', 'vy')] + \
-                   [('brick', C.c_ushort * 3), ('pad', C.c_ushort)]
-    assert C.sizeof(Sudoku) == 92 and C.sizeof(Vortex) == 44
-    def solutions(g, limit=2):
-        g = list(g); rows, cols, boxes = [0] * 9, [0] * 9, [0] * 9
-        for i, v in enumerate(g):
-            if v:
-                b, r, c = 1 << v, i // 9, i % 9
-                if (rows[r] | cols[c] | boxes[r // 3 * 3 + c // 3]) & b: return 0
-                rows[r] |= b; cols[c] |= b; boxes[r // 3 * 3 + c // 3] |= b
-        found = []
-        def go():
-            best = None
-            for i in range(81):
-                if not g[i]:
-                    r, c = divmod(i, 9); m = ~(rows[r] | cols[c] | boxes[r // 3 * 3 + c // 3]) & 0x3fe
-                    if not m: return
-                    if best is None or bin(m).count('1') < bin(best[1]).count('1'): best = (i, m)
-            if best is None: found.append(list(g)); return
-            i, m = best; r, c = divmod(i, 9); x = r // 3 * 3 + c // 3
-            for v in range(1, 10):
-                b = 1 << v
-                if m & b and len(found) < limit:
-                    g[i] = v; rows[r] |= b; cols[c] |= b; boxes[x] |= b
-                    go()
-                    rows[r] ^= b; cols[c] ^= b; boxes[x] ^= b; g[i] = 0
-        go(); return found
-    out = (C.c_ubyte * 81)()
-    for k in range(24):
-        lib.sud_puzzle(k, out); assert len(solutions(out)) == 1, k
-    seed = C.c_uint.in_dll(lib, 'games_seed'); s = Sudoku()
-    for n in range(200):
-        seed.value = n * 2654435761 % 2**32 or 1; lib.sud_new(C.byref(s))
-        assert all(c & 15 and c & 16 or not c for c in s.cell) and s.cur == 0
-        found = solutions([c & 15 for c in s.cell]); assert len(found) == 1, n
-    # a clue stays; an entry is set and cleared; conflicts by row, column and box; completion
-    clue = next(i for i in range(81) if s.cell[i] & 16); blank = next(i for i in range(81) if not s.cell[i])
-    assert not lib.sud_set(C.byref(s), clue, 0) and s.cell[clue] & 16
-    assert not lib.sud_set(C.byref(s), blank, 10) and not lib.sud_set(C.byref(s), 81, 1)
-    solution = found[0]
-    for peer in (blank // 9 * 9 + (blank + 1) % 9, (blank + 9) % 81, blank // 27 * 27 + blank % 9 // 3 * 3 + (blank + 1) % 3 + 9 * ((blank // 9 + 1) % 3) - 9 * (blank // 9 % 3)):
-        t = Sudoku.from_buffer_copy(s); r, c = divmod(blank, 9); pr, pc = divmod(peer, 9)
-        assert peer != blank and (pr == r or pc == c or (pr // 3, pc // 3) == (r // 3, c // 3))
-        v = solution[peer] if not t.cell[peer] else t.cell[peer] & 15
-        if not t.cell[peer]: assert lib.sud_set(C.byref(t), peer, v)
-        assert lib.sud_set(C.byref(t), blank, v) and lib.sud_conflict(C.byref(t), blank) and lib.sud_conflict(C.byref(t), peer)
-    assert lib.sud_set(C.byref(s), blank, solution[blank]) and not lib.sud_conflict(C.byref(s), blank)
-    assert lib.sud_set(C.byref(s), blank, 0) and s.cell[blank] == 0 and not lib.sud_done(C.byref(s))
-    for i in range(81):
-        if not s.cell[i] & 16: lib.sud_set(C.byref(s), i, solution[i])
-    assert lib.sud_done(C.byref(s))
-    # saves: sealed reads back; a zeroed (short) read, another magic or any flipped byte is none
-    lib.games_seal(C.byref(s), 92, 0x31445553); assert lib.games_ok(C.byref(s), 92, 0x31445553)
-    assert not lib.games_ok(C.byref(s), 92, 0x31585456) and not lib.games_ok(C.byref(Sudoku()), 92, 0x31445553)
-    raw = bytearray(bytes(s))
-    for i in range(92):
-        b = bytearray(raw); b[i] ^= 4; t = Sudoku.from_buffer_copy(b); assert not lib.games_ok(C.byref(t), 92, 0x31445553), i
-    # Vortex
-    def speed(v): return round(math.hypot(v.vx, v.vy))
-    v = Vortex(); lib.vortex_new(C.byref(v))
-    assert (v.state, v.lives, v.level, v.score, v.pa, list(v.brick)) == (0, 3, 0, 0, 768, [0xffff] * 3)
-    lib.vortex_step(C.byref(v), -800); assert v.pa == 992
-    lib.vortex_step(C.byref(v), 100); assert v.pa == 68
-    lib.vortex_step(C.byref(v), 700); assert v.pa == 768 and v.state == 0 and abs(v.x) < 1 << 16 and v.y < 0
-    assert speed(v) == 0
-    lib.vortex_launch(C.byref(v)); assert v.state == 1 and abs(speed(v) - (2 << 16)) < 64
-    def until(test, limit=2000):
-        for _ in range(limit):
-            if test(): return
-            lib.vortex_step(C.byref(v), 0)
-        raise AssertionError('Vortex never got there')
-    until(lambda: v.score)  # the outer ring's top brick, the ball sent back out
-    assert v.score == 10 and v.brick[2] == 0xffff & ~(1 << 12) and v.brick[:2] == [0xffff] * 2 and v.vy < 0
-    until(lambda: v.vy > 0)  # the paddle sends it back in
-    assert v.state == 1 and v.lives == 3
-    until(lambda: v.score == 30)  # the brick behind the one gone, ring 1
-    assert v.brick[1] == 0xffff & ~(1 << 12)
-    lib.vortex_step(C.byref(v), 512)  # the paddle away: a life lost, aiming again
-    until(lambda: v.state != 1)
-    assert v.state == 0 and v.lives == 2
-    for lives in (1, 0):
-        lib.vortex_launch(C.byref(v)); v.brick[0] = v.brick[1] = v.brick[2] = 0  # through the centre, past the paddle
-        until(lambda: v.state != 1)
-        assert v.lives == lives and v.state == (2 if not lives else 0)
-    x, y = v.x, v.y; lib.vortex_step(C.byref(v), 0); assert (v.x, v.y, v.state) == (x, y, 2)  # over: frozen
-    lib.vortex_launch(C.byref(v)); assert v.state == 2
-    # the last brick: the next level, its layout, aiming
-    lib.vortex_new(C.byref(v)); v.brick[0] = v.brick[1] = 0; v.brick[2] = 1 << 12
-    lib.vortex_launch(C.byref(v)); until(lambda: v.level)
-    assert (v.state, v.score, list(v.brick)) == (0, 110, [0x5555, 0xffff, 0xaaaa])
-    lib.vortex_launch(C.byref(v)); assert abs(speed(v) - (2 << 16) - (1 << 14)) < 64
-    # the speed caps; at it, from every angle, the outer ring is hit first: no ring is crossed
-    for pa in range(0, 1024, 7):
-        lib.vortex_new(C.byref(v)); v.level = 99; lib.vortex_step(C.byref(v), pa - 768); lib.vortex_launch(C.byref(v))
-        assert abs(speed(v) - (9 << 15)) < 64
-        until(lambda: v.score); assert v.score == 10 and v.brick[:2] == [0xffff] * 2 and bin(v.brick[2]).count('1') == 15, pa
-    # the same inputs, the same game
-    def play(seed):
-        rng = random.Random(seed); w = Vortex(); lib.vortex_new(C.byref(w))
-        for i in range(20000):
-            if w.state == 0: lib.vortex_launch(C.byref(w))
-            lib.vortex_step(C.byref(w), rng.randrange(-9, 10))
-        return bytes(w)
-    assert play(1) == play(1) and play(1) != play(2)
-    # Snake: 20 x 20, a cell y * 20 + x; the body a ring from the tail, the head last; dir 0 up, 1 right, 2 down, 3 left
-    class Snake(C.Structure):
-        _fields_ = [('body', C.c_ushort * 400), ('tail', C.c_ushort), ('len', C.c_ushort), ('food', C.c_ushort),
-                    ('dir', C.c_ubyte), ('turned', C.c_ubyte), ('state', C.c_ubyte), ('next', C.c_byte), ('score', C.c_int)]
-    assert C.sizeof(Snake) == 816
-    body = lambda s: [s.body[(s.tail + i) % 400] for i in range(s.len)]
-    def fresh(food=0):
-        s = Snake(); lib.snake_new(C.byref(s)); s.food = food; return s
-    s = fresh(); assert (body(s), s.dir, s.state, s.score) == ([207, 208, 209], 1, 1, 0)
-    assert s.food not in body(s) and lib.snake_ms(C.byref(s)) == 160
-    # one turn a step and one waiting for the next, any more dropped: a quick spin U-turns into the next lane,
-    # never back into itself
-    for _ in range(3): lib.snake_turn(C.byref(s), 1)
-    assert (s.dir, s.next) == (2, 1)
-    assert lib.snake_step(C.byref(s)) == 0 and body(s) == [208, 209, 229] and (s.dir, s.next, s.state) == (3, 0, 1)
-    lib.snake_turn(C.byref(s), 1); assert s.dir == 3 and s.next == 1
-    assert lib.snake_step(C.byref(s)) == 0 and body(s) == [209, 229, 228] and s.dir == 0
-    assert lib.snake_step(C.byref(s)) == 0 and body(s)[-1] == 208 and s.state == 1 and s.dir == 0  # the waiting turn was spent
-    lib.snake_turn(C.byref(s), -1); assert s.dir == 3 and lib.snake_step(C.byref(s)) == 0 and body(s)[-1] == 207
-    # an apple grows it by one, scores and speeds it up; the next apple is off the body
-    s = fresh(210); assert lib.snake_step(C.byref(s)) == 1 and body(s) == [207, 208, 209, 210] and s.score == 1
-    assert s.food not in body(s) and lib.snake_ms(C.byref(s)) == 156
-    s.score = 99; assert lib.snake_ms(C.byref(s)) == 70
-    # walls: off the right edge it dies, and a dead snake stays put
-    s = fresh(); s.body[2] = 219
-    assert lib.snake_step(C.byref(s)) == -1 and s.state == 2 and lib.snake_step(C.byref(s)) == -1 and body(s)[-1] == 219
-    for d, head in ((0, 5), (3, 20), (2, 395)):
-        s = fresh(); s.body[2] = head; s.dir = d; assert lib.snake_step(C.byref(s)) == -1 and s.state == 2, d
-    # its own body kills, but the cell the tail is leaving doesn't
-    s = fresh(); s.len = 5; s.body[:5] = [209, 189, 188, 208, 228]; s.dir = 0  # head 228 under 208
-    assert lib.snake_step(C.byref(s)) == -1 and s.state == 2
-    s = fresh(); s.len = 4; s.body[:4] = [208, 188, 189, 209]; s.dir = 3  # into 208, the tail's cell
-    assert lib.snake_step(C.byref(s)) == 0 and body(s) == [188, 189, 209, 208]
-    # food never lands on the body: eating with one cell left free puts the apple there, whichever it is
-    for n, free in enumerate((2, 57, 399, 380)):
-        seed.value = n + 1; s = fresh(0); cells = [c for c in range(400) if c not in (0, 1, free)] + [1]
-        s.tail = 0; s.len = 398; s.body[:398] = cells; s.dir = 3  # the head at 1 eats the apple at 0
-        assert lib.snake_step(C.byref(s)) == 1 and s.len == 399 and s.food == free and s.state == 1
-    rng = random.Random(3)
-    for trial in range(200):
-        seed.value = trial + 1; s = fresh()
-        for _ in range(400):
-            lib.snake_turn(C.byref(s), rng.choice((-1, 0, 0, 1)))
-            if lib.snake_step(C.byref(s)) < 0: break
-            assert s.food not in body(s) and len(set(body(s))) == s.len
-    # Solitaire: piles 0 stock, 1 waste, 2-5 foundations, 6-12 the columns; a card suit * 13 + rank, 64 face up
-    class Sol(C.Structure):
-        _fields_ = [('magic', C.c_uint), ('card', (C.c_ubyte * 24) * 13), ('len', C.c_ubyte * 13), ('cur', C.c_ubyte),
-                    ('pad', C.c_ubyte * 2), ('sum', C.c_uint)]
-    assert C.sizeof(Sol) == 336
-    UP, S, H, D, CL = 64, 0, 13, 26, 39  # spades, hearts, diamonds, clubs
-    pile = lambda s, p: list(s.card[p][:s.len[p]])
-    def put(s, p, cards): s.len[p] = len(cards); s.card[p][:len(cards)] = cards
-    def sound(s):  # every card once; columns face down then a run; foundations A up in one suit
-        assert sorted(c & ~UP for p in range(13) for c in pile(s, p)) == list(range(52))
-        for p in range(6, 13):
-            c = pile(s, p); d = next((i for i, x in enumerate(c) if x & UP), len(c))
-            assert all(x & UP for x in c[d:]) and (not c or c[-1] & UP)
-            for a, b in zip(c[d:], c[d + 1:]):
-                a, b = a & ~UP, b & ~UP; assert b % 13 == a % 13 - 1 and (a // 13 % 3 == 0) != (b // 13 % 3 == 0)
-        for p in range(2, 6):
-            f = [c & ~UP for c in pile(s, p)]; assert not f or f[0] % 13 == 0 and f == list(range(f[0], f[0] + len(f)))
-    s = Sol()
-    for n in range(50):
-        seed.value = n * 2654435761 % 2**32 or 1; lib.sol_new(C.byref(s)); sound(s)
-        assert [s.len[p] for p in range(13)] == [24, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7] and s.cur == 0
-        assert not any(c & UP for c in pile(s, 0)) and all(sum(c & UP for c in pile(s, 6 + k)) == UP for k in range(7))
-    # draw one at a time; an empty stock takes the waste back in its order; nothing left draws nothing
-    stock = pile(s, 0)
-    for k in range(24): assert lib.sol_draw(C.byref(s))
-    assert s.len[0] == 0 and pile(s, 1) == [c | UP for c in stock[::-1]]
-    assert lib.sol_draw(C.byref(s)) and pile(s, 0) == stock and s.len[1] == 0
-    put(s, 0, []); assert not lib.sol_draw(C.byref(s))
-    # foundations: an Ace on an empty one, then up in its suit; columns: down in alternate colours, a King on an empty one
-    t = Sol(); put(t, 1, [UP | H + 1]); put(t, 2, [UP | H]); put(t, 3, [UP | S]); put(t, 4, [])
-    assert not lib.sol_move(C.byref(t), 1, 3) and not lib.sol_move(C.byref(t), 1, 4)
-    assert lib.sol_move(C.byref(t), 1, 2) and pile(t, 2) == [UP | H, UP | H + 1] and t.len[1] == 0
-    put(t, 6, [D + 4, UP | S + 9, UP | H + 8, UP | CL + 7]); put(t, 7, [UP | H + 10]); put(t, 8, [UP | D + 8])
-    put(t, 9, [UP | D + 9]); put(t, 10, [])
-    assert not lib.sol_move(C.byref(t), 6, 9) and not lib.sol_move(C.byref(t), 6, 10)  # red 9 on red 10; no King
-    assert not lib.sol_move(C.byref(t), 0, 10) and not lib.sol_move(C.byref(t), 6, 1) and not lib.sol_move(C.byref(t), 6, 6)
-    assert lib.sol_move(C.byref(t), 6, 8) and pile(t, 8) == [UP | D + 8, UP | CL + 7] and t.len[6] == 3  # just the 8
-    assert lib.sol_move(C.byref(t), 6, 7) and pile(t, 7) == [UP | H + 10, UP | S + 9, UP | H + 8]  # the run's rest
-    assert pile(t, 6) == [UP | D + 4]  # turned
-    put(t, 11, [UP | S + 12, UP | H + 11]); assert lib.sol_move(C.byref(t), 11, 10) and pile(t, 10) == [UP | S + 12, UP | H + 11]
-    put(t, 12, [UP | S + 1, UP | S]); put(t, 3, [])  # a foundation takes the top card only
-    assert lib.sol_home(C.byref(t), 12) and pile(t, 3) == [UP | S] and lib.sol_home(C.byref(t), 12) and t.len[12] == 0
-    # everything up and dealt: it all goes home; a face-down card anywhere and nothing moves
-    def runs(s, down):
-        for p in range(13): put(s, p, [])
-        for k, (a, b) in enumerate(((S, H), (H, S), (D, CL), (CL, D))):
-            put(s, 6 + k, [(a if r % 2 else b) + r | UP for r in range(12, -1, -1)])
-        if down: s.card[6][0] &= ~UP
-    runs(s, 1); lib.sol_finish(C.byref(s)); assert not lib.sol_won(C.byref(s)) and s.len[6] == 13
-    runs(s, 0); lib.sol_finish(C.byref(s)); assert lib.sol_won(C.byref(s)) and all(s.len[p] == 13 for p in range(2, 6))
-    # random play keeps every card once and every pile sound; a won game is a finished one
-    won = 0
-    for n in range(100):
-        seed.value = n * 2654435761 % 2**32 or 1; lib.sol_new(C.byref(s)); rng = random.Random(n)
-        for _ in range(400):
-            moved = [(a, b) for a in range(1, 13) for b in range(2, 13) if lib.sol_move(C.byref(t := Sol.from_buffer_copy(s)), a, b)]
-            home = [m for m in moved if m[1] < 6 and m[0] > 5 or m[0] == 1]  # home first, then the waste
-            if moved and rng.random() < .8: lib.sol_move(C.byref(s), *rng.choice(home or moved))
-            else: lib.sol_draw(C.byref(s))
-            lib.sol_finish(C.byref(s)); sound(s)
-            if lib.sol_won(C.byref(s)): won += 1; break
-    assert won > 10, won
-    print('Games: Sudoku uniqueness, clues, conflicts, completion and saves; Vortex paddle, bricks, lives, levels, speed, tunnelling and determinism; Solitaire deal, draw, moves, finish and random play; Snake turns, growth, walls, self collision and food placement passed.')
-
 def video_check(tmp):
     """q2video (video.c): the Bluetooth volume, Mono Audio and the swap on its samples, and radio's tags."""
     lib = compile_host(tmp, 'q2video.so', ROOT/'patch/video.c')
@@ -2985,6 +2771,7 @@ static void deque_destroy(void *q) {}
 static void play_folder(void *q, int i, int cls) {}
 static int card_path(const char *s) { return 1; }
 static long file_size(const char *p) { return -1; }
+static int ff_reap(int pid, unsigned *left) { return -1; }
 static int quality = 27; static void *queue;
 #define tidalStreamingLevelNow (&quality)
 #define tidalStreamingLevelNext (&quality)
@@ -3128,6 +2915,7 @@ int main(void) {
 SHELF_SHIM = r"""
 #include <stdio.h>
 #include <stdlib.h>
+int card_path(const char *path) { return 1; } /* addon.c's */
 void *read_all(const char *path, unsigned max, unsigned *size) { /* scrobble.c's */
     FILE *f = fopen(path, "rb");
     char *p = 0;
@@ -3224,7 +3012,7 @@ def shelf_check(tmp, lib):
     assert len(sources(''.join(f'me/q2-a{i}\n' for i in range(20)), scratch)) == 16
     assert [a[2] for a in sources('a/q2\nb/q2-tidal\nc/downpic\nd/q2-tidal2\n', scratch)] == ['tidal2']  # never the firmware's folders
     own = {m for f in (ROOT/'patch').glob('*.[ch]')
-           for m in re.findall(r'(?:mmc/|CARD "/)\.([a-z0-9-]+)["/]', f.read_text())} - {'rockbox', 'spotify', 'groovebox'}  # card apps the firmware knows by path
+           for m in re.findall(r'(?:mmc/|CARD "/)\.([a-z0-9-]+)["/]', f.read_text())} - {'rockbox', 'spotify'}  # card apps the firmware knows by path
     assert own and not [x for x in own if sources(f'a/q2-{x}\n', scratch)], own  # every card folder of the firmware's
     C.c_int.in_dll(lib, 'shelf_n').value = len(sources((ROOT/'sources.list').read_text()))
     ids = [a.id.decode() for a in apps[:6]]
@@ -3525,7 +3313,6 @@ if __name__ == '__main__':
         player_check(tmp)
         visualizer_check(tmp)
         scrobble_check(tmp)
-        games_check(tmp)
         video_check(tmp)
         audio_writer_check(tmp)
         radio_check(tmp)

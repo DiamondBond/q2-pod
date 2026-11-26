@@ -50,7 +50,10 @@ void kb_paint_key(widget_t *w, canvas_t *canvas) {
     unsigned fill = (unsigned)I(lcd, LCD_FILL_COLOR);
     const char *name = widget_get_prop_str(w, "name", "");
     char c = name ? *name : 0; /* opt:, page:, key:, action, space, or the character itself */
-    int action = c == 'a', space = c == 's', fn = c == 'p' || c == 'k', white = action || fn;
+    const unsigned *label = widget_get_text(w);
+    /* a key: with a label is a letter: the pinyin page's 2 to 9 (language.c) */
+    int action = c == 'a', space = c == 's', fn = c == 'p' || (c == 'k' && !(label && *label)),
+        white = action || fn;
     int kw = I(w, W_W), kh = I(w, W_H);
     rect_t r = { 0, 0, kw, kh }, ring = { -1, -1, kw + 2, kh + 2 }, down = { 0, 2, kw, kh };
     round_ring(canvas, &ring, 7, 0x1f000000u);
@@ -59,7 +62,7 @@ void kb_paint_key(widget_t *w, canvas_t *canvas) {
     paint_round_rows(canvas, &r, action ? &enter : fn ? &function : &plain, 6);
     unsigned own[32];
     if (action || space) wide_text(own, 32, action ? tr("Done") : tr("space"));
-    const unsigned *s = action || space ? own : widget_get_text(w);
+    const unsigned *s = action || space ? own : label;
     if (s && *s) {
         unsigned n = wide_len(s);
         int px = white || space ? 24 : 27, fpx = px;
@@ -212,7 +215,6 @@ static int pl_box_gone(void *win, event_t *event) {
 /* Next pass: stock's init, which writes its own hint, has returned; the bar title stays until the
  * dialog goes, as bar_title_sync doesn't name a dialog. */
 static int pl_box_due(const void *info) {
-    (void)info;
     char key[STYLE_KEY];
     widget_t *win = st.pl_box;
     void *lists = P(p_deque_playlist, 0);
@@ -514,10 +516,8 @@ void slider_paint(widget_t *w, canvas_t *canvas) {
             paint_art(w, canvas, "classic_light_sun_small", 48, 144);
             paint_art(w, canvas, "classic_light_sun_big", 311, 141);
         }
-        for (int i = 0; maxvol && i < 6; ++i) { /* a triangle at the fill's end, tip up */
-            int half = i ? i : 1;
-            bar_rect(canvas, 0xffffffffu, 81 + slider_part(s, 204) - half, 155 + i, 2 * half, 1);
-        }
+        if (maxvol) /* a triangle at the fill's end, tip up */
+            vol_mark(canvas, 0xffffffffu, 81 + slider_part(s, 204), 155);
     }
     text_shadow(canvas, "classic-light", (const unsigned *)st.slider_hint,
                 &(rect_t){ 0, 229, 375, 32 }, 31, 0x59);
@@ -617,7 +617,6 @@ static int msg_sync(void) {
 }
 /* Stock's hidden label repaints nothing, so this does, at the rate stock writes it. */
 static int msg_poll(const void *info) {
-    (void)info;
     /* the line and the bar */
     if (msg_sync())
         widget_invalidate_force(st.msg_win, flat_pages() ? &(rect_t){ 16, 180, 343, 46 }

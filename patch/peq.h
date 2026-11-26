@@ -17,7 +17,9 @@
 #include <string.h>
 #include <math.h>
 #include <unistd.h>
+#include <signal.h>
 #define child_exit _exit
+#define chapter_kill kill
 static inline void child_oom_first(void) {
     int fd = open("/proc/self/oom_score_adj", O_WRONLY);
     if (fd >= 0) write(fd, "1000", 4), close(fd);
@@ -30,6 +32,7 @@ static inline void crash_note(const char *path, const char *file, const char *lo
 #include "peq_platform.h"
 #define PEQ_ROOT "" /* host tests pass a scratch directory */
 void child_exit(int status) __attribute__((noreturn));
+int chapter_kill(int pid, int sig); /* chapters.c: kill(2), which demo does not import */
 void child_oom_first(
     void); /* between fork and exec: the OOM killer takes this child, not demo (#169) */
 void ringnav_clean_end(
@@ -195,7 +198,7 @@ typedef struct {
     float ring[VIS_RING][2];
 } vis_tap;
 long long now_ns(void);
-unsigned long long now_ms(void);
+unsigned long long now_ms(void); /* CLOCK_MONOTONIC */
 /* Crossfade (docs/internals.md#crossfade): demo writes the next track change's fade, an int in ms,
  * 0 for none; hciplayer's filter maps the file read-only and holds the outgoing track's tail for
  * it. */
@@ -272,13 +275,13 @@ void press_stamp(void), press_forget(void);
 #define MUTE_FILE PEQ_ROOT "/tmp/q2mute"
 void mute_stamp(void);
 /* librespot (spotify.c) and its restart loop, whose pid its launcher left, stopped: Spotify's idle
- * stop and Home's Rockbox row, which lets ALSA go too. A q2video sink ends with librespot's pipe.
+ * stop and a takeover app's row, which lets ALSA go too. A q2video sink ends with librespot's pipe.
  */
 #define SPOT_OUT "/tmp/q2-librespot.out" /* the output for the card's aplay.sh, none on the DAC */
 #define SPOT_DOWNLOAD                                                                              \
     "/tmp/q2-librespot.download" /* backend download progress, independent of playback */
-#define SPOT_KILL                                                                                  \
-    "kill -9 $(cat /tmp/q2-librespot); killall -9 librespot aplay; "                               \
+#define SPOT_KILL_REST                                                                             \
+    "killall -9 librespot aplay; "                                                                 \
     "rm -f /tmp/q2-librespot /tmp/q2-librespot.state " SPOT_OUT " " SPOT_DOWNLOAD
 double decibels(double power); /* 10 log10 */
 
@@ -321,7 +324,7 @@ void land_quad(const int from[4], const int to[3], int ms, int len, int travel, 
  * (coverflow_land.c land_frame). from is the panel's box (x, y, w, h), to the art's (x, y, side),
  * in the frame's coordinates; the ms are the motion's, the covers' fade's and Now Playing's. The
  * pixels are the screen's BGRA: shelf the side covers' frame (CF_VIEW_W wide, or 0), back BACK_W x
- * BACK_H (0 once face up), front ART_SIZE square. */
+ * BACK_H (0 once face up), front ART_SIZE square, by rows. */
 typedef struct {
     int from[4], to[3], len, travel, out_at, out_ms, np_at, np_ms;
     const unsigned *shelf, *back, *front;
@@ -359,10 +362,13 @@ int csv_toggle(char *list, unsigned size, const char *item);
 int text_differs(widget_t *w, const char *s);
 void *song_list(void);                              /* coverflow.c: an empty stSongInfo deque */
 long file_size(const char *path);                   /* coverflow.c: -1 when it can't be opened */
+int ff_reap(int pid, unsigned *left);               /* coverflow.c: a child reaped within *left */
 int picture_size(const char *path, int *w, int *h); /* coverflow.c */
 void *read_all(const char *path, unsigned max, unsigned *size); /* scrobble.c */
+int sfnt_whole(const unsigned char *b, unsigned n);             /* script.c */
 int visual(widget_t *s, int n, int *c, int *frac);
 int thumb(const char *src, const char *dst, int w, int h);
+int thumb_within(const char *src, const char *dst, int w, int h, unsigned *left);
 extern volatile unsigned ff_kills; /* coverflow.c: ffmpeg runs killed or never started */
 int card_space(const char *dir);
 int card_room(const char *dir, unsigned mb, unsigned pct);
@@ -379,8 +385,8 @@ int album_cmp(void *a, void *b);
 int spoken(const char *path);         /* navigation.c: under Podcasts or Audiobooks, or an M4B */
 void peq_attach(void);                /* peq_ui.c */
 void peq_page_replace(widget_t *old); /* peq_ui.c: the open EQ page closed for a new one */
-/* navigation.c: the settings rows pod_rows builds (pod_values and its Q2POD keys); pod_value(i) is
- * one's value (only rows with a pod_values entry), read once from config.ini. */
+/* navigation.c: the settings rows pod_rows builds (pods and its Q2POD keys); pod_value(i) is
+ * one's value (only rows with a pods entry), read once from config.ini. */
 enum {
     POD_CHARGE,
     POD_WAKE,
@@ -414,16 +420,24 @@ enum {
                          pod_rows 26 */
     POD_ALBUM_GRID,   /* Library & Folders' Album View: stock's value and PLAYSET key
                          (album_view_toggle) */
-    POD_HIDE_APPS,    /* Appearance's Hide Apps, Hide Games and Hide App Store: Library's rows
-                         (home.c ringnav_localmusic) */
+    POD_HIDE_APPS,    /* Appearance's Hide Apps, Hide Games, Hide App Store and Hide Hi-Res:
+                         Library's rows (home.c ringnav_localmusic) */
     POD_HIDE_GAMES,
     POD_HIDE_STORE,
+    POD_HIDE_HIRES,
     POD_BT_RECEIVE, /* Bluetooth's Receive Audio (headset_bt_service; the bluealsa2 launcher) */
     POD_CF_ART_LOG, /* Display's Log Failed Artwork: coverflow.c build_art */
     /* Display's Hide Duplicate Albums and Hide Duplicate Songs: coverflow.c music_albums and
      * coverflow_cover_tracks */
     POD_CF_DUP_ALBUMS,
     POD_CF_DUP_SONGS,
+    POD_SAMPLERATE, /* Appearance's Show Sample Rate (samplerate.c): the output's rate in the bar */
+    POD_LOCKLAYOUT, /* the Lock Screen's Layout: 1 At a Glance (lock_glance.c), else Default */
+    POD_LOCKGROUND, /* At a Glance's Background: 0 Cover Colour, 1 Plain, 2 Blurred Cover */
+    POD_LOCKSLIDER, /* At a Glance's Classic Slider: 1 the grey slider and its shine, 0 (default)
+                       flat */
+    POD_LOCKRETURN, /* the Lock Screen's Return Unlocks: 1 (default) Return unlocks, 0 nothing */
+    POD_LOCKWHEEL, /* At a Glance's Wheel Unlocks: 1 the wheel moves the knob, 0 (default) volume */
     POD_COUNT
 };
 int pod_value(int i);
@@ -449,9 +463,11 @@ void night_set(int on, int kelvin), night_save(void), night_paint(canvas_t *canv
     night_clock(int dark);
 int clock_night(void); /* theme_engine.c: Night Shift's Auto hours now */
 int worker_stop(unsigned long thread, int *running, volatile int *cancel, unsigned *timer);
-void ringnav_select(widget_t *w, int id, int rows);
-int library_scanning(void); /* coverflow.c: a library scan's thread runs */
-int library_counting(void); /* coverflow.c: a song count reads songtable */
+void ringnav_select(widget_t *w, int id, int rows), ringnav_light(widget_t *list, int index);
+int qm_blinking(void);              /* queue_menu.c: the hold menu's blink owns the keys */
+int library_scanning(void);         /* coverflow.c: a library scan's thread runs */
+int library_count(const char *sql); /* library_lists.c: sql's one number, -1 when it can't be had */
+int library_counting(void);         /* coverflow.c: a song count reads songtable */
 /* coverflow.c: the library's generation, one up each rewrite (Most Played's too); an album row's
  * tracks, its id and the length of a path's album folder */
 extern volatile unsigned library_gen;
@@ -477,6 +493,7 @@ void coverflow_letter_hold(widget_t *w, unsigned letter);
 /* A letter with this bit is the Year sort's year instead, in its low bits, 0 undated. */
 #define CF_YEAR 0x80000000u
 int blob_io(const char *path, const char *tmp, void *buf, unsigned size, int write);
+int blob_load(const char *path, void *buf, unsigned size, unsigned *fails);
 /* card_theme.c: 1 when path holds these n bytes, read at most max */
 int file_holds(const char *path, const void *b, unsigned n, unsigned max);
 #define BLOB_IO(file, buf, write) blob_io(file, file ".tmp", &(buf), sizeof(buf), write)
@@ -517,14 +534,14 @@ void tidal_all(int press, char *out, unsigned size), tidal_poll(void), tidal_all
 #define APPS_MAX 64
 int addon_scan(void), addon_open(void *ctx, event_t *event), addon_hold(widget_t *top);
 int addon_games_last(void); /* the card's games as the last addon_scan found them */
-#define GAMES_BUILTIN 4     /* games.c's Sudoku, Vortex, Solitaire and Snake */
+#define GAMES_BUILTIN 4     /* games.c's Sudoku, Bricks, Solitaire and Snake */
 const char *addon_name(int a), *addon_id(int a), *addon_icon(int a);
 int addon_slot(int a);
 const char *addon_slot_id(int i); /* slot i's app's id while it has a row anywhere, else 0 */
 int addon_libs(void), addon_lib_open(void *ctx, event_t *event);
 const char *addon_lib_name(int k);
 int addon_apps(void *ctx, event_t *event), addon_apps_sync(void *win, event_t *event);
-void library_apps_show(widget_t *row, int on); /* home.c: the Library's Apps row */
+void list_row_show(widget_t *row, int on); /* home.c: the Library's Apps row, Home's Now Playing */
 /* addon.c: System settings → Network's rows for apps whose q2app says row=network, as the Library's
  * above: addon_network (how many, a scan), addon_network_name, addon_network_icon,
  * addon_network_open (ctx: its place by name). */
@@ -533,7 +550,8 @@ const char *addon_network_name(int k), *addon_network_icon(int k);
 /* addon.c: the wifi=1 apps, for addon_wifi.c's link follower: each started (but those the user
  * stopped), each stopped, and the user's stops forgotten. */
 void addon_wifi_start(void), addon_wifi_stop(void), addon_wifi_release(void);
-void addon_wifi_poll(void); /* addon_wifi.c: once per addon_poll pass */
+void addon_wifi_poll(void);    /* addon_wifi.c: once per addon_poll pass */
+void addon_playing_poll(void); /* addon_playing.c: once per addon_poll pass */
 /* addon.c: a running app's status bar icon, the one its status file's bar= names (bar.png for 1,
  * bar-<word>.png for a word; white, which Light Mode turns to the bar's ink), or 0 */
 const char *addon_bar_icon(void);
@@ -552,7 +570,10 @@ int addon_games(void), addon_game_start(int k);
 int addon_game_front(void), addon_game_keys(void);
 int addon_game_audio(
     void); /* a card game with audio=1 runs: the sound and the media keys are its */
-int addon_game_open(const char *id); /* Home's Shortcut: the card game with this id, -1 none */
+int addon_open_app(const char *id); /* Home's Shortcut: the app with this id pressed, -1 none */
+const char *addon_name_of(const char *id);
+int addon_sorted(int game, int *slots);
+void ringnav_hand_over(void); /* navigation.c: demo ends for a takeover app (addon.c takeover) */
 const char *addon_game_name(int k);
 /* games.c: the theme's pop-up for a card game (Q2_POPUP's value), 7 + 6 * 7 + 64 * 7 + 1 bytes at
  * most */
@@ -654,10 +675,11 @@ void caption(canvas_t *canvas, const char *s, int x, int y, int w, int h, unsign
 unsigned wide_text(unsigned *to, unsigned room, const char *s);
 void peq_paint(widget_t *w, canvas_t *canvas);
 /* spotify.c's, shared with radio.c */
-unsigned long long now_ms(void); /* CLOCK_MONOTONIC */
 void field(const char *raw, const char *key, char *out, unsigned n);
 unsigned long long number(const char *raw, const char *key);
 unsigned state_read(const char *path, char *raw, unsigned size);
+int pid_of(const char *path);
+void spot_kill(const char *before, const char *after);
 struct unix_addr { /* sockaddr_un */
     unsigned short family;
     char path[108];
@@ -668,6 +690,7 @@ widget_t *label(widget_t *parent, int x, int y, int w, int h, const char *style,
                 unsigned color);
 void spot_yield(void), spot_stop(void), radio_stop(void);
 void headset_volume_reset(void);
+void volume_save_flush(void); /* navigation.c: a held volume save, written now */
 void headset_poll(void), headset_eq_poll(void), headset_manual(void);
 int media_owner(void), media_playing(void), media_focused(void);
 void media_set_playing(int playing), media_key(unsigned key);
@@ -687,6 +710,8 @@ const char *output_device(char *vol); /* radio.c */
 void dac_take(void);                  /* radio.c */
 /* navigation.c: the theme's font for role on w, or stock's */
 int theme_font(widget_t *w, int role, int was);
+void face_states(widget_t *w, const char *face,
+                 int px);           /* navigation.c: the face in every label state */
 #define FONT_ROW (-2)               /* was: cache the answer in w's own "_font" prop */
 void marq_restart(widget_t *row);   /* navigation.c: its title changed, its marquee re-armed */
 void list_stop_scroll(widget_t *w); /* navigation.c: its scroll animation stopped */
@@ -768,6 +793,22 @@ void slider_number(widget_t *label), slider_tray_dirty(widget_t *page),
 void switch_row(widget_t *win, widget_t *view); /* the toolbar's, as a row */
 void stock_more_speed(widget_t *win);
 void stock_more_into(widget_t *win);
+/* lockscreen.c: ringnav_input's lock screen events, 1 taken; Layout's row was clicked; a label's
+ * face (0 the system font) at px, set again only when it changes */
+int lockscreen_input(widget_t *wm, event_t *e);
+void lockscreen_layout_turned(widget_t *win);
+void lock_face(widget_t *w, const char *face, int px);
+/* navigation.c: the playing track and its cover file, 0 none; a row lit again after its list was
+ * rebuilt */
+unsigned np_art_key(void);
+void ringnav_keep_row(widget_t *row);
+/* lock_glance.c: At a Glance's lock window, from lockscreen.c; a wheel tick with Wheel Unlocks on
+ */
+void glance_init(widget_t *win, widget_t *img, int picture, void *full);
+void glance_poll(void), glance_cover(widget_t *cover);
+int glance_paint(widget_t *w, canvas_t *canvas);
+int lockscreen_touch(widget_t *wm, event_t *e, unsigned type);
+int glance_wheel(widget_t *wm, unsigned type, unsigned key);
 void info_poll(void);          /* lockscreen.c: the info screen's timer, with the screen lit */
 int xfade_page(widget_t *top); /* crossfade.c */
 int ipod_battery(void);        /* theme_engine.c: IPOD BATTERY, 0 Icon, else a percentage */
@@ -796,6 +837,8 @@ const char *tr(const char *en) __attribute__((format_arg(1)));
 #define N_(en) en
 void language_sync(void);
 void language_removing(const char *dir);
+/* stock's T9 as it loads: a Chinese pack's starts in pinyin */
+void language_keyboard(widget_t *kb);
 int valid_id(const char *s); /* addon.c: a card app's id */
 /* smart_wifi.c: its radio woken, 1 while its link comes up; its radio off; an action
  * held for that link (fn(ctx, 0) once it is up, if page, or any page when 0, is still in use) */
@@ -823,17 +866,17 @@ widget_t *coverflow_playlists_close(void);
 void playlist_open(widget_t *win, int cd_num);
 unsigned playlist_index(int cd_num);
 void playlists_edit(int edit);
-int rockbox_available(void);   /* theme_engine.c: a regular Rockbox binary on the card */
-int groovebox_available(void); /* theme_engine.c: the Groovebox card app's binary on the card */
-#define SHORTCUT_GROOVEBOX 10  /* IPOD SHORTCUT's Groovebox, after the ten stock-era values */
-#define SHORTCUT_NONE 11       /* IPOD SHORTCUT's None: Home has no Shortcut row */
+int rockbox_available(void); /* theme_engine.c: a regular Rockbox binary on the card */
+#define SHORTCUT_APP 0       /* IPOD SHORTCUT's card app, IPOD SHORTCUT_APP its id */
+#define SHORTCUT_NONE 11     /* IPOD SHORTCUT's None: Home has no Shortcut row */
 int page_keyup(void *ctx, event_t *event); /* navigation.c: Return leaves a payload page */
 int ringnav_localclass(int cls);           /* navigation.c: load_localclass_list's hook */
 int shelf_open(void *ctx, event_t *event); /* netupdate.c: Library's App Store page */
 void shelf_tab(int tab); /* netupdate.c: the App Store's open tab, 0 Apps, 1 Games */
-int shelf_key(widget_t *top, unsigned key); /* netupdate.c: Previous and Next switch its tabs */
-/* app_store.c: the App Store's tabs and rows, drawn in ringnav_paint (store_paint) */
-widget_t *store_tabs(widget_t *page, widget_t *view);
+/* app_store.c: the App Store's tabs (Era's too) and rows, drawn in ringnav_paint (store_paint);
+ * Previous and Next switch the tabs (store_tabs_key) */
+widget_t *store_tabs(widget_t *page, widget_t *view, const char *const *names, void (*pick)(int));
+int store_tabs_key(widget_t *top, unsigned key);
 void store_tabs_set(widget_t *strip, int tab, const int *updates);
 void store_state(widget_t *item, int state);
 void store_paint(widget_t *w, canvas_t *canvas);

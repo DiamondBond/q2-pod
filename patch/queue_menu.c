@@ -7,15 +7,18 @@
 /* The menu's row (qm_record): its kind (QM_*), the class its list holds, its record's and the
  * browsing state's hashes, Now Playing's queue and its hash; the action picked, the play mode
  * being chosen (qm_choice, 0 none), a playlist cover's name (the covers' own: the live list may be
- * older), the deferred open or run, and g_local_classinfo_save before a Go to. navigation.h's st
+ * older), the deferred open or run, the picked row's blink (qm_lit: its row and the touch mode
+ * before it), the page under the menu, and g_local_classinfo_save before a Go to. navigation.h's st
  * has the hold's press, the row's place, the dialog and Play Next's forced pick. */
 static struct {
-    unsigned qm_timer, qm_cls, qm_hash, qm_browse;
-    int qm_kind, qm_action, qm_choice;
+    unsigned qm_timer, qm_cls, qm_hash, qm_browse, qm_blink;
+    int qm_kind, qm_action, qm_choice, qm_row, qm_touch;
+    widget_t *qm_page; /* the page the menu is over: compared, never followed */
     char qm_name[96];
     void *qm_queue;
     unsigned qm_queue_hash;
     unsigned char qm_classinfo[912];
+    void *qm_songs; /* an album's songs for Add to Playlist's picker, taken as it opens */
 } qm __attribute__((section(".scratch")));
 
 /* Play/Pause hold queue menu (docs/internals.md). Stock long press fires once per press, so a hold
@@ -66,11 +69,39 @@ static void *page_tracks(widget_t *page) {
                                 : coverflow_tracks(page);
 }
 
+/* The page whose row the menu is for: the one it opened over while it or its Add to Playlist
+ * picker is up (a blink keeps it on top as the row is read), else the top one, before it opens. */
+static widget_t *qm_under(void) {
+    return st.qm_dialog || st.qm_playlist ? qm.qm_page
+                                          : window_manager_get_top_window(window_manager());
+}
+
+/* A row of more than a song, which the picker adds as Play Next queues it (qm_collect) on the UI
+ * thread (playlists.c pl_add_songs), not as stock's add of the selected row would: that runs on a
+ * thread of stock's (0x4b4750), where batch_add_file (0x4ff344) fills and reads the staging deque
+ * staged_into points elsewhere from the UI thread, adds without a limit, and for an Albums row
+ * takes every album of the name; a Coverflow cover has no showlist row at all. The class stock's
+ * add takes the songs as: a folder's files 1, their tags read from each file as stock's folder
+ * add reads them (0x4ff918), any other row's 0xf001. 0 for a song's own row, in a list or
+ * playing, whose add stays stock's. */
+int qm_own_songs(void) {
+    return qm.qm_kind == QM_SONG || qm.qm_kind == QM_PLAYING ? 0
+           : qm.qm_kind == QM_FOLDER                         ? 1
+                                                             : 0xf001;
+}
+
+/* Add to Playlist's songs for such a row (qm_own_songs), kept from the menu until they are added
+ * or the picker goes. */
+void *qm_songs(void) { return qm.qm_songs; }
+void qm_songs_free(void) {
+    if (qm.qm_songs) deque_destroy(qm.qm_songs);
+    qm.qm_songs = 0;
+}
+
 static void *qm_list(void) {
     if (qm.qm_kind == QM_PLAYING) return P(mcl_pdeqplaylist, 0);
     if (qm.qm_kind == QM_PLAYLIST) return P(p_deque_playlist, 0);
-    return qm.qm_kind == QM_COVERFLOW ? page_tracks(window_manager_get_top_window(window_manager()))
-                                      : P(p_deque_showlist, 0);
+    return qm.qm_kind == QM_COVERFLOW ? page_tracks(qm_under()) : P(p_deque_showlist, 0);
 }
 
 void *qm_record(void) {
@@ -85,7 +116,7 @@ void *qm_record(void) {
                    : 0;
     }
     if (qm.qm_kind == QM_COVERALBUM) {
-        void *r = coverflow_album(window_manager_get_top_window(window_manager()));
+        void *r = coverflow_album(qm_under());
         return r && rec_hash(r) == qm.qm_hash ? r : 0;
     }
     void *list = qm_list();
@@ -107,9 +138,20 @@ unsigned qm_album_id(void *r) {
                : 0;
 }
 
+/* A blink cut short, whichever way the menu goes: its timer, and the selection shown as before the
+ * press, as qm_blinked puts it back at a blink's end. The change is made already. */
+static void qm_unblink(void) {
+    if (!qm.qm_blink) return;
+    stop_timer(&qm.qm_blink);
+    st.touch_mode = qm.qm_touch;
+}
+/* 1 while a blink runs: ringnav drops the wheel and Centre meanwhile. */
+int qm_blinking(void) { return qm.qm_blink != 0; }
+
 static void qm_close(void) {
     widget_t *dialog = st.qm_dialog;
     st.qm_dialog = (void *)0;
+    qm_unblink(); /* Return mid-blink: the menu goes now */
     if (dialog) window_close(dialog);
 }
 
@@ -121,7 +163,7 @@ static int qm_back(void *dialog, event_t *event) {
 }
 
 static int qm_gone(void *dialog, event_t *event) {
-    if (st.qm_dialog == dialog) st.qm_dialog = (void *)0;
+    if (st.qm_dialog == dialog) st.qm_dialog = (void *)0, qm_unblink();
     return 0;
 }
 
@@ -137,7 +179,9 @@ static int qm_query(void *r) {
 static void folder_tracks(const char *path, void *add, int depth) {
     int n;
     void *rows = staged(directory, (void *)path, &n);
-    for (unsigned i = 0; i < deque_size(rows); ++i) {
+    /* Add to Playlist takes PL_ADD_MAX at most: one past it, the rest of the tree isn't listed */
+    unsigned most = qm.qm_action == QA_PLAYLIST ? PL_ADD_MAX : ~0u;
+    for (unsigned i = 0; i < deque_size(rows) && deque_size(add) <= most; ++i) {
         void *t = deque_at(rows, i);
         const char *name = P(t, REC_NAME);
         if (I(t, REC_TYPE) == 8)
@@ -266,13 +310,34 @@ static int qm_edit_due(void *edit, event_t *event) {
     return 0;
 }
 
+/* Play Next and Add to Queue that worked: the chosen row blinks, dark from the press for half of
+ * QM_BLINK_MS, then lit for the other half, and the menu closes, as an iPod's does. The queue has
+ * changed at the press. Dark is touch mode's hidden selection, lit ringnav_light's, so every
+ * theme's menu blinks as it draws its selection, on the row chosen. Meanwhile the blink owns the
+ * menu: taps are dropped (qm_pick), and the wheel and Centre (ringnav, qm_blinking); Return
+ * closes the menu at once (qm_close). ponytail: a feel number, to tune on a Q2. */
+#define QM_BLINK_MS 280
+static int qm_blinked(const void *unused) {
+    qm.qm_blink = 0; /* this timer's id: removed by its 0 */
+    st.touch_mode = qm.qm_touch;
+    qm_close();
+    return 0; /* RET_REMOVE */
+}
+static int qm_lit(const void *unused) {
+    qm.qm_blink = timer_add(qm_blinked, (void *)0, QM_BLINK_MS / 2);
+    widget_t *view = st.qm_dialog ? widget_lookup(st.qm_dialog, "scroll_view", 1) : (void *)0;
+    if (view) ringnav_light(view, qm.qm_row);
+    if (st.qm_dialog) widget_invalidate_force(st.qm_dialog, (void *)0);
+    return 0; /* RET_REMOVE */
+}
+
 static int qm_run(const void *unused) {
     qm.qm_timer = 0;
     if (!st.qm_dialog) return 0;
     if (qm.qm_action == QA_NEW_PLAYLIST || qm.qm_action == QA_EDIT_PLAYLISTS)
         widget_on(st.qm_dialog, EVT_DESTROY, qm_edit_due,
                   (void *)(long)(qm.qm_action == QA_EDIT_PLAYLISTS));
-    qm_close();
+    if (qm.qm_action != QA_NEXT && qm.qm_action != QA_ADD) qm_close(); /* they may blink first */
     void *r = qm_record();
     int a = qm.qm_action, cls = qm.qm_kind == QM_COVERFLOW ? 0xf001 : (int)qm.qm_cls;
     unsigned aid = r ? qm_album_id(r) : 0; /* an album's own Favourites and Rate */
@@ -319,25 +384,39 @@ static int qm_run(const void *unused) {
         batch_add_file(cls, 0xf00a, qm_list(), P(p_vector_select_record, 0), 0);
         ratings_copy_due();
         fav_told(r, 1);
+        st.np_seen = 0; /* the menu's close drew Now Playing's heart before the change: again */
     } else if (r && a == QA_UNFAV) {
         deleteMusicFromFav(r);
         ratings_copy_due();
         fav_told(r, 0);
+        st.np_seen = 0;
         if (cls == 0xf00a)
             g_delete_flag = 1;          /* My Fav reloads, as Now Playing's heart (0x53cafc) */
     } else if (r && a == QA_PLAYLIST) { /* the playlist page's add mode adds the selected row */
-        qm_select();
+        unsigned n = 1;
+        qm_songs_free();
+        /* a row of songs' own now: the picker covers its page, so its row can't be read at the
+         * pick. None, or more than one add writes (PL_ADD_MAX), is refused before the picker. */
+        if (qm_own_songs())
+            n = deque_size(qm.qm_songs = qm_collect(r));
+        else
+            qm_select();
+        if (!n || n > PL_ADD_MAX) {
+            qm_songs_free();
+            toast(n ? tr("Too many songs to add") : tr("No songs yet"));
+            return 0;
+        }
         navigator_to_with_context(
             "localmusic/playlist_page",
             (void *)(long)((qm.qm_kind == QM_PLAYING ? 0x20000 : 0x10000) | cls));
-        if (qm.qm_kind == QM_PLAYING) {
-            widget_t *top = window_manager_get_top_window(window_manager());
-            if (!tk_strcmp(widget_get_prop_str(top, "name", ""), "playlist_page")) {
-                st.qm_playlist = top;
-                qm_playlist_bind(top, 0, qm_playlist_pick);
-                widget_on(top, EVT_DESTROY, qm_playlist_gone, top);
-            }
-        }
+        widget_t *top = window_manager_get_top_window(window_manager());
+        if (qm.qm_kind != QM_SONG &&
+            !tk_strcmp(widget_get_prop_str(top, "name", ""), "playlist_page")) {
+            st.qm_playlist = top;
+            qm_playlist_bind(top, 0, qm_playlist_pick);
+            widget_on(top, EVT_DESTROY, qm_playlist_gone, top);
+        } else /* no picker came up to pick their playlist */
+            qm_songs_free();
     } else if (r && a == QA_RESUME) { /* the list's songs from the chapter; the poll seeks */
         int at = 0, off = 0;
         void *list = qm_list(), *t = book_place(list, r, &at, &off), *songs;
@@ -363,8 +442,18 @@ static int qm_run(const void *unused) {
         qm_goto(r, a == QA_ALBUM);
     else {
         void *add = r ? qm_collect(r) : (void *)0;
-        if (!add || !(a == QA_SHUFFLE ? shuffle_play(add) : qm_apply(add, a == QA_NEXT)))
-            toast(tr("Queue unchanged"));
+        int done = add && (a == QA_SHUFFLE ? shuffle_play(add) : qm_apply(add, a == QA_NEXT));
+        if (done && (a == QA_NEXT || a == QA_ADD) &&
+            (qm.qm_blink = timer_add(qm_lit, (void *)0, QM_BLINK_MS / 2))) {
+            /* Centre's row, or a tap's */
+            widget_t *view = widget_lookup(st.qm_dialog, "scroll_view", 1);
+            qm.qm_row = view ? widget_get_prop_int(view, SEL, -1) : -1;
+            qm.qm_touch = st.touch_mode;
+            st.touch_mode = 1; /* dark */
+            widget_invalidate_force(st.qm_dialog, (void *)0);
+        } else
+            qm_close();
+        if (!done) toast(tr("Queue unchanged"));
         if (add) deque_destroy(add);
     }
     return 0;
@@ -372,7 +461,7 @@ static int qm_run(const void *unused) {
 
 /* Touch and centre both arrive as the row's click; the first one wins. */
 static int qm_pick(void *action, event_t *event) {
-    if (st.qm_dialog && !qm.qm_timer) {
+    if (st.qm_dialog && !qm.qm_timer && !qm.qm_blink) {
         qm.qm_action = (int)(long)action;
         qm.qm_timer = timer_add(qm_run, (void *)0, 0);
     }
@@ -441,6 +530,7 @@ static int qm_open(const void *unused) {
     navigator_to("dialog/sortselect_dialog");
     widget_t *dialog = window_manager_get_top_window(wm);
     if (dialog == page) return 0;
+    qm.qm_page = page;
     if (tk_strcmp(widget_get_prop_str(dialog, "name", ""), "sortselect_dialog")) {
         window_close(dialog);
         return 0;
@@ -536,7 +626,8 @@ static int qm_open(const void *unused) {
     unsigned aid = song ? 0 : qm_album_id(r);
     int album_hearts = aid ? rate_kept(1, aid) : 0;
     if (aid) acts[n++] = album_hearts == 5 ? QA_UNFAV : QA_FAV, acts[n++] = QA_RATE;
-    if (qm.qm_kind < QM_COVERFLOW || qm.qm_kind == QM_PLAYING) acts[n++] = QA_PLAYLIST;
+    if (qm.qm_kind < QM_COVERFLOW || qm.qm_kind == QM_PLAYING || qm.qm_kind == QM_COVERALBUM)
+        acts[n++] = QA_PLAYLIST;
     /* a card app's song isn't in the Library: Go to only to the app's own page */
     int hidden = song && !addon_goes(P(r, REC_PATH));
     if ((qm.qm_kind == QM_SONG || qm.qm_kind == QM_PLAYING) && album && *album && !hidden &&
@@ -629,9 +720,7 @@ static int qm_list_hold(unsigned at, char *key, void *cover) {
     st.qm_idx = at;
     st.qm_rows = deque_size(lists);
     qm.qm_hash = rec_hash(r);
-    st.qm_press = *(unsigned long long *)(key + INPUT_KEY_TIME);
-    drop_input();
-    return 1;
+    return hold_taken(key);
 }
 
 /* The hold: the same gates and row as a centre press, over the stock showlist or Coverflow's
@@ -643,10 +732,7 @@ int qm_hold(void) {
     const char *name = top ? widget_get_prop_str(top, "name", "") : "";
     int playing = !tk_strcmp(name, "playing_page");
     if (st.rate_on && top == st.rate_on) { /* the picker's: the hold and its release do nothing */
-        char *key = play_key();
-        if (key) st.qm_press = *(unsigned long long *)(key + INPUT_KEY_TIME);
-        drop_input();
-        return 1;
+        return hold_taken(play_key());
     }
     if (st.qm_dialog || qm.qm_timer || st.qm_playlist || !usable() ||
         (!playing && !allowed_top(top)) || window_manager_is_animating(wm) || pointer_down() ||
@@ -666,9 +752,7 @@ int qm_hold(void) {
         st.qm_rows = n;
         qm.qm_hash = rec_hash(r);
         qm.qm_queue_hash = queue_hash(q);
-        st.qm_press = *(unsigned long long *)(key + INPUT_KEY_TIME);
-        drop_input();
-        return 1;
+        return hold_taken(key);
     }
     int kind = contexts[context_id(name)].kind;
     void *album = coverflow_album(top), *cover = coverflow_playlist(top);
@@ -680,9 +764,7 @@ int qm_hold(void) {
         qm.qm_kind = QM_COVERALBUM;
         qm.qm_cls = CLASS_ALBUMS;
         qm.qm_hash = rec_hash(album);
-        st.qm_press = *(unsigned long long *)((char *)key + INPUT_KEY_TIME);
-        drop_input();
-        return 1;
+        return hold_taken(key);
     }
     void *list = page_tracks(top);
     int coverflow = list != 0;
@@ -725,7 +807,5 @@ int qm_hold(void) {
     st.qm_rows = (unsigned)g_menu.rows;
     qm.qm_hash = rec_hash(r);
     qm.qm_browse = browse_hash();
-    st.qm_press = *(unsigned long long *)((char *)key + INPUT_KEY_TIME);
-    drop_input();
-    return 1;
+    return hold_taken(key);
 }

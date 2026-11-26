@@ -6,8 +6,9 @@
 
 <p align="center">
   <a href="https://github.com/DiamondBond/q2-pod/releases/latest"><img alt="Download the latest release" src="https://img.shields.io/badge/download-2F6FDE?style=flat-square" height="26"></a>
+  <a href="https://diamondbond.github.io/q2-pod/"><img alt="Website" src="https://img.shields.io/badge/website-3D424B?style=flat-square" height="26"></a>
   <a href="#install"><img alt="Install" src="https://img.shields.io/badge/install-3D424B?style=flat-square" height="26"></a>
-  <a href="https://github.com/DiamondBond/q2-pod/releases/latest/download/Q2-Pod-User-Guide.pdf"><img alt="User guide" src="https://img.shields.io/badge/user%20guide-3D424B?style=flat-square" height="26"></a>
+  <a href="https://github.com/DiamondBond/q2-pod/releases/tag/guide"><img alt="User guide" src="https://img.shields.io/badge/user%20guide-3D424B?style=flat-square" height="26"></a>
   <a href="docs/changelog.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-3D424B?style=flat-square" height="26"></a>
   <a href="https://www.youtube.com/watch?v=cc581MRAtp0"><img alt="Watch on YouTube" src="https://img.shields.io/badge/YouTube-3D424B?style=flat-square&logo=youtube&logoColor=white" height="26"></a>
   <a href="https://discord.gg/MY3FTNuAdG"><img alt="Join the Discord" src="https://img.shields.io/badge/Discord-3D424B?style=flat-square&logo=discord&logoColor=white" height="26"></a>
@@ -31,7 +32,7 @@
   </tr>
   <tr valign="top">
     <td><b>Library</b></td>
-    <td>Search, Era (albums by decade), Most Played, Long Songs and favourites. Playlists with Edit Playlist and M3U import and export. Play Next, Add to Queue and View Queue. An empty <code>database.ignore</code> file <a href="#library">hides a folder</a>.</td>
+    <td>Search, Era (albums by decade or year), Most Played, Long Songs and favourites. Playlists with Edit Playlist and M3U import and export. Play Next, Add to Queue and View Queue. An empty <code>database.ignore</code> file <a href="#library">hides a folder</a>.</td>
   </tr>
   <tr valign="top">
     <td><b>Ratings</b></td>
@@ -112,14 +113,15 @@ The [user guide][guide] covers every control, EQ, Cover Flow and more tips.
 - **Over Wi-Fi:** **System settings → System Update → Network update**.
 - **By hand:** repeat the [install steps](#install) with the newest release.
 
-## Apps
+<details>
+<summary><h2>Apps</h2></summary>
 
 **Library → App Store** installs, updates and removes these over Wi-Fi:
 
 <table>
   <tr valign="top">
     <td width="200"><b><a href="https://github.com/DiamondBond/q2-rockbox">Rockbox</a></b></td>
-    <td>The open source jukebox firmware, as a separate player. Once installed, the Q2 starts in Rockbox.</td>
+    <td>The open source jukebox firmware, as a separate player. Runs from Library → Apps; Boot to in Power starts it at power-on.</td>
     <td width="60"></td>
   </tr>
   <tr valign="top">
@@ -143,7 +145,7 @@ The [user guide][guide] covers every control, EQ, Cover Flow and more tips.
     <td></td>
   </tr>
   <tr valign="top">
-    <td><b><a href="https://github.com/group-a-study/q2-filebrowser">File Browser</a></b></td>
+    <td><b><a href="https://github.com/DiamondBond/q2-filebrowser">File Browser</a></b></td>
     <td>Browse the card and upload files from a phone or computer on the same Wi-Fi, in <b>Library → Apps → File Browser</b>.</td>
     <td></td>
   </tr>
@@ -173,7 +175,7 @@ The [user guide][guide] covers every control, EQ, Cover Flow and more tips.
     <td><a href="https://github.com/harpmudd/q2-lma/raw/main/docs/guide/LMA-Mini-Guide.pdf">Guide</a></td>
   </tr>
   <tr valign="top">
-    <td><b><a href="https://github.com/group-a-study/q2-airplay">AirPlay</a></b></td>
+    <td><b><a href="https://github.com/DiamondBond/q2-airplay">AirPlay</a></b></td>
     <td>Send what the Q2 plays to AirPlay speakers: choose <b>AirPlay</b> at the top of Now Playing's <b>⋯</b>.</td>
     <td></td>
   </tr>
@@ -224,8 +226,10 @@ The [user guide][guide] covers every control, EQ, Cover Flow and more tips.
   </tr>
 </table>
 
+</details>
+
 <details>
-<summary><h3>Games</h3></summary>
+<summary><h2>Games</h2></summary>
 
 On the App Store's **Games** tab. Each plays in **Library → Games**.
 
@@ -300,6 +304,31 @@ On the App Store's **Games** tab. Each plays in **Library → Games**.
     <td>Play PICO-8 games on a port of the FAKE-08 emulator.</td>
     <td></td>
   </tr>
+  <tr valign="top">
+    <td><b><a href="https://github.com/Carbon-66/Q2-Vortex">Vortex</a></b></td>
+    <td>Breakout down a tube, your bat running round the rim on the wheel; its art, levels and sound are read from your own copy of the iPod game Vortex.</td>
+    <td></td>
+  </tr>
+  <tr valign="top">
+    <td><b><a href="https://github.com/Carbon-66/Q2-Wordle">Wordle</a></b></td>
+    <td>Guess the five-letter word in six tries: today's New York Times word over Wi-Fi, or a random word offline.</td>
+    <td></td>
+  </tr>
+  <tr valign="top">
+    <td><b><a href="https://github.com/Carbon-66/Q2-ConnectFour">Connect Four</a></b></td>
+    <td>Line up four discs in a row against the Q2 at three levels, or a friend on the same Q2.</td>
+    <td></td>
+  </tr>
+  <tr valign="top">
+    <td><b><a href="https://github.com/Carbon-66/Q2-TicTacToe">Tic-Tac-Toe</a></b></td>
+    <td>Play the Q2 at three levels, or a friend on the same Q2.</td>
+    <td></td>
+  </tr>
+  <tr valign="top">
+    <td><b><a href="https://github.com/Carbon-66/Q2-ChessCheckers">Chess &amp; Checkers</a></b></td>
+    <td>Chess and checkers against the Q2 at six levels, or a friend on the same Q2.</td>
+    <td></td>
+  </tr>
 </table>
 
 </details>
@@ -334,7 +363,7 @@ Copy your music to the card over USB-C, then run **Library → Update Library �
 - **More than music:** these folders at the card's root each add their own Library entry: `Podcasts/`, `Audiobooks/` and `Photos/`. `EQ/` holds EQ presets to import. See the [user guide][guide] for supported formats.
 - **Playlists:** M3U playlists import from the `_explaylist_data/` folder at the card's root, the same folder stock uses. Q2 Pod keeps it as it is, so your stock playlists carry over.
 - **Long audiobooks:** a book too long for the Q2's memory (around 40 hours in one file) needs splitting into parts.
-- **Hiding a folder:** to keep a folder out of Songs, Albums, Artists, Cover Flow and library shuffle, put an empty file named `database.ignore` in it and run **Update Library** again. Its songs still play from Folder view and from playlists, and an empty `database.unignore` in a subfolder lets that subfolder back in ([details](docs/discovery.md)).
+- **Hiding a folder:** to keep a folder out of Songs, Albums, Artists, Cover Flow and library shuffle, put an empty file named `database.ignore` in it and run **Update Library** again. Its songs still play from Folder view and from playlists, and an empty `database.unignore` in a subfolder lets that subfolder back in.
 
 </details>
 
@@ -352,17 +381,22 @@ Copy your music to the card over USB-C, then run **Library → Update Library �
 ## Documentation
 
 - **For users:** [User guide][guide] · [Setup](docs/setup.md) · [Changelog](docs/changelog.md) · [Accessibility](ACCESSIBILITY.md)
-- **Library folder markers:** [Hide folders while keeping playlists](docs/discovery.md)
 - **Hardware:** [Specs and internals](docs/hardware.md) · [Replacing the battery](docs/battery.md) · [Teardown photo](docs/teardown.jpg)
 - **For developers:** [Building](docs/building.md) · [Releasing](docs/releasing.md) · [Internals](docs/internals.md) · [Remote control (dev builds)](docs/remote.md) · [Contributing](CONTRIBUTING.md)
-- **Try a build without a Q2:** [Q2 Emulator](https://github.com/bryanmario/q2-emulator), by bryanmario, boots the firmware itself under QEMU (Windows for now), so a build's own screens, lists and navigation run, with touch, the wheel and the buttons: the closest thing to a Q2. [q2-emulation](https://github.com/lampsonlnguyen/q2-emulation), by lampsonlnguyen, is a simulator: it previews a build's assets, settings and card apps and runs card games, without booting the firmware.
-- **EQ Studio on iPhone and iPad:** [EQ Studio for iPhone and iPad](https://github.com/js-surya/q2-eq-studio-ios), by js-surya, is a native app for [EQ Studio](https://github.com/DiamondBond/q2-eq-studio): shape the curve, pick one of AutoEq's presets or fit the bands to a measurement, and hear it on the Q2 as you go. It isn't on the App Store yet; until then you build it with Xcode.
-- **From the community:** [Q2 Theme Studio](https://tyleree.github.io/q2-themes/), by tyleree, makes EQ presets and themes in the browser and saves them to the card you point it at. It isn't part of Q2 Pod, so it's at your own risk. Its EQ presets work here: they go in `EQ/`, to import. Of its themes, Q2 Pod reads the accent and page colours, what it hides, moves and resizes on Now Playing and the lock screen and the Home rows it hides, renames and resizes and its JPEG pictures on Home in Minimal and Modern, and the battery style; the rest of a theme, such as its Home row height and GIFs, needs a test firmware from its author's fork, an unofficial build of an older Q2 Pod that nobody here can help with. Back up the card before you install that one, and repeat the [install steps](#install) to come back to Q2 Pod.
+
+## From the community
+
+Made by others, not part of Q2 Pod: use them at your own risk.
+
+- **[Q2 Emulator](https://github.com/bryanmario/q2-emulator)**, by bryanmario: runs a Q2 Pod build on a computer.
+- **[EQ Studio for iPhone and iPad](https://github.com/js-surya/q2-eq-studio-ios)**, by js-surya: shape [EQ Studio](https://github.com/DiamondBond/q2-eq-studio)'s curve on your phone.
+- **[Q2 Theme Studio](https://tyleree.github.io/q2-themes/)**, by tyleree: make themes and EQ presets in the browser.
+- **[Q2 Sync](https://github.com/PaleoLabs/Q2-Sync)**, by PaleoLabs: sync the music files in your Mac's Music app to the Q2.
 
 <details>
 <summary><h2>License</h2></summary>
 
-Q2 Pod's code, tools, tests, documentation and artwork are under the [GNU General Public License, version 3](LICENSE) (GPL-3.0-only). The fonts in `assets/fonts` keep their own licences: Liberation Sans (OFL, shipped cut down and unhinted, with a ▶ added, and renamed Q2 Pod Sans) and TeX Gyre Heros (GUST Font License, shipped cut down and unhinted, with a ▶ added, and renamed Q2 Pod Classic Light, see `assets/fonts/README-classic-light.txt`). The Shanling firmware included in release images remains Shanling's. Q2 Pod is an independent project and is not affiliated with Shanling.
+Q2 Pod's code, tools, tests, documentation and artwork are under the [GNU General Public License, version 3](LICENSE) (GPL-3.0-only). The fonts in `assets/fonts` keep their own licences: Liberation Sans (OFL, shipped cut down and unhinted, with a ▶ added, and renamed Q2 Pod Sans) and TeX Gyre Heros (GUST Font License, shipped cut down and unhinted, with a ▶ added, and renamed Q2 Pod Classic Light, see `assets/fonts/README-classic-light.txt`). The Shanling firmware included in release images remains Shanling's. Q2 Pod is an independent project and is not affiliated with Shanling or Apple. Cover Flow, iPod, iPhone, AirPods and AirPlay are trademarks of Apple Inc. Cover Flow in Q2 Pod is Q2 Pod's own software. It contains no software or artwork from Apple.
 
 </details>
 
@@ -370,5 +404,5 @@ Q2 Pod's code, tools, tests, documentation and artwork are under the [GNU Genera
 
 Q2 Pod is free and built with love in spare time. If it has made your Q2 better and you'd like to give something back, you can [support development on Ko-fi](https://ko-fi.com/diamondbond). Otherwise if you can, please consider donating to a good cause instead ❤️
 
-[guide]: https://github.com/DiamondBond/q2-pod/releases/latest/download/Q2-Pod-User-Guide.pdf
+[guide]: https://github.com/DiamondBond/q2-pod/releases/tag/guide
 [release]: https://github.com/DiamondBond/q2-pod/releases/latest

@@ -60,6 +60,10 @@ FNV_SEED, FNV_PRIME = 2166136261, 16777619
 libc = C.CDLL(None)
 libc.mmap.restype, libc.mmap.argtypes = C.c_void_p, [C.c_void_p, C.c_size_t, C.c_int, C.c_int, C.c_int, C.c_long]
 libc.mprotect.argtypes = [C.c_void_p, C.c_size_t, C.c_int]
+libc.munmap.argtypes = [C.c_void_p, C.c_size_t]
+libc.calloc.restype, libc.calloc.argtypes = C.c_void_p, [C.c_size_t, C.c_size_t]
+libc.free.argtypes = [C.c_void_p]
+libc.qsort.argtypes = [C.c_void_p, C.c_size_t, C.c_size_t, C.c_void_p]
 if libc.mmap(0x400000, 0x800000, 3, 0x100022, -1, 0) != 0x400000:  # read/write, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE
     pytest.exit('test/fw needs a position-independent python: 0x400000-0xc00000, stock\'s addresses, is taken '
                             '(a non-PIE python lives there); use one built with -pie, e.g. actions/setup-python\'s or a venv of a PIE build', returncode=4)
@@ -156,6 +160,32 @@ def block(fw, data=b'', size=None):
     C.memmove(p, data, len(data))
     return p
 
+def fake_lists(ui, fw):
+    """A list page's widgets on ui (test_streaming's Browser, test_addon's Page): ui.page and ui.view as every
+    widget, ui.timers counted, ui.drawn the rows since the last list, toasts' texts in ui.toasts, ui.sel the
+    selected row and ui.y, if it has one, the scroll. No worker pthread starts."""
+    def timer(*_):
+        ui.timers += 1
+        return ui.timers
+    def lists(*_):
+        ui.drawn = 0
+        return ui.view
+    def row(*_):
+        ui.drawn += 1
+        return ui.view
+    def prop(w, name, default, *_):
+        key = C.string_at(name)
+        return ui.sel if key == b'_ringnav_index' else getattr(ui, 'y', default) if key == b'yoffset' else default
+    fw.mock('fw_pthread_create', lambda *_: 0)
+    fw.mock('timer_add', timer)
+    fw.mock('window_create', lambda *_: ui.page)
+    fw.mock('scroll_view_create', lists)
+    fw.mock('list_item_create', row)
+    fw.mock('widget_get_child', lambda *_: ui.view)
+    fw.mock('widget_lookup', lambda *_: ui.view)
+    fw.mock('navigator_to_with_context', lambda path, info, *_: ui.toasts.append(C.string_at(info + 8)))
+    fw.mock('widget_get_prop_int', prop)
+
 def claim(address):
     """A page at one of stock's fixed addresses, mapped if free, made writable and executable (a test's
     stand-in code goes there) if conftest's own map holds it."""
@@ -220,9 +250,15 @@ def in_fork(test):
             os._exit(1 if failure else 0)
         os.close(write)
         failure = b''
-        while chunk := os.read(read, 65536):
-            failure += chunk
-        os.close(read)
+        try:
+            while chunk := os.read(read, 65536):
+                failure += chunk
+        except BaseException:  # pytest-timeout's alarm, which the child never gets: it would run on, unwatched
+            os.kill(child, 9)
+            os.waitpid(child, 0)
+            raise
+        finally:
+            os.close(read)
         status = os.waitpid(child, 0)[1]
         if status:
             pytest.fail(f'child status {status:#x}\n' + failure.decode())
@@ -335,11 +371,13 @@ class Rows(Deques):
 
 
 class Files:
-    """The card's and flash's files as a dict: fopen and all, so blob_io and the snapshot's reader run whole; "a" appends."""
+    """The card's and flash's files as a dict: fopen and all, so blob_io and the snapshot's reader run whole; "a" appends.
+    A read open of a missing file fails with ENOENT; fail_open, an errno, fails every read open with it."""
     def __init__(self, fw, files=None):
         self.files = files if files is not None else {}
         self.open = {}
         self.fail_rename = False
+        self.fail_open, self.errno = 0, fw.fn('fw___errno_location', C.POINTER(C.c_int))
         fw.mock('fw_fopen', self.fopen)
         fw.mock('fw_fread', self.fread)
         fw.mock('fw_fseek', self.fseek)
@@ -351,7 +389,8 @@ class Files:
 
     def fopen(self, path, mode, *_):
         path, mode = C.string_at(path).decode(), C.string_at(mode).decode()
-        if 'r' in mode and path not in self.files:
+        if 'r' in mode and (self.fail_open or path not in self.files):
+            self.errno()[0] = self.fail_open or 2
             return 0
         handle = 0x2000 + len(self.open)
         while handle in self.open:  # one closed since leaves this count on a file still open
@@ -396,10 +435,12 @@ class Files:
 class Card:
     """A card's files as a dict, written through: fopen creates the entry, fwrite appends to it, fclose is a flag.
     fail_write, fail_rename, fail_sync, fail_close and fail_ferror make those calls fail; unlinked lists the paths removed.
+    A read open of a missing file fails with ENOENT; fail_open, an errno, fails every read open with it.
     access=False leaves fw_access to the test (games' listing asks the real one)."""
     def __init__(self, fw, files=None, access=True):
         self.files, self.open, self.unlinked = dict(files or {}), {}, []
         self.fail_write = self.fail_rename = self.fail_sync = self.fail_close = self.fail_ferror = False
+        self.fail_open, self.errno = 0, fw.fn('fw___errno_location', C.POINTER(C.c_int))
         for name in 'fopen fread fwrite fseek ftell rename unlink'.split():
             fw.mock('fw_' + name, getattr(self, name))
         fw.mock('fw_fclose', lambda *_: self.fail_close)
@@ -414,7 +455,8 @@ class Card:
 
     def fopen(self, path, mode, *_):
         name, write = self.name(path), C.string_at(mode)[:1] == b'w'
-        if not write and name not in self.files:
+        if not write and (self.fail_open or name not in self.files):
+            self.errno()[0] = self.fail_open or 2
             return 0
         handle = 0x1000 + len(self.open)
         self.open[handle] = [name, 0]
@@ -496,9 +538,9 @@ def scratch(library):
 
 @pytest.fixture
 def st(fw, scratch):
-    """navigation.c's state by field: st('rt_page', C.c_void_p).value."""
+    """navigation.c's state by field: st('rt_page', C.c_void_p).value; st('setting_label', i=3) a pointer array's cell."""
     base = C.addressof(fw.var('st', C.c_char))
-    return lambda name, ctype=C.c_int: ctype.from_address(base + scratch[name])
+    return lambda name, ctype=C.c_int, i=0: ctype.from_address(base + scratch[name] + i * C.sizeof(ctype))
 
 
 @pytest.fixture(scope='module')
@@ -538,10 +580,10 @@ def lists(fw, lists_fields):
     return lambda name, ctype=C.c_int: ctype.from_address(base + lists_fields[name])
 
 
-def opus(tags):
-    """An Ogg Opus file: OpusHead, then tags as packet 1 on pages of its own (no CRC: xiph.c reads none)."""
+def ogg(*packets):
+    """An Ogg file of these packets, each on pages of its own (no CRC: xiph.c reads none)."""
     pages, seq = [], 0
-    for packet in (b'OpusHead' + bytes([1, 2]) + struct.pack('<HIhB', 312, 48000, 0, 0), tags):
+    for packet in packets:
         lacing = [255] * (len(packet) // 255) + [len(packet) % 255]
         for at in range(0, len(lacing), 255):
             part = lacing[at:at + 255]
@@ -549,6 +591,11 @@ def opus(tags):
                          bytes(part) + packet[at * 255:at * 255 + sum(part)])
             seq += 1
     return b''.join(pages)
+
+
+def opus(tags):
+    """An Ogg Opus file: OpusHead, then tags as packet 1."""
+    return ogg(b'OpusHead' + bytes([1, 2]) + struct.pack('<HIhB', 312, 48000, 0, 0), tags)
 
 
 def stock_stub(address, result, log):
@@ -582,3 +629,22 @@ class Config:
 
 class Dirent(C.Structure):  # host.py's struct dirent
     _fields_ = [('ino', C.c_uint), ('off', C.c_uint), ('reclen', C.c_ushort), ('d_type', C.c_ubyte), ('d_name', C.c_char * 256)]
+
+
+def dir_readdir(self, d, *_):
+    """A test card's readdir: the next name of self.dirs[d] as a dirent, 0 once it is spent."""
+    if not self.dirs[d]:
+        return 0
+    ent = C.create_string_buffer(268)  # host.py's struct dirent: d_name at 11
+    name = self.dirs[d].pop(0).encode()
+    C.memmove(C.addressof(ent) + 11, name, len(name))
+    self.ents.append(ent)
+    return C.addressof(ent)
+
+
+def card_fread(owner, buf, size, n, f, *_):
+    """A fake card's fread: the bytes of owner.names[f] from owner.at[f], into buf."""
+    piece = owner.files[owner.names[f]][owner.at[f]:owner.at[f] + size * n]
+    C.memmove(buf, piece, len(piece))
+    owner.at[f] += len(piece)
+    return len(piece) // size

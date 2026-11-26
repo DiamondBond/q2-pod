@@ -240,15 +240,21 @@ def test_jpeg_size_agrees_with_the_builders_check(fw):
 
 
 class Card(Files):
-    """The card and flash as files, access() and stat() too (o32: size word 12, mtime word 16); ffmpeg as a child
-    that writes rot (or fails)."""
+    """The card and flash as files, access() and stat() too (o32: size word 12, mtime word 16; access fails as a read
+    open does); ffmpeg as a child that writes rot (or fails)."""
     def __init__(self, fw, files=None):
         super().__init__(fw, files)
         self.rot, self.status, self.pid, self.mtime = None, 0, 4321, {}
-        fw.mock('fw_access', lambda path, *_: 0 if C.string_at(path).decode() in self.files else -1)
+        fw.mock('fw_access', self.access)
         fw.mock('fw___xstat', self.stat)
         fw.mock('fw_fork', lambda *_: self.pid)
         fw.mock('fw_waitpid', self.wait)
+
+    def access(self, path, *_):
+        if not self.fail_open and C.string_at(path).decode() in self.files:
+            return 0
+        self.errno()[0] = self.fail_open or 2
+        return -1
 
     def stat(self, version, path, info, *_):
         path = C.string_at(path).decode()
@@ -273,8 +279,19 @@ def logo_sync(fw, power):
 
 def test_no_card_logo_brings_the_stock_logo_back(fw, power):
     card = Card(fw, {LOGO_DST: jpeg(320, 375)})
+    Mounts(fw, card)
     power('logo_busy').value = 1
     assert logo_sync(fw, power) is None and LOGO_DST not in card.files and power('logo_busy').value == 0
+
+
+@pytest.mark.parametrize('mounted, eio', [(True, True), (False, False), (False, True)])
+def test_a_card_logo_not_seen_keeps_the_copy(fw, power, mounted, eio):
+    """Only a mounted card whose file answers ENOENT takes the copy away: not another error, nor a card gone since the
+    mount."""
+    card = Card(fw, {LOGO_DST: jpeg(320, 375)})
+    Mounts(fw, card, mounted)
+    card.fail_open = 5 if eio else 0
+    assert logo_sync(fw, power) is None and LOGO_DST in card.files
 
 
 def test_a_portrait_logo_is_kept_on_flash(fw, power):
@@ -288,7 +305,8 @@ def test_the_same_logo_is_not_written_again(fw, power):
     logo = jpeg(320, 375)
     card = Card(fw, {LOGO_SRC: logo, LOGO_DST: logo})
     assert logo_sync(fw, power) is None and card.files[LOGO_DST] == logo
-    assert [C.string_at(c[1][1]) for c in fw.calls('fw_fopen')] == [b'rb', b'rb']  # read both, wrote nothing
+    opens = [C.string_at(c[1][1]) for c in fw.calls('fw_fopen') if C.string_at(c[1][0]) != b'/proc/mounts']
+    assert opens == [b'rb', b'rb']  # read both, wrote nothing (the card theme's check reads the mounts)
 
 
 def test_a_landscape_logo_is_turned_upright_by_ffmpeg(fw, power):
@@ -312,6 +330,26 @@ def test_no_fork_keeps_the_old_logo(fw, power):
     card = Card(fw, {LOGO_SRC: jpeg(375, 320), LOGO_DST: old})
     card.pid = -1
     assert logo_sync(fw, power) and card.files[LOGO_DST] == old and not fw.calls('fw_waitpid')
+
+
+def test_a_hung_turn_is_killed_at_the_limit_and_the_logo_thread_ends(fw, power):
+    """An ffmpeg that never ends is killed at FF_WAIT_MS (10 s): the old logo stays, nothing is said (the file was
+    not refused: "must be a 320x375 JPEG" would be untrue) and logo_busy clears, so the next mount copies again."""
+    old = jpeg(320, 375, tag=b'old')
+    card = Card(fw, {LOGO_SRC: jpeg(375, 320), LOGO_DST: old})
+    card.rot, clock, killed = jpeg(320, 375, tag=b'turned'), Clock(fw, now=0), []
+    fw.mock('sleep_ms', lambda ms, *_: setattr(clock, 'now', clock.now + ms))
+    fw.mock('chapter_kill', lambda pid, sig, *_: killed.append((pid, sig)))
+
+    def wait(pid, status, *_):
+        if not killed:
+            return 0  # still running (a blocking wait too: answered, so an endless one fails rather than hangs)
+        card.status = 9
+        return card.wait(pid, status)
+    fw.mock('fw_waitpid', wait)
+    power('logo_busy').value = 1
+    assert logo_sync(fw, power) is None and card.files[LOGO_DST] == old and killed == [(card.pid, 9)]
+    assert 10000 <= clock.now <= 10020 and power('logo_busy').value == 0 and LOGO_ROT not in card.files
 
 
 def test_the_child_runs_ffmpeg_on_the_card_logo(fw, power):
@@ -866,28 +904,18 @@ def test_no_database_no_pass(fw, st):
     assert not lib.run(12) and lib.copy() is None
 
 
-# Rockbox from Home (docs/boot.md#rockbox-from-home).
-def rockbox(fw, there=True):
-    def stat(version, path, info, *_):
-        C.c_uint.from_address(info + 20).value = 0o100755
-        return 0 if there else -1
-    fw.mock('fw___xstat', stat)
-    return Files(fw, {})
+# A takeover app's hand-over (docs/boot.md#apps-that-take-over-the-device); test_addon.py has its flag.
+def hand_over(fw):
+    fw.fn('ringnav_hand_over', None)()
 
 
-def test_no_rockbox_toasts_and_stays(fw, st):
-    seen = toasts(fw)
-    card = rockbox(fw, there=False)
-    assert fw.fn('rockbox_open', C.c_int, C.c_void_p, C.c_void_p)(None, None) == 0
-    assert len(seen) == 1 and not fw.calls('fw_system') and not card.files and not fw.calls('save_memoryplay_info')
-
-
-def test_rockbox_leaves_its_flag_and_ends_demo(fw, power):
-    card = rockbox(fw)
+def test_the_hand_over_ends_demo(fw, power):
+    Files(fw, {})
     power('wdt').value = 6
-    fw.fn('rockbox_open', C.c_int, C.c_void_p, C.c_void_p)(None, None)
-    assert host.tools_build.ROCKBOX_FLAG in card.files  # S90play runs Rockbox on it
-    cmd = C.string_at(fw.calls('fw_system')[-1][1][0])
+    ran = []
+    fw.mock('fw_system', lambda cmd, *_: ran.append(C.string_at(cmd)))  # the command is built on the hand-over's stack
+    hand_over(fw)
+    cmd = ran[-1]
     assert cmd.endswith(b'kill -9 $PPID') and b'checkappprocess.sh' in cmd and b'hciplayer' in cmd
     assert fw.calls('save_memoryplay_info')  # the queue kept as power-off keeps it
     assert power('ended').value == 1 and (6, WDT_STOP) in [(c[1][0], c[1][1] & 0xffffffff) for c in fw.calls('fw_ioctl')]
@@ -895,10 +923,10 @@ def test_rockbox_leaves_its_flag_and_ends_demo(fw, power):
 
 
 @pytest.mark.parametrize('held, enabled', [(1, [1]), (0, [])])
-def test_rockbox_gets_charging_back(fw, st, held, enabled):
-    rockbox(fw)
+def test_the_hand_over_gives_charging_back(fw, st, held, enabled):
+    Files(fw, {})
     st('charge_held').value = held
-    fw.fn('rockbox_open', C.c_int, C.c_void_p, C.c_void_p)(None, None)
+    hand_over(fw)
     assert [c[1][0] for c in fw.calls('switch_charge_enable')] == enabled
 
 
@@ -911,21 +939,21 @@ def bt_link(fw, link=b'1', codec=1, way=1):
 
 
 @pytest.mark.parametrize('limit, level', [(100, 127), (60, 76), (150, 127), (0, 0)])
-def test_rockbox_opens_the_headsets_volume_to_the_limit(fw, st, limit, level):
-    rockbox(fw)
+def test_the_hand_over_opens_the_headsets_volume_to_the_limit(fw, st, limit, level):
+    Files(fw, {})
     bt_link(fw)
     fw.var('g_maxvolume', C.c_ubyte).value = limit
     fw.mock('btctl_transport_get_volume', lambda *_: 40)
-    fw.fn('rockbox_open', C.c_int, C.c_void_p, C.c_void_p)(None, None)
+    hand_over(fw)
     assert [c[1][0] for c in fw.calls('btctl_transport_set_volume')] == [level]
 
 
 @pytest.mark.parametrize('link, current', [(b'0', 40), (b'1', 128), (b'1', -1)])
-def test_rockbox_leaves_a_headset_without_absolute_volume(fw, st, link, current):
-    rockbox(fw)
+def test_the_hand_over_leaves_a_headset_without_absolute_volume(fw, st, link, current):
+    Files(fw, {})
     bt_link(fw, link)
     fw.mock('btctl_transport_get_volume', lambda *_: current)
-    fw.fn('rockbox_open', C.c_int, C.c_void_p, C.c_void_p)(None, None)
+    hand_over(fw)
     assert not fw.calls('btctl_transport_set_volume')
 
 
@@ -1394,6 +1422,83 @@ def test_now_playing_waits_while_behind_a_window_or_its_bar_is_held(np_front, st
     assert np_front.frame() == [DRAWN, PAINTED]
 
 
+# The page's 250 ms timer calls its update through ringnav_np_tick (NP_TICK in tools/build.py).
+FLAGS = ('g_autochange_flag', 'g_forcerefresh_flag', 'g_playcover_finishflag')  # what the update consumes
+
+
+def tick(fw, force=0):
+    return fw.fn('ringnav_np_tick', C.c_int, C.c_void_p, C.c_int)(0x5100, force)
+
+
+def test_a_dark_tick_skips_the_update(fw, np_front):
+    """A minute dark on the page: 240 ticks, no update."""
+    np_front.lit.value = 0
+    np_front.log.clear()
+    assert [tick(fw) for _ in range(240)] == [0] * 240 and np_front.log == []
+
+
+@pytest.mark.parametrize('flag', FLAGS)
+def test_a_dark_tick_with_a_flag_set_runs_the_update(fw, np_front, flag):
+    """A track change, a forced refresh or new art: the update takes its flag on the same tick as before."""
+    np_front.lit.value = 0
+    fw.var(flag, C.c_ubyte).value = 1
+    np_front.log.clear()
+    tick(fw)
+    assert np_front.log == [('update', 0x5100, 0)]
+
+
+def test_a_dark_forced_tick_runs_the_update(fw, np_front):
+    np_front.lit.value = 0
+    np_front.log.clear()
+    tick(fw, 1)
+    assert np_front.log == [('update', 0x5100, 1)]
+
+
+@pytest.mark.parametrize('stream', [0xf1, 0xf2])
+def test_a_dark_tick_on_a_stream_runs_the_update(fw, np_front, stream):
+    """A stream's change shows the buffering spinner, and only a later tick stops its animation."""
+    np_front.lit.value = 0
+    fw.mock('mclGetPlayType', lambda *_: stream)
+    np_front.log.clear()
+    tick(fw)
+    assert np_front.log == [('update', 0x5100, 0)]
+
+
+def test_a_lit_tick_runs_the_update_as_stock(fw, np_front):
+    np_front.log.clear()
+    tick(fw), tick(fw, 1)
+    assert np_front.log == [('update', 0x5100, 0), ('update', 0x5100, 1)]
+
+
+def test_the_first_lit_frame_after_skipped_ticks_updates_once(fw, np_front):
+    np_front.lit.value = 0
+    for _ in range(3):
+        tick(fw)
+    np_front.lit.value = 1
+    assert [np_front.frame(), np_front.frame()] == [[('update', 0x5100, 0), PAINTED], [PAINTED]]
+
+
+def test_a_song_changed_while_ticks_were_skipped_is_drawn_by_one_forced_update(fw, np_front):
+    np_front.lit.value = 0
+    tick(fw)
+    np_front.song(b'B')
+    tick(fw)
+    np_front.lit.value = 1
+    assert [np_front.frame(), np_front.frame()] == [[DRAWN, PAINTED], [PAINTED]]
+
+
+def test_a_lit_tick_after_the_dark_leaves_no_update_owed(fw, np_front):
+    """The page behind a window at wake: the timer's next tick draws it, so its return to the front owes none."""
+    np_front.lit.value = 0
+    tick(fw)
+    np_front.lit.value = 1
+    np_front.top = 0x5200
+    assert np_front.frame() == [PAINTED]
+    tick(fw)
+    np_front.top = 0x5100
+    assert np_front.frame() == [PAINTED]
+
+
 def test_no_window_manager_is_stocks_bad_params(fw):
     fw.var('g_backlight_status', C.c_ubyte).value = 1
     assert Wm(fw).call(None) == 0x10
@@ -1830,9 +1935,9 @@ def test_a_ring_list_bumps_at_its_end_then_carries_over_after_a_pause(fw, keys):
     assert sv.ints[SEL] == 4  # and back round the top
 
 
-def test_a_list_that_isnt_a_ring_stops_at_its_end(fw, keys):
+def test_a_list_that_loads_more_at_its_end_stops_there(fw, keys):
     ui = Ui(fw)
-    sv = list_page(ui, 'about_page')
+    sv = list_page(ui, 'tidal_viewall_page')
     select(fw, sv, 4)
     for _ in range(3):
         keys(KEY_NEXT, 1000)
@@ -2922,6 +3027,8 @@ class QuickHold:
     def __init__(self, fw, loop):
         self.fw, self.loop, self.opened = fw, loop, []
         Config(fw)
+        C.c_uint.from_address(O['MCL_POS']).value = 0
+        fw.var('fw_ctx_mcl_pdeqplaylist', C.c_void_p).value = Deques(fw).new([1])  # a song loaded: there is a page to look at
         self.quick = loop.ui.window('statusbar_dialog', 'dialog')
         fw.mock('navigator_switch_to_with_context', lambda name, *_: self.opened.append(C.string_at(name)) and 0)
         assert fw.fn('compact_now_playing', C.c_int)() == 0
@@ -3197,6 +3304,120 @@ def test_a_touch_on_a_prompt_starts_below_the_pull_downs_band(fw, stock_bytes, f
     assert keys(O['EVT_POINTER_FIRST'], 0, y=y) == 7 and start.value == want
 
 
+def lock_screen(fw, stock_bytes, *fronts, power=0, unlocks=None):
+    """The lit lock screen (stock's saverscreen_page), with windows over it; unlocks Return Unlocks' saved value
+    (Q2POD LOCKRETURN, None: never set, On)."""
+    Config(fw, **({} if unlocks is None else {'LOCKRETURN': unlocks}))
+    ui = Ui(fw)
+    ui.window('saverscreen_page')
+    over = [ui.window(name, 'dialog') for name in fronts]
+    keys = Input(fw, stock_bytes, ui)
+    fw.var('g_lockscreen_pageflag', C.c_ubyte).value = 1
+    fw.var('g_backlight_status', C.c_ubyte).value = 1
+    fw.var('g_poweroff_state', C.c_ubyte).value = power
+    return ui, over, keys
+
+
+@pytest.mark.parametrize('unlocks, stock', [(None, 3), (1, 3), (0, 0)])
+def test_return_on_the_lit_lock_screen_is_return_unlocks(fw, stock_bytes, unlocks, stock):
+    """Return Unlocks On (the default): stock's lock window takes Return as Back and closes. Off: Return does
+    nothing there, and only a slide unlocks."""
+    _, _, keys = lock_screen(fw, stock_bytes, unlocks=unlocks)
+    keys(DOWN, KEY_RETURN), keys(LONG, KEY_RETURN, 10), keys(UP, KEY_RETURN, 10)
+    assert keys.stock == [(DOWN, KEY_RETURN), (LONG, KEY_RETURN), (UP, KEY_RETURN)][:stock]
+
+
+@pytest.mark.parametrize('power', [1, 0])
+def test_return_over_a_prompt_on_the_lock_screen_is_the_prompts(fw, stock_bytes, power):
+    """Shut Down? (power 1) or the card's scan prompt (power 0) over the lock window keeps Return, Return Unlocks
+    off or not."""
+    _, _, keys = lock_screen(fw, stock_bytes, 'confirminfo_dialog', power=power, unlocks=0)
+    keys(DOWN, KEY_RETURN), keys(UP, KEY_RETURN, 10)
+    assert keys.stock == [(DOWN, KEY_RETURN), (UP, KEY_RETURN)]
+
+
+def test_return_over_the_lock_screen_s_volume_is_dropped_with_return_unlocks_off(fw, stock_bytes):
+    """The panel is in front before it is the key target: its Return could still reach the lock window."""
+    _, _, keys = lock_screen(fw, stock_bytes, 'volume_dialog', unlocks=0)
+    keys(DOWN, KEY_RETURN), keys(UP, KEY_RETURN, 10)
+    assert keys.stock == []
+
+
+def test_return_over_the_volume_away_from_the_lock_screen_is_stock_s(fw, stock_bytes):
+    """With no lock window up the wheel's volume panel takes Return as stock has it, Return Unlocks off or not."""
+    _, _, keys = lock_screen(fw, stock_bytes, 'volume_dialog', unlocks=0)
+    fw.var('g_lockscreen_pageflag', C.c_ubyte).value = 0
+    keys(DOWN, KEY_RETURN), keys(UP, KEY_RETURN, 10)
+    assert keys.stock == [(DOWN, KEY_RETURN), (UP, KEY_RETURN)]
+
+
+@pytest.mark.parametrize('power, want', [(1, 1), (0, 0)])
+def test_shut_down_over_the_lock_screen_takes_the_wheel_and_centre(fw, stock_bytes, power, want):
+    """usable() said no on the lock flag before it looked for the held power key's prompt."""
+    lock_screen(fw, stock_bytes, 'confirminfo_dialog', power=power)
+    assert fw.fn('usable', C.c_int)() == want
+
+
+@pytest.mark.parametrize('lock, closes', [(1, True), (0, False)])
+def test_a_touch_on_the_lock_screen_puts_the_volume_away_and_goes_on(fw, stock_bytes, lock, closes):
+    """The wheel's volume panel sits over the slider; the same touch may then slide."""
+    _, (vol,), keys = lock_screen(fw, stock_bytes, 'volume_dialog')
+    fw.var('g_lockscreen_pageflag', C.c_ubyte).value = lock
+    closed = []
+    fw.mock('window_close', lambda w, *_: closed.append(w) or 0)
+    keys(O['EVT_POINTER_FIRST'], 0, x=40, y=290)
+    assert closed == ([vol.p] if closes else []) and keys.stock == [(O['EVT_POINTER_FIRST'], 40)]
+
+
+def glance_lock(fw, stock_bytes, *fronts):
+    """The lit lock screen in At a Glance's layout (lock_glance.c glance_init on stock's window), windows over it."""
+    ui, over, keys = lock_screen(fw, stock_bytes)
+    lock = ui.top
+    img = lock.add(W(ui, 'image', 'img_screensaver', h=320))
+    fw.mock('widget_factory_create_widget', lambda f, kind, parent, x, y, w, *_: ui.by[parent].add(W(ui, 'view', x=x, y=y, w=w)).p)
+    fw.mock('hscroll_label_create', lambda parent, *_: ui.by[parent].add(W(ui, 'hscroll_label')).p)
+    fw.fn('glance_init', None, C.c_void_p, C.c_void_p, C.c_int, C.c_void_p)(lock.p, img.p, 0, None)
+    over = [ui.window(name, 'dialog') for name in fronts]
+    return ui, lock, over, keys
+
+
+KNOB_AT = {'x': 319 - 258, 'y': 60}  # the panel's place of the knob's middle on the screen (60, 258)
+
+
+def test_at_a_glance_takes_the_lock_screen_s_touches(fw, stock_bytes):
+    """Its slider moves with the finger itself: stock's swipe-to-unlock and pull-down never see the touch."""
+    _, _, _, keys = glance_lock(fw, stock_bytes)
+    keys(O['EVT_POINTER_FIRST'], 0, **KNOB_AT), keys(0x101, 0, 10, x=61, y=200), keys(0x103, 0, 10, x=61, y=200)
+    assert keys.stock == []
+
+
+def test_at_a_glance_the_touch_that_puts_the_volume_away_goes_on_to_slide(fw, stock_bytes):
+    ui, lock, (vol,), keys = glance_lock(fw, stock_bytes, 'volume_dialog')
+    closed = []
+    fw.mock('window_close', lambda w, *_: closed.append(w) or 0)
+    fw.mock('time_now_ms', lambda *_: 0)
+    keys(O['EVT_POINTER_FIRST'], 0, **KNOB_AT)
+    ui.top = lock  # closed
+    keys(0x101, 0, 10, x=61, y=300), keys(0x103, 0, 10, x=61, y=300)
+    assert closed == [vol.p] and keys.stock == []
+    unlock = C.cast(fw.lib.lock_glance__unlock, C.c_void_p).value
+    assert [ms for fn, _, ms in ui.timers.values() if fn == unlock] == [16]  # slid past 62.5%: unlocking
+
+
+def test_at_a_glance_s_shut_down_keeps_its_own_touches(fw, stock_bytes):
+    """A prompt over the lock screen (Shut Down?) is stock's to touch."""
+    _, _, _, keys = glance_lock(fw, stock_bytes, 'confirminfo_dialog')
+    keys(O['EVT_POINTER_FIRST'], 0, **KNOB_AT)
+    assert keys.stock == [(O['EVT_POINTER_FIRST'], KNOB_AT['x'])]  # the key's place is the event's x
+
+
+def test_at_a_glance_s_touches_need_the_lock_screen_up(fw, stock_bytes):
+    _, _, _, keys = glance_lock(fw, stock_bytes)
+    fw.var('g_lockscreen_pageflag', C.c_ubyte).value = 0
+    keys(O['EVT_POINTER_FIRST'], 0, **KNOB_AT)
+    assert keys.stock == [(O['EVT_POINTER_FIRST'], KNOB_AT['x'])]
+
+
 @pytest.mark.parametrize('lit', [0, 1])
 def test_a_tick_before_the_volume_dialog_takes_keys_steps_it_and_opens_no_other(fw, keys, lit):
     """The dialog is in front from navigator_to on, the window manager's key target only from its open event (#303)."""
@@ -3246,17 +3467,20 @@ def test_a_failed_songtable_check_ends_the_pass_unwritten(fw, st):
 
 
 # More of the key release: Home's main list, the media keys, the restart toast, a carousel page.
-def test_return_on_homes_list_selects_now_playing_then_opens_it(fw, keys):
+@pytest.mark.parametrize('loaded', (1, 0))
+def test_return_on_homes_list_selects_now_playing_then_opens_it(fw, keys, mcl, loaded):
+    """With nothing loaded Home has no Now Playing row: the first row is Library's, and Return there opens nothing."""
+    fw.var('fw_ctx_mcl_pdeqplaylist', C.c_void_p).value = Deques(fw).new([1]) if loaded else 0
     ui = Ui(fw)
     sv = list_page(ui, 'home_page', rows=6)
     select(fw, sv, 3)
     assert keys(KEY_RETURN) == STOP and sv.ints[SEL] == 0 and not fw.calls('navigator_switch_to_with_context')
-    assert keys(KEY_RETURN, 300) == STOP
-    assert [C.string_at(c[1][0]) for c in fw.calls('navigator_switch_to_with_context')] == [b'playing_page']
+    assert keys(KEY_RETURN, 300) == STOP and sv.ints[SEL] == 0
+    assert [C.string_at(c[1][0]) for c in fw.calls('navigator_switch_to_with_context')] == [b'playing_page'] * loaded
 
 
 def test_homes_list_bumps_and_wraps_as_a_ring_list(fw, keys):
-    """docs/ipod.md#home: though contexts.inc doesn't mark home_page a ring."""
+    """docs/ipod.md#home: as every list does."""
     ui = Ui(fw)
     sv = list_page(ui, 'home_page', rows=6)
     select(fw, sv, 5)

@@ -16,7 +16,6 @@ static struct {
     widget_t *sp_page;
 } ll __attribute__((section(".scratch")));
 
-extern int coverflow_goto_album(void *r);
 extern int stock_dbquery_trampoline(const char *, const char *, void *, int);
 
 /* songs_unsorted(0)'s rows whose path is one of paths, in its order, in a deque of their own; 0
@@ -98,31 +97,15 @@ int shuffle_play(void *all) {
     return size;
 }
 
-static int shuffle_songs(void *ctx, void *event) {
-    int n;
-    void *all = staged(songs_unsorted, (void *)1, &n);
-    if (!shuffle_play(all)) toast(tr("Update Library first"));
-    deque_destroy(all);
-    return 0;
-}
-
-static int shuffle_groups(void *ctx, void *event) {
-    int n;
-    void *all = staged(songs_unsorted, (void *)1, &n);
-    if (!playback_groups(all, (int)(long)ctx))
-        toast(deque_size(all) ? tr("Too many songs to shuffle") : tr("Update Library first"));
-    deque_destroy(all);
-    return 0;
-}
-
 /* The Library's Shuffle row opens these three actions on one page. A pick starts playback and
  * leaves the page open, as Most Played's rows do. Album and folder shuffles queue and group the
  * whole library, hence the note. */
 static int sp_pick(void *ctx, event_t *event) {
-    if ((long)ctx)
-        shuffle_groups((void *)((long)ctx - 1), 0);
-    else
-        shuffle_songs(0, 0);
+    int n, k = (int)(long)ctx;
+    void *all = staged(songs_unsorted, (void *)1, &n);
+    if (!(k ? playback_groups(all, k - 1) : shuffle_play(all)))
+        toast(k && deque_size(all) ? tr("Too many songs to shuffle") : tr("Update Library first"));
+    deque_destroy(all);
     return 0;
 }
 
@@ -157,7 +140,7 @@ static int mp_play(void *ctx, event_t *event) {
  * counts, most recently counted first (the table keeps that order); returns how many. */
 static int mp_rank(void *songs, int *idx, unsigned *score) {
     int top = 0, size = (int)deque_size(songs);
-    plays_load();
+    plays_load(0);
     for (int i = 0; i < size; i++) {
         unsigned key = listen_key(deque_at(songs, i)), c = 0;
         for (int j = 0; j < PLAYS_SLOTS && !c; j++)
@@ -178,10 +161,8 @@ static struct {
 /* id added to ids; 1 (and nothing added) out of memory. */
 static int ids_add(unsigned id) {
     if (ids.n == ids.cap) {
-        unsigned cap = ids.cap ? ids.cap * 2 : 1024, *p = calloc(cap, sizeof *p);
+        unsigned cap = ids.cap ? ids.cap * 2 : 1024, *p = realloc(ids.v, cap * sizeof *p);
         if (!p) return 1;
-        if (ids.n) memcpy(p, ids.v, ids.n * sizeof *p);
-        free(ids.v);
         ids.v = p, ids.cap = cap;
     }
     ids.v[ids.n++] = id;
@@ -211,7 +192,7 @@ static int counted_query(void *unused) {
 static void *counted_songs(void) {
     unsigned keys[PLAYS_SLOTS], n = 0;
     int count;
-    plays_load();
+    plays_load(0);
     for (int j = 0; j < PLAYS_SLOTS; j++)
         if (st.plays[j].key) keys[n++] = st.plays[j].key;
     ids.n = 0;
@@ -236,7 +217,7 @@ void album_plays(int (*album_of)(void *), unsigned *sum) {
     int n;
     void *songs = counted_songs();
     if (!songs) songs = staged(songs_unsorted, (void *)1, &n);
-    plays_load();
+    plays_load(0);
     for (unsigned i = 0; i < deque_size(songs); i++) {
         void *r = deque_at(songs, i);
         unsigned key = listen_key(r), c = 0;
@@ -288,7 +269,7 @@ int most_played(void *ctx, event_t *event) {
     void *from = st.mp_list;
     if (!from || ll.mp_gen != gen) {
         if (!(from = counted_songs())) from = staged(songs_unsorted, (void *)1, &n);
-        ll.mp_gen = gen;
+        ll.mp_gen = st.plays_read ? gen : ~gen; /* counts not read: read again at the next open */
     }
     int top = mp_rank(from, idx, score);
     void *ranked = song_list();
@@ -455,7 +436,6 @@ static int songs_page(const char *window, const char *dir, const char *title, in
     return 0;
 }
 int tidal_downloads(void *ctx, event_t *event) {
-    (void)ctx, (void)event;
     return songs_page("tidal_downloads", TIDAL_DIR, tr("Tidal Downloads"), 1, 0);
 }
 /* A card app's local row (addon.c): a folder ("/" last) lists its songs; a song plays its folder
@@ -487,21 +467,26 @@ int songs_open(const char *path, const char *title, int album) {
     return 0;
 }
 
-/* Era (docs/internals.md#era): a row per decade with dated music, oldest first, and a decade's
- * albums by year. An album's year is its tracks' latest, as Coverflow's Year sort; undated albums
- * and the untagged have none. ponytail: decades only, no year level or covers, and the album rows
- * have no hold menu; a year page, or the decade as a scoped Coverflow, if asked for. */
-#define ERA_DECADES 32
+/* Era (docs/internals.md#era): a row per decade with dated music, oldest first, or on its Years
+ * tab a row per year, newest first, and a decade's or year's albums by year. An album's year is its
+ * tracks' latest, as Coverflow's Year sort; undated albums and the untagged have none. ponytail: no
+ * covers, and the album rows have no hold menu; the decade as a scoped Coverflow, if asked for. */
+#define ERA_ROWS 128 /* a tab's rows: the oldest decades kept, or the newest years */
+/* Albums counted per key (year/10*10 a decade, year a year), each album dated as the albums query
+ * dates it. */
+#define ERA_COUNT(key, order)                                                                      \
+    "select " key ",count(*) from (select " ALBUM_YEAR " year from songtable where " MUSIC_WHERE   \
+    " and ifnull(album,'')<>''" ALBUM_GROUP ") where year>0 group by 1 order by 1" order
 #define ERA_ALBUMS                                                                                 \
     "select album,ifnull(nullif(albumsonger,''),songer)," ALBUM_YEAR                               \
     " as release_year," ALBUM_TRACK " from songtable "                                             \
     "where " MUSIC_WHERE " and ifnull(album,'')<>''"
-/* Only a name with a song dated in the decade can make one of its groups, so era_open_decade and
+/* Only a name with a song dated in the decade can make one of its groups, so era_open and
  * era_shuffle_songs group only those names' songs, as of_names does (coverflow.c). SONG_YEAR holds
  * no '%', so it sits in the format; MUSIC_WHERE's like patterns do, so it stays an argument.
  * ponytail: the names' subquery reads the table once more, so a decade holding most of the library
  * groups nearly every song anyway and takes a little longer than with no filter; skip the filter
- * when era.count shows the decade holds most of the albums. */
+ * when the row's count shows the decade holds most of the albums. */
 #define ERA_NAMES                                                                                  \
     " and album collate nocase in (select album from songtable where " SONG_YEAR                   \
     " between %d and %d)"
@@ -509,11 +494,18 @@ typedef struct {
     char *album, *artist, *path;
     int year;
 } era_t;
+/* A tab's rows: each decade's or year's first year (at) and its albums (count). */
+typedef struct {
+    int at[ERA_ROWS], count[ERA_ROWS], n;
+} era_rows_t;
 static struct {
     widget_t *page, *albums; /* the decades page, a decade's page */
-    int decade[ERA_DECADES], count[ERA_DECADES], n;
+    /* the Decades tab's, oldest first, read at the page's open; the Years tab's, newest first,
+     * read at its first open */
+    era_rows_t rows[2];
     era_t *v; /* the open decade's albums, oldest first, room for cap */
     unsigned m, cap;
+    int tab, from, to; /* the page's tab (0 Decades, 1 Years); the open albums page's years */
 } era __attribute__((section(".scratch")));
 
 int era_sql(const char *sql, int (*row)(void *, int, char **, char **), void *ctx) {
@@ -528,7 +520,8 @@ int era_sql(const char *sql, int (*row)(void *, int, char **, char **), void *ct
     return !bad;
 }
 /* Home pane's counts: sql's one number, -1 when it can't be had. On coverflow.c count_worker's
- * thread: era_sql opens its own connection, and the device's libsqlite3 is THREADSAFE=1. */
+ * thread, and on the UI thread for navigation.c's empty_toast: era_sql opens its own connection,
+ * and the device's libsqlite3 is THREADSAFE=1. */
 static int count_row(void *ctx, int n, char **v, char **c) {
     if (n == 1 && v[0]) *(int *)ctx = atoi(v[0]);
     return 0;
@@ -537,9 +530,11 @@ int library_count(const char *sql) {
     int n = 0;
     return era_sql(sql, count_row, &n) ? n : -1;
 }
-static int era_decade_row(void *ctx, int n, char **v, char **c) {
-    if (n == 2 && v[0] && v[1] && era.n < ERA_DECADES)
-        era.decade[era.n] = atoi(v[0]), era.count[era.n++] = atoi(v[1]);
+/* A row of ERA_COUNT's into ctx, an era_rows_t. */
+static int era_row(void *ctx, int n, char **v, char **c) {
+    era_rows_t *r = ctx;
+    if (n == 2 && v[0] && v[1] && r->n < ERA_ROWS)
+        r->at[r->n] = atoi(v[0]), r->count[r->n++] = atoi(v[1]);
     return 0;
 }
 static int era_album_row(void *ctx, int n, char **v, char **c) {
@@ -562,16 +557,18 @@ static void era_free(void) {
     era.v = 0, era.m = era.cap = 0;
 }
 static int era_closed(void *ctx, event_t *event) {
-    if (ctx == era.page) era.page = 0;
+    if (ctx == era.page) era.page = store_tabs(0, 0, 0, 0);
     if (ctx == era.albums) era.albums = 0, era_free();
     return 0;
 }
-/* "60s" to "90s", then "2000s" on, in the language's words. */
-static const char *era_name(char *buf, unsigned size, int decade) {
-    if (decade < 2000)
-        tk_snprintf(buf, size, tr("%02ds"), decade % 100);
+/* A row's name: "60s" to "90s", then "2000s" on, in the language's words; a year on Years. */
+static const char *era_name(char *buf, unsigned size, int at) {
+    if (era.tab)
+        tk_snprintf(buf, size, "%d", at);
+    else if (at < 2000)
+        tk_snprintf(buf, size, tr("%02ds"), at % 100);
     else
-        tk_snprintf(buf, size, tr("%ds"), decade);
+        tk_snprintf(buf, size, tr("%ds"), at);
     return buf;
 }
 
@@ -609,13 +606,13 @@ static void *era_songs(void) {
 static int era_song_rows(void *sql) {
     return !sql || era_sql(sql, db_song_row_callback, 0) ? 0 : -1;
 }
-/* Shuffle's songs: the Library's music in the decade's ALBUM_GROUP groups, matched on ALBUM_GROUP's
- * keys, in one query, so only the decade's records are made, not the library's. Its order is about
- * to be shuffled, so era_songs' two queries an album would only cost time. An empty list without
- * albums (no decade to ask for); 0 if the query failed. */
+/* Shuffle's songs: the Library's music in the open page's ALBUM_GROUP groups, matched on
+ * ALBUM_GROUP's keys, in one query, so only the decade's records are made, not the library's. Its
+ * order is about to be shuffled, so era_songs' two queries an album would only cost time. An empty
+ * list without albums (no decade to ask for); 0 if the query failed. */
 static void *era_shuffle_songs(void) {
     char sql[2048];
-    int from = era.m ? era.v[0].year / 10 * 10 : 0, n;
+    int n;
     tk_snprintf(sql, sizeof sql,
                 "select * from songtable where %s and id in (select s.id from songtable s join "
                 "(select album a,ifnull(albumsonger,'') b,case ifnull(albumsonger,'') when '' then "
@@ -623,7 +620,8 @@ static void *era_shuffle_songs(void) {
                 "ifnull(album,'')<>''" ERA_NAMES "%s having y between %d and %d) g "
                 "on s.album=g.a COLLATE NOCASE and ifnull(s.albumsonger,'')=g.b COLLATE NOCASE and "
                 "(g.d is null or rtrim(s.fileurl,replace(s.fileurl,'/',''))=g.d))",
-                MUSIC_WHERE, ALBUM_YEAR, MUSIC_WHERE, from, from + 9, ALBUM_GROUP, from, from + 9);
+                MUSIC_WHERE, ALBUM_YEAR, MUSIC_WHERE, era.from, era.to, ALBUM_GROUP, era.from,
+                era.to);
     void *out = staged(era_song_rows, era.m ? sql : 0, &n);
     if (n < 0) deque_destroy(out), out = 0; /* rows then an error: not the decade's songs */
     return out;
@@ -656,29 +654,28 @@ static int era_pick(void *ctx, event_t *event) {
     if ((unsigned)(i - 2) < era.m) deque_destroy(songs);
     return 0;
 }
-static int era_open_decade(void *ctx, event_t *event) {
-    int k = (int)(long)ctx, from = era.decade[k];
-    if (era.albums) return 0;
-    char sql[2048], name[48], detail[300];
+/* The albums of the years from to to, count of them (the row's), on a page titled name. */
+static void era_open(int from, int to, int count, const char *name) {
+    if (era.albums) return;
+    char sql[2048], detail[300];
     tk_snprintf(sql, sizeof sql,
                 "%s" ERA_NAMES
                 "%s having release_year between %d and %d order by release_year,album "
                 "COLLATE NOCASE",
-                ERA_ALBUMS, from, from + 9, ALBUM_GROUP, from, from + 9);
-    era.v =
-        calloc((unsigned)era.count[k] + 1, sizeof *era.v); /* the decade's count, from era_menu */
-    era.cap = era.v ? (unsigned)era.count[k] : 0;
+                ERA_ALBUMS, from, to, ALBUM_GROUP, from, to);
+    era.from = from, era.to = to;
+    era.v = calloc((unsigned)count + 1, sizeof *era.v);
+    era.cap = era.v ? (unsigned)count : 0;
     if (!era.v || !era_sql(sql, era_album_row, 0)) { /* as era_menu: not a decade of no albums */
         era_free();
         toast(tr("Era unavailable"));
-        return 0;
+        return;
     }
     if (!(era.albums = page_open("era_albums_page", era_closed, page_keyup))) {
         era_free();
-        return 0;
+        return;
     }
-    widget_t *view =
-        page_list(era.albums, era.albums, 0, era_name(name, sizeof name, from), (int)era.m + 2, 64);
+    widget_t *view = page_list(era.albums, era.albums, 0, name, (int)era.m + 2, 64);
     tk_snprintf(detail, sizeof detail, era.m == 1 ? tr("%u album") : tr("%u albums"), era.m);
     page_row_detail(view, 0, tr("Play All"), detail, era_pick);
     page_row_detail(view, 1, tr("Shuffle"), tr("Every song, shuffled"), era_pick);
@@ -687,31 +684,54 @@ static int era_open_decade(void *ctx, event_t *event) {
                     era.v[i].artist, era.v[i].year);
         page_row_detail_into(view, (int)i + 2, era.v[i].album, detail, era_pick);
     }
+}
+/* The open tab's row ctx: its decade's or year's albums. */
+static int era_open_row(void *ctx, event_t *event) {
+    char name[48];
+    const era_rows_t *r = &era.rows[era.tab];
+    int k = (int)(long)ctx, at = r->at[k];
+    era_open(at, era.tab ? at : at + 9, r->count[k], era_name(name, sizeof name, at));
     return 0;
+}
+static const char *const era_tabs[2] = { N_("Decades"), N_("Years") };
+static void era_tab(int tab);
+/* The open tab's rows under the tabs: a decade's or a year's name, its album count under it. */
+static void era_rows(void) {
+    const era_rows_t *r = &era.rows[era.tab];
+    widget_t *view = page_list(era.page, era.page, 0, tr("Era"), r->n, 64);
+    static const int no_badges[2];
+    store_tabs_set(store_tabs(era.page, view, era_tabs, era_tab), era.tab, no_badges);
+    char name[48], detail[64];
+    for (int i = 0; i < r->n; ++i) {
+        unsigned count = (unsigned)r->count[i];
+        tk_snprintf(detail, sizeof detail, count == 1 ? tr("%u album") : tr("%u albums"), count);
+        page_row_detail_into(view, i, era_name(name, sizeof name, r->at[i]), detail, era_open_row);
+    }
+}
+/* 0 Decades, 1 Years: the tab's tap or Previous and Next (app_store.c). The years are read at the
+ * Years tab's first open, so Era opens as fast as before. */
+static void era_tab(int tab) {
+    if (!era.page || tab == era.tab) return;
+    if (tab && !era.rows[1].n && !era_sql(ERA_COUNT("year", " desc"), era_row, &era.rows[1])) {
+        toast(tr("Era unavailable"));
+        return;
+    }
+    era.tab = tab;
+    era_rows();
 }
 int era_menu(void *ctx, event_t *event) {
     if (era.page) return 0;
-    era.n = 0;
-    if (!era_sql("select year/10*10,count(*) from (select " ALBUM_YEAR
-                 " year from songtable where " MUSIC_WHERE " and ifnull(album,'')<>''" ALBUM_GROUP
-                 ") where year>0 group by 1 order by 1",
-                 era_decade_row, 0)) {
+    era.rows[0].n = era.rows[1].n = era.tab = 0;
+    if (!era_sql(ERA_COUNT("year/10*10", ""), era_row, &era.rows[0])) {
         toast(tr("Era unavailable"));
         return 0;
     }
-    if (!era.n) {
+    if (!era.rows[0].n) {
         toast(tr("No dated albums yet"));
         return 0;
     }
     if (!(era.page = page_open("era_page", era_closed, page_keyup))) return 0;
-    widget_t *view = page_list(era.page, era.page, 0, tr("Era"), era.n, 64);
-    char name[48], detail[64];
-    for (int i = 0; i < era.n; ++i) {
-        tk_snprintf(detail, sizeof detail, era.count[i] == 1 ? tr("%u album") : tr("%u albums"),
-                    (unsigned)era.count[i]);
-        page_row_detail_into(view, i, era_name(name, sizeof name, era.decade[i]), detail,
-                             era_open_decade);
-    }
+    era_rows();
     return 0;
 }
 
@@ -826,4 +846,72 @@ void album_view_toggle(void) {
     if (I(album_modetype, 0) != was) return;
     I(album_modetype, 0) = !was;
     write_int_config(!was, "PLAYSET", "ALBUMTYPE");
+}
+
+/* Library -> Albums as its last whole load made it (navigation.c ringnav_localclass), with the
+ * library_gen that load read. Stock's album page loads its list again each time it comes back on
+ * top (0x4a5b88): after an album's songs, and after Now Playing, the hold menu or a toast closes
+ * over it, grouping the whole library twice and sorting it each time. With songtable unchanged and
+ * no scan running, that load would make the same list, so the rows still on show serve again: a row
+ * owns its strings, and nothing writes them after the load. Their size, and at an Albums load an
+ * FNV-1a hash of every byte of them, pointers included, catch another list written over the shared
+ * deque by code that doesn't come through here; the hash is 32 bits, so a list of the same size
+ * could match by chance. An album's songs (0xff10) take the shared list, so while an Albums page is
+ * open under them the Albums list's deque waits aside for its Return and p_deque_showlist names a
+ * new one, nothing copied: as staged_into points tools_pdeq_directory elsewhere, since stock reads
+ * that pointer afresh at each use and keeps it nowhere (its 124 loads, docs/internals.md). The
+ * deque aside goes when that page closes or another list loads, Playlists' excepted. A load during
+ * a scan, or one a failed query touched, is not kept, and a writer's step of library_gen retires
+ * any list kept. ponytail: the list aside is held while pages opened over the album's songs are
+ * up, as much memory again (internals.md). */
+static struct {
+    void *aside;
+    widget_t *page; /* the Albums page the deque aside waits for: its EVT_DESTROY frees it */
+    unsigned gen, n, hash;
+} al __attribute__((section(".scratch")));
+static unsigned albums_hash(void *list) {
+    unsigned h = FNV_SEED;
+    for (unsigned i = 0, n = deque_size(list); i < n; ++i)
+        h = hash_bytes(h, deque_at(list, i), REC_SIZE);
+    return h;
+}
+static int albums_gone(void *page, event_t *event) {
+    if (page != al.page) return 0;
+    if (al.aside) deque_destroy(al.aside);
+    al.aside = 0, al.page = 0;
+    return 0;
+}
+int albums_again(int cls) {
+    if (cls == 0xf00b) return 0; /* Playlists: stock fills p_deque_playlist, not the showlist */
+    void **show = &P(p_deque_showlist, 0);
+    /* a scan rereads the card's folder markers before its writer moves library_gen */
+    int same = al.n && al.gen == library_gen && !library_scanning();
+    if (al.aside) { /* the Albums list back on show (read below if stale), or gone */
+        if (same && cls == 0xff10) return 0; /* its songs again: it waits on */
+        if (cls == CLASS_ALBUMS)
+            deque_destroy(*show), *show = al.aside;
+        else
+            deque_destroy(al.aside);
+        al.aside = 0;
+    }
+    if (!same || (cls != CLASS_ALBUMS && cls != 0xff10) || deque_size(*show) != al.n ||
+        (cls == CLASS_ALBUMS && albums_hash(*show) != al.hash))
+        return 0;
+    if (cls == 0xff10) { /* the album's songs are to take the shared list: it waits for its page */
+        widget_t *page = widget_lookup(window_manager(), "album_page", 0);
+        if (!page) return 0; /* none to come back to: stock's load frees it */
+        if (page != al.page) widget_on(al.page = page, EVT_DESTROY, albums_gone, page);
+        al.aside = *show, *show = song_list();
+        return 0;
+    }
+    /* as stock's load leaves them: the staging deque empty, the page's title its own again */
+    deque_clear(P(tools_pdeq_directory, 0));
+    music_nagvation_title(cls);
+    return (int)al.n;
+}
+/* Kept at gen, the generation it was read from: one a writer ran across never matches again. */
+void albums_made(int whole, unsigned gen) {
+    void *list = P(p_deque_showlist, 0);
+    al.n = whole && !library_scanning() ? deque_size(list) : 0;
+    if (al.n) al.gen = gen, al.hash = albums_hash(list);
 }

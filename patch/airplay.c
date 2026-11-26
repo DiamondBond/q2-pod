@@ -51,12 +51,6 @@ static cast_tap *air_map(void) {
     return air.t = p == (void *)-1 ? 0 : p;
 }
 
-/* The app's state while it runs; CAST_OFF once it stopped beating. */
-static int air_state(void) {
-    cast_tap *t = air.t;
-    return t && CAST_CLOCK(now_ns()) - t->want < CAST_STALE ? t->state : CAST_OFF;
-}
-
 int airplay_on(void) { return air.on; }
 
 /* An open volume dialog's bar to v, as Bluetooth's volume poll sets it. */
@@ -71,6 +65,7 @@ static void air_dialog(int v) {
 /* The speaker's volume, from the app: its own as it said, or the one it last had from the Q2. */
 static int air_speaker(cast_tap *t) {
     air.spk_seq = t ? t->spk_seq : 0;
+    volume_save_flush(); /* the wheel's last level may still be held: read it, not the one before */
     return t && t->spk_seq && t->spk >= 0 && t->spk <= 100
                ? t->spk
                : config_value("Q2POD", "AIRVOL", 101, AIR_VOLUME);
@@ -165,7 +160,8 @@ static void air_track(cast_tap *t) {
 /* Every UI pass (ringnav_sleep). */
 void airplay_poll(void) {
     cast_tap *t = air_map();
-    int s = air_state();
+    /* The app's state while it runs; CAST_OFF once it stopped beating. */
+    int s = t && CAST_CLOCK(now_ns()) - t->want < CAST_STALE ? t->state : CAST_OFF;
     if (t) {
         t->status = mclGetPlayStatus();
         t->volume = air.on ? g_volume : -1; /* the speaker's once it plays, never the earphones' */
@@ -202,7 +198,6 @@ int airplay_lyrics(int *ms) {
 
 /* The app's page, from its hidden slot, once Smart Wi-Fi's link is up. */
 static int air_open(void *ctx, event_t *event) {
-    (void)event;
     if (!smart_hold(air_open, ctx, 0)) air.asked = 1, addon_open_id(AIR_ID);
     return 0;
 }

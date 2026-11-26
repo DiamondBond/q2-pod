@@ -81,7 +81,7 @@ def test_off_is_asserted_before_config_and_remains_off_through_failed_links_and_
 
 def test_a_pin_left_charging_is_inhibited_while_stock_reads_the_settings_not_only_after(fw):
     q = Charging(fw)
-    q.gpio = 0  # charging, as S90play's rockbox() leaves it when demo starts again
+    q.gpio = 0  # charging, as S90play's app() leaves it when demo starts again
     assert q.config() == 77
     assert q.at_config == 1 and q.gpio == 1
 

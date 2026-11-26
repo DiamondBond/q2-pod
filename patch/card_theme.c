@@ -176,7 +176,7 @@ int card_theme_sets(int i) {
 }
 
 /* The count off: the copy has run CT_TRY_MS, or the run ends cleanly (ringnav_clean_end:
- * power-off, Restart, a firmware update, Rockbox), so those are no failed start. */
+ * power-off, Restart, a firmware update, a takeover), so those are no failed start. */
 void card_theme_ran(void) {
     if (ct.try_at) unlink(CT_TRY), ct.try_at = 0;
 }
@@ -201,6 +201,8 @@ int file_holds(const char *path, const void *b, unsigned n, unsigned max) {
 void card_theme_sync(void) {
     const char *note = 0;
     if (access(CT_SRC, 0)) {
+        /* ENOENT on a mounted card only: another error, or a card gone since the mount, keeps it */
+        if (*__errno_location() != 2 || !card_mounted()) return;
         if (!access(CT_DST, 0) || !access(CT_BAD, 0))
             note = N_("Card theme removed. Restart to finish");
         unlink(CT_DST), unlink(CT_BAD), unlink(CT_TRY), unlink(CT_SEEN);

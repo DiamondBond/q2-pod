@@ -9,6 +9,7 @@ import pytest
 
 import host
 from conftest import POD, text, Game, opus, pod_value, stock_stub
+from test_nav_painters import strings
 from conftest import FNV_PRIME, O, Deques, Files, channels_low_first, claim, fnv1a, in_fork, rgba  # noqa: F401
 
 STOCK_RED = O['STOCK_RED']
@@ -53,11 +54,6 @@ class Config:
         value = self.values.get(C.string_at(key), C.string_at(default))
         if value or C.string_at(key) in self.values:
             C.memmove(out, value + b'\0', len(value) + 1)
-
-
-def strings(fw):
-    """Stock's AWTK string helpers, which the C leans on."""
-    fw.mock('tk_str_start_with', lambda s, prefix, *_: C.string_at(s).startswith(C.string_at(prefix)))
 
 
 # The clock.
@@ -382,46 +378,44 @@ def test_display_settings(fw, clock, st, values, theme, home, light):
     assert (fw.fn('ipod_home', C.c_int)(), fw.fn('ipod_light', C.c_int)(), st('theme').value) == (home, light, theme)
 
 
-@pytest.mark.parametrize('value, rockbox, name', [
-    (b'', 1, b'Rockbox'), (b'', 0, b'Favorites'), (b'0', 0, b'Rockbox'), (b'1', 0, b'Artists'), (b'2', 0, b'Albums'),
-    (b'3', 0, b'Favorites'),
-    (b'4', 0, b'Rated Albums'), (b'5', 0, b'Shuffle'), (b'6', 0, b'Games'), (b'7', 0, b'Playlists'), (b'8', 0, b'Podcasts'),
-    (b'9', 0, b'Audiobooks'), (b'10', 0, b'Groovebox'), (b'11', 1, b'Rockbox'), (b'11', 0, b'Favorites'),  # None: the carousel's card takes the default
-    (b'12', 1, b'Rockbox'), (b'12', 0, b'Favorites'), (b'1x', 0, b'Favorites'),
+@pytest.mark.parametrize('values, name', [
+    ({}, b'Favourites'), (dict(SHORTCUT=b'0'), b'rockbox'), (dict(SHORTCUT=b'0', SHORTCUT_APP=b'mixtape'), b'mixtape'),
+    (dict(SHORTCUT=b'0', SHORTCUT_APP=b'Bad id'), b'rockbox'),  # an older build's 0, no key: the app it was
+    (dict(SHORTCUT=b'10', SHORTCUT_APP=b'mixtape'), b'groovebox'),  # an older build's 10
+    (dict(SHORTCUT=b'1'), b'Artists'), (dict(SHORTCUT=b'2'), b'Albums'), (dict(SHORTCUT=b'3'), b'Favourites'),
+    (dict(SHORTCUT=b'4'), b'Rated Albums'), (dict(SHORTCUT=b'5'), b'Shuffle'), (dict(SHORTCUT=b'6'), b'Games'),
+    (dict(SHORTCUT=b'7'), b'Playlists'), (dict(SHORTCUT=b'8'), b'Podcasts'), (dict(SHORTCUT=b'9'), b'Audiobooks'),
+    (dict(SHORTCUT=b'11'), b'Favourites'),  # None: the carousel's card takes the default
+    (dict(SHORTCUT=b'12'), b'Favourites'), (dict(SHORTCUT=b'1x'), b'Favourites'),
 ])
-def test_shortcut(fw, clock, value, rockbox, name):
-    Config(fw, **({'SHORTCUT': value} if value else {}))
-    def stat(version, path, info, *_):
-        struct.pack_into('<I', (C.c_char * 144).from_address(info), 20, 0o100755)
-        return 0 if rockbox and C.string_at(path) == b'/mnt/mmc/.rockbox/rockbox' else -1
-    fw.mock('fw___xstat', stat)
+def test_shortcut(fw, clock, values, name):
+    """A card app not on the card is named by its id (no slot has its name)."""
+    Config(fw, **values)
+    fw.mock('fw___xstat', lambda *_: -1)
     assert fw.fn('ipod_home_shortcut', C.c_char_p)() == name
 
 
-@pytest.mark.parametrize('value, rockbox, groovebox, shown', [
-    (b'10', 1, 0, 0), (b'10', 0, 1, 1), (b'0', 0, 1, 0), (b'0', 1, 0, 1), (b'3', 0, 0, 1),
-    (b'11', 1, 1, 0), (b'11', 0, 0, 0), (b'12', 1, 0, 1), (b'12', 0, 0, 1),  # None hides it, an unknown value is the default
+@pytest.mark.parametrize('value, there, shown', [
+    (b'0', 1, 1), (b'0', 0, 0), (b'3', 0, 1), (b'11', 1, 0), (b'12', 0, 1),  # None hides it, an unknown value is the default
 ])
-def test_the_shortcut_row_hides_without_its_launcher(fw, clock, value, rockbox, groovebox, shown):
-    Config(fw, SHORTCUT=value)
-    there = {b'/mnt/mmc/.rockbox/rockbox': rockbox, b'/mnt/mmc/.groovebox/q2-groovebox': groovebox}
+def test_the_shortcut_row_hides_without_its_app(fw, clock, st, value, there, shown):
+    Config(fw, SHORTCUT=value, SHORTCUT_APP=b'mixtape')
     def stat(version, path, info, *_):
         struct.pack_into('<I', (C.c_char * 144).from_address(info), 20, 0o100755)
-        return 0 if there.get(C.string_at(path)) else -1
+        return 0 if there and C.string_at(path) == b'/mnt/mmc/.mixtape/q2-mixtape' else -1
     fw.mock('fw___xstat', stat)
-    assert fw.fn('ipod_home_rockbox', C.c_int)() == shown
+    assert fw.fn('ipod_home_shown', C.c_int)() == shown
+    assert st('home_app').value == (there and value == b'0')
 
 
-@pytest.mark.parametrize('fn, path', [('rockbox_available', b'/mnt/mmc/.rockbox/rockbox'),
-                                      ('groovebox_available', b'/mnt/mmc/.groovebox/q2-groovebox')])
 @pytest.mark.parametrize('result, mode, available', [(0, 0o100755, 1), (0, 0o040755, 0), (-1, 0o100755, 0)])
-def test_rockbox_is_a_file_on_the_card(fw, fn, path, result, mode, available):
+def test_rockbox_is_a_file_on_the_card(fw, result, mode, available):
     def stat(version, p, info, *_):
-        assert version == 3 and C.string_at(p) == path
+        assert version == 3 and C.string_at(p) == b'/mnt/mmc/.rockbox/rockbox'
         C.c_uint.from_address(info + 20).value = mode
         return result
     fw.mock('fw___xstat', stat)
-    assert fw.fn(fn, C.c_int)() == available
+    assert fw.fn('rockbox_available', C.c_int)() == available
 
 
 @pytest.mark.parametrize('flag, mode, choice', [(0, 1, 0), (1, 3, 1), (1, 2, 2), (1, 1, 3)])
@@ -484,6 +478,7 @@ def test_bluetooth_keeps_its_own_volume(fw, way, section, key, saved):
     fw.mock('mclGetOutputWay', lambda *_: way)
     fw.mock('stock_write_config_trampoline', lambda value, s, k, *_: seen.append(C.string_at(k)) and 0)
     fw.fn('ringnav_write_config', C.c_int, C.c_int, C.c_char_p, C.c_char_p)(5, section, key)
+    fw.fn('volume_save_flush', None)()  # a volume's save is held until it settles
     assert seen == [saved]
 
 
@@ -2010,6 +2005,26 @@ def test_a_rating_not_saved_goes_back(ratings):
     assert keep(0, 0x100, 4) == -1 and kept(0, 0x100) == 2
 
 
+def test_a_rating_table_that_could_not_be_read_is_never_written_over(ratings):
+    files, keep, kept = ratings
+    old = struct.pack('<I', 0x100 | 2).ljust(O['RATE_SLOTS'] * 4, b'\0')
+    files.files['/mnt/data/ringnav-ratings'], files.fail_open = old, 5  # EIO
+    assert keep(0, 0x200, 3) == -1 and kept(0, 0x100) == 0 and files.files['/mnt/data/ringnav-ratings'] == old
+    files.fail_open = 0  # read again at the next use
+    assert keep(0, 0x200, 3) == 1 and kept(0, 0x100) == 2 and kept(0, 0x200) == 3
+
+
+def test_a_rating_lookups_failed_read_doesnt_count_toward_a_set_aside(fw, ratings):
+    files, keep, kept = ratings
+    fw.mock('fw_access', lambda path, *_: 0 if C.string_at(path).decode() in files.files else -1)
+    old = struct.pack('<I', 0x100 | 2).ljust(O['RATE_SLOTS'] * 4, b'\0')
+    files.files['/mnt/data/ringnav-ratings'], files.fail_open = old, 5
+    for _ in range(5):
+        assert kept(0, 0x100) == 0
+    assert keep(0, 0x200, 3) == -1 and keep(0, 0x200, 3) == -1
+    assert keep(0, 0x200, 3) == 1 and files.files['/mnt/data/ringnav-ratings.bad'] == old
+
+
 def test_a_malformed_slot_reads_as_no_rating(fw):
     Files(fw, {'/mnt/data/ringnav-ratings': struct.pack('<I', 0x100 | 7) + b'\0' * (O['RATE_SLOTS'] * 4 - 4)})
     assert fw.fn('rate_kept', C.c_int, C.c_int, C.c_uint)(0, 0x100) == 0
@@ -2099,9 +2114,13 @@ class EraRow(C.Structure):
     _fields_ = [('album', C.c_void_p), ('artist', C.c_void_p), ('path', C.c_void_p), ('year', C.c_int)]
 
 
+class EraRows(C.Structure):
+    _fields_ = [('at', C.c_int * 128), ('count', C.c_int * 128), ('n', C.c_int)]
+
+
 class Era(C.Structure):
-    _fields_ = [('page', C.c_void_p), ('albums', C.c_void_p), ('decade', C.c_int * 32), ('count', C.c_int * 32), ('n', C.c_int),
-                ('v', C.POINTER(EraRow)), ('m', C.c_uint), ('cap', C.c_uint)]
+    _fields_ = [('page', C.c_void_p), ('albums', C.c_void_p), ('rows', EraRows * 2), ('v', C.POINTER(EraRow)), ('m', C.c_uint),
+                ('cap', C.c_uint), ('tab', C.c_int), ('from_', C.c_int), ('to', C.c_int)]
 
 
 def row(*values):
@@ -2119,25 +2138,28 @@ def era(fw, heap):
     return state
 
 
-def test_era_decades_in_order(fw):
+def test_era_rows_in_order_per_tab(fw):
     state = fw.var('library_lists__era', Era)
-    add = fw.fn('library_lists__era_decade_row', *ROW)
-    assert add(None, 2, row(b'1970', b'4'), None) == 0 and add(None, 2, row(b'2000', b'11'), None) == 0
-    assert state.n == 2 and list(state.decade[:2]) == [1970, 2000] and list(state.count[:2]) == [4, 11]
+    add, decades, years = fw.fn('library_lists__era_row', *ROW), C.addressof(state.rows[0]), C.addressof(state.rows[1])
+    assert add(decades, 2, row(b'1970', b'4'), None) == 0 and add(decades, 2, row(b'2000', b'11'), None) == 0
+    assert add(years, 2, row(b'2003', b'2'), None) == 0
+    first, second = state.rows
+    assert first.n == 2 and list(first.at[:2]) == [1970, 2000] and list(first.count[:2]) == [4, 11]
+    assert second.n == 1 and second.at[0] == 2003 and second.count[0] == 2
+
+
+def test_era_keeps_at_most_128_rows(fw):
+    state = fw.var('library_lists__era', Era)
+    add = fw.fn('library_lists__era_row', *ROW)
+    for i in range(200):
+        add(C.addressof(state.rows[1]), 2, row(b'%d' % (1990 - i), b'1'), None)
+    assert state.rows[1].n == 128 and state.rows[1].at[127] == 1990 - 127  # the query's first, newest years kept
 
 
 @pytest.mark.parametrize('n, values', [(1, (b'1970', b'4')), (3, (b'1970', b'4', b'x')), (2, (None, b'4')), (2, (b'1970', None))])
-def test_era_ignores_a_bad_decade_row(fw, n, values):
+def test_era_ignores_a_bad_count_row(fw, n, values):
     state = fw.var('library_lists__era', Era)
-    assert fw.fn('library_lists__era_decade_row', *ROW)(None, n, row(*values), None) == 0 and state.n == 0
-
-
-def test_era_keeps_at_most_32_decades(fw):
-    state = fw.var('library_lists__era', Era)
-    add = fw.fn('library_lists__era_decade_row', *ROW)
-    for i in range(40):
-        add(None, 2, row(b'%d' % (1000 + i), b'1'), None)
-    assert state.n == 32 and state.decade[31] == 1031
+    assert fw.fn('library_lists__era_row', *ROW)(C.addressof(state.rows[0]), n, row(*values), None) == 0 and state.rows[0].n == 0
 
 
 def test_era_album_row_copies_its_strings(fw, era):
@@ -2162,14 +2184,14 @@ def test_era_ignores_a_bad_album_row(fw, era, n, values):
 
 def test_era_any_row_text(fw, heap):
     state = fw.var('library_lists__era', Era)
-    decade, album = fw.fn('library_lists__era_decade_row', *ROW), fw.fn('library_lists__era_album_row', *ROW)
+    count, album = fw.fn('library_lists__era_row', *ROW), fw.fn('library_lists__era_album_row', *ROW)
     rng = random.Random(0xe4a)
     for data in hostile(rng, [b'1975', b'2000', b'-1', b'99999999999', b'12x'], 1500):
         state.v = C.cast(heap.calloc(2, C.sizeof(EraRow)), C.POINTER(EraRow))
-        state.cap, state.n = 1, 0
+        state.cap, state.rows[0].n = 1, 0
         album(None, 4, row(data, data or None, data, data), None)
-        decade(None, 2, row(data, data), None)
-        assert state.m == 1 and C.string_at(state.v[0].album) == data and state.n == 1
+        count(C.addressof(state.rows[0]), 2, row(data, data), None)
+        assert state.m == 1 and C.string_at(state.v[0].album) == data and state.rows[0].n == 1
         fw.fn('library_lists__era_free', None)()
 
 
@@ -2812,16 +2834,11 @@ def test_a_ghost_after_return_held_is_dropped_whole(fw):
     assert gate(DOWN, KEY_RETURN, 20) == 0
 
 
-def test_a_return_press_after_the_ghost_window_passes(fw):
+@pytest.mark.parametrize('held, again', [(700, 136), (100, 10)], ids=['past_the_ghost_window', 'short_return'])
+def test_a_return_press_after_the_ghost_window_or_a_short_return_leaves_no_ghost(fw, held, again):
     gate = Gate(fw, 'chord_gate')
-    gate(DOWN, KEY_RETURN), gate(UP, KEY_RETURN, 700)
-    assert gate(DOWN, KEY_RETURN, 136) == 0  # the release is stamped now | 1
-
-
-def test_a_short_return_leaves_no_ghost(fw):
-    gate = Gate(fw, 'chord_gate')
-    gate(DOWN, KEY_RETURN), gate(UP, KEY_RETURN, 100)
-    assert gate(DOWN, KEY_RETURN, 10) == 0
+    gate(DOWN, KEY_RETURN), gate(UP, KEY_RETURN, held)
+    assert gate(DOWN, KEY_RETURN, again) == 0  # the release is stamped now | 1
 
 
 @pytest.mark.parametrize('kind', [0x100, 0x10c])
