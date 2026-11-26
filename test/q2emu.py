@@ -1840,7 +1840,7 @@ class SortMachine(Machine):
         super().__init__(); self.handlers.pop(syms['toolsTrimLeft']); self.mock('strlen@GLIBC_2.0','snprintf@GLIBC_2.0')
         for n in ('__ctype_b_loc@GLIBC_2.3','__ctype_tolower_loc@GLIBC_2.3','strncmp@GLIBC_2.0','atoi@GLIBC_2.0',
                   'strcasecmp@GLIBC_2.0','strcmp@GLIBC_2.0','strncpy@GLIBC_2.0'): self.handlers[syms[n]]='s:'+n
-        b=self.alloc(0x400); t=self.alloc(0x400)  # glibc's tables from -128: the digit class, ASCII lowercase
+        b=self.alloc(0x400); t=self.alloc(0x600)  # glibc's tables from -128 to 255: the digit class, ASCII lowercase
         for c in range(-128,256):
             self.u.mem_write(b+256+2*c,struct.pack('<H',0x800*(48<=c<58)))
             self.word(t+512+4*c,ord(chr(c).lower()) if 0<=c<128 else c)
