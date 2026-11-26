@@ -3724,6 +3724,25 @@ def test_cjk_title_sort(fw, a, b, want):
     assert less(encode(a), encode(b)) == want
 
 
+@pytest.mark.parametrize('suffix', ['', '_pinyin'])
+def test_cjk_library_comparator_preserves_stock_and_uses_title(fw, recs, suffix):
+    cmp = fw.fn('ringnav_name_cmp' + suffix, None, C.c_void_p, C.c_void_p, C.POINTER(C.c_uint))
+    stock = 'stock_name_cmp' + suffix + '_trampoline'
+    def original(a, b, out, *_):
+        C.c_uint.from_address(out).value = 1
+        return 0
+    fw.mock(stock, original)
+    a = recs(title='Zebra', name='你好.flac')
+    b = recs(title='世界', name='A.flac')
+    c = recs(name='你好.flac')
+    d = recs(title='Apple')
+    for x, y, want in [(a, b, 1), (b, a, 0), (b, c, 1), (c, c, 0), (d, a, 1)]:
+        out = C.c_uint(0xffffffff)
+        cmp(x, y, C.byref(out))
+        assert out.value == want
+    assert len(fw.calls(stock)) == 1
+
+
 # The charge limit (charge_poll): charging stops at CHARGE_STOP and is handed back at CHARGE_RESUME.
 STOP_AT, RESUME_AT, CHARGE_POLL = O['CHARGE_STOP'], O['CHARGE_RESUME'], O['CHARGE_POLL_MS']
 
