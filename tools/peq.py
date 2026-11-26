@@ -147,6 +147,7 @@ LIBC = {
     'strcasestr': ('char *', 'const char *, const char *'),
     'strncmp': ('int', 'const char *, const char *, unsigned'),
     'strncasecmp': ('int', 'const char *, const char *, unsigned'),
+    '__ctype_tolower_loc': ('const int **', 'void'),  # strcasecmp's own table (name_sort.c)
     # iPod status bar clock (clock.c)
     'time': ('long', 'long *'),
     'localtime_r': ('const int *', 'const long *, int *'), 'tzset': ('void', 'void'),
