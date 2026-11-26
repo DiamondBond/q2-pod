@@ -652,7 +652,8 @@ class FakeVault:
     """The Vault's socket as the card app answers it: get, put and delete of one blob. up_after: the socket shows only
     after that many stat calls (a Vault starting); away: never there."""
     def __init__(self, fw, card, blob=None, installed=True, up_after=0, away=False):
-        self.blob, self.ops, self.req, self.reply = blob, [], b'', b''
+        self.blob, self.ops, self.reply = blob, [], b''
+        self.req: bytes | None = b''  # the request being sent; None once answered
         self.stats, self.up_after, self.away, self.slept = 0, up_after, away, 0
         card_access = card.access if hasattr(card, 'access') else None
 
@@ -673,7 +674,7 @@ class FakeVault:
             return 0 if p.decode() in card.files else -1
 
         def send(fd, buf, n, *_):
-            self.req += C.string_at(buf, n)
+            self.req = (self.req or b'') + C.string_at(buf, n)
             return n
 
         def recv(fd, buf, n, *_):
