@@ -8324,7 +8324,8 @@ def split_frame(p,ratio=1.0):
         win=m.node('window')
         for k,v in zip(('W_X','W_Y','W_W','W_H'),(0,y,375,h)): m.word(win+O[k],v)
         m.word(wa+O[off],win)
-    m.word(wa+O['WA_CANVAS'],canvas); m.u.mem_write(wa+O['WA_RATIO'],struct.pack('<ff',ratio,p))
+    m.word(wa+O['WA_CANVAS'],canvas)
+    for off,v in (('WA_RATIO',ratio),('WA_PERCENT',p)): m.u.mem_write(wa+O[off],struct.pack('<f',v))
     for name in ('split_halves','split_between'): assert m.call(address=payload_syms[name],args=(wa,0,0,0),gap=0)==0
     assert all(d[0]==lcd for d in m.lcd_draws)
     return [({wa+O['WA_PREV_IMG']:'under',wa+O['WA_CURR_IMG']:'opening'}[img],src,dst) for _,img,src,dst in m.lcd_draws]

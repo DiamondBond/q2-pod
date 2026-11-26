@@ -57,7 +57,11 @@ static const struct {
     void *init, *update_percent;
     int (*draw_prev)(window_animator_t *), (*draw_curr)(window_animator_t *);
     void *dimmed; /* under a dialog's dimming: no dialog takes this */
-} split_vt = { "split", "split", WA_SIZE, 0, 0, 0, split_halves, split_between, 0 };
+} split_vt = { .type = "split",
+               .desc = "split",
+               .size = WA_SIZE,
+               .draw_prev = split_halves,
+               .draw_curr = split_between };
 
 static window_animator_t *split_create(int open, void *args) {
     return window_animator_create(open, &split_vt);
@@ -66,7 +70,8 @@ static window_animator_t *split_create(int open, void *args) {
 /* Once the factory has it, a hint may name it; a factory not made yet is asked again next time. */
 void window_split_register(void) {
     static int registered;
-    window_animator_factory_t *factory = registered ? 0 : window_animator_factory();
+    if (registered) return;
+    window_animator_factory_t *factory = window_animator_factory();
     if (factory && !window_animator_factory_register(factory, "split", split_create))
         registered = 1;
 }

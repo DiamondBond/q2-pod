@@ -464,19 +464,17 @@ going Home, with its slide when held on the list itself. The release latch on th
 
 ## Transitions
 
-Pages slide with stock's own window animator. The build sets
-`anim_hint` to `SLIDE` (`tools/ipod.py`) on the window of the nine local browsing pages, the
-settings and streaming pages and the equalizer page. A hinted page slides in from the right,
-pushing the page below it out to the left, and Return reverses that; the status bar is not part
-of either page and stays still.
+Pages slide with stock's own window animator. The build sets `anim_hint` to `SLIDE`
+(`tools/ipod.py`) on the window of the nine local browsing pages, the settings and streaming pages
+and the equalizer page. A hinted page slides in from the right, pushing the page below it out to the
+left, and Return reverses that; the status bar is not part of either page and stays still.
 
-Left immediate: Home (opened once, never closed), Now Playing (its open starts the player, which
-can hold the UI thread), Cover Flow but under Classic (below), the dialogs and quick
-settings, the queue, More and jump pages over Now Playing, and the pages that keep their stock
-assets: Tidal and the other online pages, Wi-Fi transfer and the firmware download. Moving between
-folders reloads the folder page in place, so only opening and leaving that page slides. Stock
-drops every key and touch while a page slides; none is queued
-([internals.md](internals.md#page-transitions-ipod)).
+Left immediate: Home (opened once, never closed), Now Playing (its open starts the player, which can
+hold the UI thread), Cover Flow but under Classic (below), the dialogs and quick settings, the
+queue, More and jump pages over Now Playing, and the pages that keep their stock assets: Tidal and
+the other online pages, Wi-Fi transfer and the firmware download. Moving between folders reloads the
+folder page in place, so only opening and leaving that page slides. Stock drops every key and touch
+while a page slides; none is queued ([internals.md](internals.md#page-transitions-ipod)).
 
 A theme can set these from its `motion` view. Classic sets Cover Flow's alone, and Classic Modern
 takes it from Classic: Cover Flow opens as an iPod classic's does. The page underneath splits at
@@ -490,12 +488,12 @@ The split is the payload's own animation, which stock's window manager runs as i
 ([internals.md](internals.md#themes), Motion). Minimal and Modern open Cover Flow at once.
 
 Classic's other pages open and close as Minimal's, with stock's slide or none, as above, and
-confirms, add to playlist, the hold menu and every other dialog show at once, with no fade. Classic's own motion is inside a page: a
-level's list pushes in from the right over 120 ms, and Return's from the left: a card app's levels
-(when their rows arrive), an artist's text albums and their tracks, a Photos album and a folder and
-its sub-folders. A list that only refreshes stays still, and keys and the wheel work during the
-push. Home's Settings list slides in over 120 ms. The selection jumps between rows with no glide or
-end bump, and a list shows its remembered row at once.
+confirms, add to playlist, the hold menu and every other dialog show at once, with no fade.
+Classic's own motion is inside a page: a level's list pushes in from the right over 120 ms, and
+Return's from the left: a card app's levels (when their rows arrive), an artist's text albums and
+their tracks, a Photos album and a folder and its sub-folders. A list that only refreshes stays
+still, and keys and the wheel work during the push. Home's Settings list slides in over 120 ms. The
+selection jumps between rows with no glide or end bump, and a list shows its remembered row at once.
 
 ## Chevrons
 
