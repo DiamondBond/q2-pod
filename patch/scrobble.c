@@ -24,7 +24,7 @@
 enum { LB_TOKEN, FM_USER, FM_PASS, FM_KEY, FM_SECRET, FM_SK, LB_VAULT, FM_VAULT, CONFIG_N };
 static const char *const keys[CONFIG_N] = { "TOKEN",      "USER",        "PASSWORD", "API_KEY",
                                             "API_SECRET", "SESSION_KEY", "VAULT",    "VAULT" };
-#define LASTFM_KEY(i) ((i) >= FM_USER && (i) <= FM_SK || (i) == FM_VAULT)
+#define LASTFM_KEY(i) (((i) >= FM_USER && (i) <= FM_SK) || (i) == FM_VAULT)
 #define SECTION(i) (LASTFM_KEY(i) ? "LASTFM" : "LISTENBRAINZ")
 #define SECRET(i) ((i) == LB_TOKEN || ((i) >= FM_PASS && (i) <= FM_SK))
 #define VAULT_TRIES 20 /* 250 ms apart: a Vault starting gets 5 s */

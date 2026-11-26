@@ -2527,7 +2527,13 @@ def scrobble_check(tmp):
     root = tmp/'scrobble'
     (root/'mnt/mmc').mkdir(parents=True)
     shim = ['#include <pthread.h>', '#define pthread_mutex_lock(m) pthread_mutex_lock((pthread_mutex_t *)(m))',
-            '#define pthread_mutex_unlock(m) pthread_mutex_unlock((pthread_mutex_t *)(m))', '#define tk_snprintf snprintf']
+            '#define pthread_mutex_unlock(m) pthread_mutex_unlock((pthread_mutex_t *)(m))', '#define tk_snprintf snprintf',
+            # vault.c and addon.c aren't built here: no Vault installed, the upload as without one (test/fw has the rest)
+            '__attribute__((weak)) int vault_installed(void) { return 0; }',
+            '__attribute__((weak)) int vault_get(char *out, unsigned max) { (void)out, (void)max; return -1; }',
+            '__attribute__((weak)) int vault_put(const char *body, unsigned len) { (void)body, (void)len; return -1; }',
+            '__attribute__((weak)) int vault_delete(void) { return -1; }',
+            '__attribute__((weak)) int addon_wake(const char *id) { (void)id; return 0; }']
     shim += [f'{PROTOTYPES[n][0]} {n}({PROTOTYPES[n][1]});' for n in PROTOTYPES if n.startswith(('curl_', 'MD5_', 'toolsReadConfig'))]
     (tmp/'scrobble_shim.h').write_text('\n'.join(shim) + '\n')
     (tmp/'scrobble_test.c').write_text(SCROBBLE)
@@ -3012,7 +3018,7 @@ def shelf_check(tmp, lib):
     assert len(sources(''.join(f'me/q2-a{i}\n' for i in range(20)), scratch)) == 16
     assert [a[2] for a in sources('a/q2\nb/q2-tidal\nc/downpic\nd/q2-tidal2\n', scratch)] == ['tidal2']  # never the firmware's folders
     own = {m for f in (ROOT/'patch').glob('*.[ch]')
-           for m in re.findall(r'(?:mmc/|CARD "/)\.([a-z0-9-]+)["/]', f.read_text())} - {'rockbox', 'spotify'}  # card apps the firmware knows by path
+           for m in re.findall(r'(?:mmc/|CARD "/)\.([a-z0-9-]+)["/]', f.read_text())} - {'rockbox', 'spotify', 'vault'}  # card apps the firmware knows by path
     assert own and not [x for x in own if sources(f'a/q2-{x}\n', scratch)], own  # every card folder of the firmware's
     C.c_int.in_dll(lib, 'shelf_n').value = len(sources((ROOT/'sources.list').read_text()))
     ids = [a.id.decode() for a in apps[:6]]
