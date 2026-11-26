@@ -57,6 +57,7 @@
 #define EVT_KEY_DOWN_BEFORE 0x112 /* wm keydown-before dispatch @0x534d84 */
 #define EVT_KEY_UP 0x114          /* wm keyup dispatch @0x534dd0 */
 #define EVT_KEY_UP_BEFORE 0x115   /* wm keyup-before dispatch @0x534d98 */
+#define EVT_WINDOW_OPEN 0x129 /* the window manager's open idle @0x69beb0, or its open animation's end */
 #define EVT_WINDOW_BACKGROUND 0x12a
 #define EVT_WINDOW_FOREGROUND 0x12b
 #define EVT_WINDOW_CLOSE 0x12c
@@ -87,6 +88,16 @@
 #define LCD_LINE_LENGTH 0x124
 #define LCD_FORMAT 0x128
 #define LCD_BGRA8888 3
+/* window_animator_t, a window's open or close animation (window_animator_create @0x696578,
+ * _prepare @0x696498, _update @0x6961f8), as window_split.c reads it */
+#define WA_PREV_WIN 0x14 /* the window underneath */
+#define WA_CURR_WIN 0x18 /* the window opening or closing */
+#define WA_PREV_IMG 0x1c /* bitmap_t: prepare's snapshot of the window underneath */
+#define WA_CURR_IMG 0x64 /* bitmap_t: and of the window opening or closing */
+#define WA_RATIO 0xb0    /* float: the lcd's pixel ratio */
+#define WA_PERCENT 0xb4  /* float: update's eased time, 0 to 1 opening, 1 to 0 closing */
+#define WA_CANVAS 0xb8
+#define WA_SIZE 0xc8 /* window_animator_create refuses a vtable whose size is less */
 #define CANVAS_ALIGN_V 0x30     /* canvas_set_text_align @0x64770c; middle = 1 */
 #define CANVAS_ALIGN_H 0x34     /* center = 1 */
 #define FONT_GET_GLYPH 0x24     /* font_t's get_glyph, font_get_glyph @0x6548e0 calls it */

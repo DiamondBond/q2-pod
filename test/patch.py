@@ -8286,15 +8286,70 @@ passed()
 for below in ('album_page','home_page'):
     m=motion_machine('1'); set_hint(m,'page',FADE_HINT); motion_over(m,below); assert m.nodes[motion_load(m,'localmusic/albuminfo_page',anim_hint=ASSET_HINT)]['anim_hint']==FADE_HINT,below
 passed()
-# Queue, More and Go to, a page with no slide, and the payload's own pages stay instant in every theme, over Home too.
+# Queue, More and Go to, a page with no slide, and the payload's own pages stay instant in every theme, over Home too;
+# Cover Flow's in Minimal.
 for t in '01':
     m=motion_machine(t); assert all('anim_hint' not in m.nodes[motion_load(m,n)] for n in (*EXTRA,'wifi_page')),t
-    for name in (*PAYLOAD,'addon_page','radionp_page','spotify_page','chapters_page','coverflow_page'):
+    for name in (*PAYLOAD,'addon_page','radionp_page','spotify_page','chapters_page',*(('coverflow_page',) if t=='0' else ())):
         m=motion_machine(t); assert 'anim_hint' not in m.nodes[motion_open(m,name)],(t,name)
         motion_over(m,'home_page'); assert 'anim_hint' not in m.nodes[motion_open(m,name)],(t,name)
 passed()
 # A theme with a Cover Flow hint: its page takes it, and no other page does.
 m=motion_machine('1'); set_hint(m,'coverflow',FADE_HINT); assert m.nodes[motion_open(m,'coverflow_page')]['anim_hint']==FADE_HINT; passed()
+# Classic's is the split, over Home or any page, and the hint's first write gives stock's factory the split, once.
+# Each case is a function: this script's globals (m, f, ctx...) are later cases' own.
+SPLIT_HINT='split(duration=200,easing=sin_inout)'
+def split_registers():
+    for below in ('home_page','album_page',None):
+        m=motion_machine('1'); m.mock('window_animator_factory',prefix='one:')
+        if below: motion_over(m,below)
+        assert m.nodes[motion_open(m,'coverflow_page')]['anim_hint']==SPLIT_HINT,below
+        regs=[c for c in m.calls if c[0]=='window_animator_factory_register']; assert [(a,m.text(b)) for _,a,b,_ in regs]==[(1,'split')],below
+        assert motion_open(m,'coverflow_page') and not any(c[0]=='window_animator_factory_register' for c in m.calls),below
+    # Its create is window_animator_create's of a vtable laid out as stock's slides': at least WA_SIZE, the halves
+    # drawn as the window underneath, the page between them as the window opening, stock's own easing.
+    m.calls=[]; m.call(address=regs[0][3],args=(1,0,0,0),gap=0)
+    (_,opening,vt,_),=[c for c in m.calls if c[0]=='window_animator_create']
+    assert opening==1 and m.text(m.get(vt))==m.text(m.get(vt+4))=='split' and m.get(vt+8)==O['WA_SIZE']
+    assert [m.get(vt+4*i) for i in range(3,9)]==[0,0,0,payload_syms['split_halves'],payload_syms['split_between'],0]
+    # No factory yet (stock's made at its UI's start): nothing is registered, and the next hint asks again.
+    m=motion_machine('1'); motion_open(m,'coverflow_page'); assert not any(c[0]=='window_animator_factory_register' for c in m.calls)
+    m.mock('window_animator_factory',prefix='one:'); motion_open(m,'coverflow_page'); assert sum(c[0]=='window_animator_factory_register' for c in m.calls)==1
+split_registers(); passed()
+# A frame: the page underneath parts at HOME_SPLIT_W, each half by its own width (rounded as stock's slides), and the
+# page opening shows between them, every column drawn once; the source in the lcd's pixels, each window's own rows.
+def split_frame(p,ratio=1.0):
+    m=Machine(); wa=m.alloc(O['WA_SIZE']); canvas=m.alloc(0x40); lcd=m.alloc(0x200); m.word(canvas+O['CANVAS_LCD'],lcd)
+    for off,y,h in (('WA_PREV_WIN',0,320),('WA_CURR_WIN',30,290)):
+        win=m.node('window')
+        for k,v in zip(('W_X','W_Y','W_W','W_H'),(0,y,375,h)): m.word(win+O[k],v)
+        m.word(wa+O[off],win)
+    m.word(wa+O['WA_CANVAS'],canvas); m.u.mem_write(wa+O['WA_RATIO'],struct.pack('<ff',ratio,p))
+    for name in ('split_halves','split_between'): assert m.call(address=payload_syms[name],args=(wa,0,0,0),gap=0)==0
+    assert all(d[0]==lcd for d in m.lcd_draws)
+    return [({wa+O['WA_PREV_IMG']:'under',wa+O['WA_CURR_IMG']:'opening'}[img],src,dst) for _,img,src,dst in m.lcd_draws]
+def split_frames():
+    s=O['HOME_SPLIT_W']
+    assert split_frame(0)==[('under',(0,0,s,320),(0,0,s,320)),('under',(s,0,375-s,320),(s,0,375-s,320))]
+    assert split_frame(0.5)==[('under',(94,0,93,320),(0,0,93,320)),('under',(s,0,94,320),(281,0,94,320)),('opening',(93,30,188,290),(93,30,188,290))]
+    assert split_frame(1)==[('opening',(0,30,375,290),(0,30,375,290))]
+    assert split_frame(0.5,2.0)[0]==('under',(188,0,186,640),(0,0,93,320))
+    for p in [i/40 for i in range(41)]:
+        columns=sorted((int(dst[0]),int(dst[0]+dst[2])) for _,_,dst in split_frame(p))
+        assert columns[0][0]==0 and columns[-1][1]==375 and all(a[1]==b[0] for a,b in zip(columns,columns[1:])),(p,columns)
+split_frames(); passed()
+# An artist's covers, over their page opened unseen (cf_veil), cut in: no open hint until they are open, then the
+# split again for Return's close. Stock reads anim_hint as the open hint, so the handler finds it empty.
+def split_cut_in():
+    m=at_theme('1',CoverflowMachine); m.handlers[syms['widget_set_prop_str']]='widget_set_prop_str'
+    page=m.open(); assert m.nodes[page]['anim_hint']==SPLIT_HINT and 'open_anim_hint' not in m.nodes[page]
+    m=at_theme('1',CoverflowMachine); m.handlers[syms['widget_set_prop_str']]='widget_set_prop_str'; m.config['ARTISTCF']='1'
+    dq=m.deque(m.albums[:2]); m.top=m.node('window','artistinfo_page'); m.stack=[m.top]
+    assert m.call(address=payload_syms['coverflow_artist'],args=(dq,0,0,0),gap=0)==1; page=m.top
+    assert m.nodes[page]['anim_hint']==SPLIT_HINT and m.nodes[page]['open_anim_hint']==''
+    opened,ctx=m.handler(page,O['EVT_WINDOW_OPEN']); m.nodes[page]['anim_hint']=''
+    assert m.call(address=opened,args=(ctx,m.event,0,0),gap=0)==7 and m.nodes[page]['anim_hint']==SPLIT_HINT
+split_cut_in(); passed()
 # Now Playing stays instant under Classic. A theme with a hint pushes it back on Return only.
 m=motion_machine('1'); np=motion_load(m,'playing_page'); assert not {'anim_hint','open_anim_hint','close_anim_hint'}&set(m.nodes[np])
 m=motion_machine('1'); set_hint(m,'playing',OTHER_HINT); np=motion_load(m,'playing_page')

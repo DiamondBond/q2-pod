@@ -10,6 +10,7 @@
   - Library: names that start with Chinese, Japanese or Korean characters come after the A–Z names in **Artists**, **Albums**, **Songs**, **Genres** and **Composers**, in Unicode order. Chinese names were filed among A–Z by their pinyin. With a Chinese language pack, the lists keep their pinyin order.
   - Library: lists sorted by name (**Songs** in Alphabetical order, **Albums**, **Artists**, **Composers**, **Genres**, **Hi-Res**, **My Fav** and Search's results) open sooner on a big library, in the same order.
   - User guide: **Long audiobooks** says what makes an `.m4b` too long for the Q2, about how long one can be, and how to divide one into parts.
+  - Cover Flow: under Classic and Classic Modern, Cover Flow opens as on an iPod classic: the screen splits down the middle, between Home's list and its art, and the two halves slide apart to show the covers. Return slides them back together. An artist's covers and the playlists' still open at once, and close the same way.
 - **1.9.4**:
   - Playlists: holding Play/Pause on a Cover Flow cover offers **Add to Playlist**, which adds that album's songs. From an **Albums** row it adds only that album, not every album with the same name.
   - Apps: **Rockbox** is an app on **Library → Apps**, with Rockbox 3.24 or later from the App Store. Pick it to start Rockbox; Q2 Pod comes back when Rockbox shuts down. Installing Rockbox no longer makes the Q2 start in it: **System settings → Power → Boot to: Rockbox** does, and without that choice the Q2 starts in Q2 Pod.

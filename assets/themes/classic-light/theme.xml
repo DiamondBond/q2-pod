@@ -162,9 +162,11 @@
     <value label="On" set="classic-light"/>
   </option>
   <!-- How things move. A window kind with no ms keeps its asset's hint, or none: pages open as Minimal's do. The selection jumps, with no glide and no bump. Cover Flow's step follows its goal: under easing="follow",
-       ms is the follow's time constant, not the run's length. -->
+       ms is the follow's time constant, not the run's length. Cover Flow opens and closes as an iPod classic's does:
+       the page underneath splits between Home's list and its art and slides apart (patch/window_split.c). -->
   <view name="motion">
     <element name="page" ms="120" easing="cubic_out"/>
+    <element name="coverflow" anim="split" ms="200" easing="sin_inout"/>
     <element name="swap" ms="120" easing="linear"/>
     <element name="inplace" ms="120" easing="cubic_out"/>
     <element name="step" ms="200" easing="sin_inout"/>

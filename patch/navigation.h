@@ -675,6 +675,9 @@ int told_once(const char *src, const char *seen, const char *tmp);
 /* side_seek.c: a dark hold of Previous or Next (ple_key's phases) */
 int side_seek(unsigned key, int phase);
 
+/* window_split.c: a theme's anim="split", given to stock's window animator factory (motion_hint) */
+void window_split_register(void);
+
 /* usb_charge.c: wrappers for charging, configuration loading and USB gadget dispatch. */
 int ringnav_usb_charge(int on), usb_charge_held(void), usb_charge_wanted(void);
 void usb_charge_row(widget_t *win, widget_t *view); /* Power's USB DAC Charging */

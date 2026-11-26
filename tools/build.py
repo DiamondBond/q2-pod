@@ -1663,6 +1663,12 @@ FUNCTIONS = {
  'canvas_offline_end_draw': ('int', 'canvas_t *'),
  'canvas_offline_destroy': ('int', 'canvas_t *'),
  'canvas_translate': ('int', 'canvas_t *, int, int'),
+ # A theme's anim="split" (window_split.c): stock's window animator factory, given one more animator, and the
+ # snapshot blit its slides draw with (a canvas's lcd, a bitmap, rectf_t source and destination)
+ 'window_animator_factory': ('window_animator_factory_t *', 'void'),
+ 'window_animator_factory_register': ('int', 'window_animator_factory_t *, const char *, window_animator_t *(*)(int, void *)'),
+ 'window_animator_create': ('window_animator_t *', 'int, const void *'),
+ 'lcd_draw_image': ('int', 'void *, void *, const void *, const void *'),
  'widget_vtable_on_paint_self': ('int', 'widget_t *, canvas_t *'),  # native foreground for fallback weight
  'widget_on_paint_children': ('int', 'widget_t *, canvas_t *'),  # a wallpaper thumbnail's check badge (lockscreen.c)
  'slide_menu_set_spacer': ('int', 'widget_t *, int'),
@@ -1885,7 +1891,7 @@ FLAGS = ['--target=mipsel-linux-gnu','-march=mips32r2','-mabi=32','-mfp64',
          '-Wshadow','-Wimplicit-int-conversion','-Wconditional-uninitialized','-Wmissing-variable-declarations',
          '-Wvla','-Wundef']
 # navigation.c and the files split out of it (patch/navigation.h), each its own object, linked in this order.
-NAVIGATION = ['navigation.c', 'theme_engine.c', 'playlists.c', 'classic_pages.c', 'home.c', 'np_bar.c', 'volume.c', 'smart_wifi.c', 'system.c', 'usb_charge.c', 'tags.c', 'scrobble_ui.c', 'library_lists.c', 'durations.c', 'script.c', 'coverflow_position.c', 'ratings.c', 'scan_folders.c', 'folder_delete.c', 'battery.c', 'np_lyrics.c', 'quick_settings.c', 'flat.c', 'clock.c', 'queue_menu.c', 'np_marks.c', 'rotate.c', 'netservice.c', 'addon_bar.c', 'side_seek.c', 'language.c', 'bidi_text.c', 'card_theme.c', 'card_rules.c', 'sleep_row.c', 'samplerate.c', 'shortcut_pick.c', 'name_sort.c']
+NAVIGATION = ['navigation.c', 'theme_engine.c', 'playlists.c', 'classic_pages.c', 'home.c', 'np_bar.c', 'volume.c', 'smart_wifi.c', 'system.c', 'usb_charge.c', 'tags.c', 'scrobble_ui.c', 'library_lists.c', 'durations.c', 'script.c', 'coverflow_position.c', 'ratings.c', 'scan_folders.c', 'folder_delete.c', 'battery.c', 'np_lyrics.c', 'quick_settings.c', 'flat.c', 'clock.c', 'queue_menu.c', 'np_marks.c', 'rotate.c', 'netservice.c', 'addon_bar.c', 'side_seek.c', 'language.c', 'bidi_text.c', 'card_theme.c', 'card_rules.c', 'sleep_row.c', 'samplerate.c', 'shortcut_pick.c', 'name_sort.c', 'window_split.c']
 
 def compile_payload(out):  # pragma: no mutate block
     """Compile and link the payload."""

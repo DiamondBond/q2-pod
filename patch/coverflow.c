@@ -4069,6 +4069,21 @@ static int scoped_open(void) {
     return 1;
 }
 
+/* An artist's and the playlists' covers open over their page, which opened unseen and shows again
+ * under them at once (navigation.c's cf_veil): an open animation's snapshot of the page underneath
+ * would be that page, never seen, not the list they were picked from. So they cut in, and take the
+ * theme's hint back once open, for their close. */
+static int cut_in_done(void *page, event_t *event) {
+    motion_open(page, "coverflow_page");
+    return 7; /* RET_REMOVE: once */
+}
+static void cut_in(void) {
+    const char *hint = widget_get_prop_str(cf.page, "anim_hint", (void *)0); /* a window's: 0 */
+    if (!hint || !*hint) return;
+    widget_set_prop_str(cf.page, "open_anim_hint", "");
+    widget_on(cf.page, EVT_WINDOW_OPEN, cut_in_done, cf.page);
+}
+
 /* Display settings' Artist albums: Coverflow (navigation.c): albums, coverflow_split's, as the
  * covers, which the page owns; 0 when there are none, and albums is the caller's. */
 int coverflow_artist(void *albums) {
@@ -4080,6 +4095,7 @@ int coverflow_artist(void *albums) {
         deque_destroy(music);
         return 0;
     }
+    cut_in();
     deque_destroy(albums);
     albums = music;
     cf.all_albums = cf.albums;
@@ -4203,6 +4219,7 @@ int coverflow_playlists(void *lists) {
         deque_destroy(mine);
         return 0;
     }
+    cut_in();
     cf.all_albums = cf.albums;
     cf.albums = mine;
     cf.scoped = PLAYLISTS;

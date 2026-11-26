@@ -59,7 +59,8 @@ CF_WIDE = 2 * int(need(re.search(r'#define CF_WIDE_REACH (\d+)', (ROOT/'patch/co
 EASINGS = ('linear', 'quadratic_in', 'quadratic_out', 'quadratic_inout', 'cubic_in', 'cubic_out', 'sin_in', 'sin_out', 'sin_inout',
            'pow_in', 'pow_out', 'pow_inout', 'circular_in', 'circular_out', 'circular_inout', 'elastic_in', 'elastic_out', 'elastic_inout',
            'back_in', 'back_out', 'back_inout', 'bounce_in', 'bounce_out', 'bounce_inout', 'follow')  # follow: ours, EASE_FOLLOW
-ANIMS = ('htranslate', 'vtranslate', 'fade', 'center_scale', 'popup', 'popdown', 'slide_up', 'slide_down', 'slide_left', 'slide_right')
+ANIMS = ('htranslate', 'vtranslate', 'fade', 'center_scale', 'popup', 'popdown', 'slide_up', 'slide_down', 'slide_left', 'slide_right',
+         'split')  # split: the payload's own (patch/window_split.c)
 # theme.h's MOTION_* order: what a window animates on load or open, what a widget glide takes
 MOTION_WINDOW = ('page', 'playing', 'coverflow')
 MOTION_WIDGET = ('inplace', 'swap', 'step', 'step_fast', 'coverflow_step', 'coverflow_step_fast')

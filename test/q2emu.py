@@ -205,6 +205,7 @@ class Machine:
         self.stats={}  # paths stat finds, with their mtime (songs on the card: a card app's)
         self.image_size=(50,50)  # what widget_load_image decodes
         self.image_draws=[]; self.image_loads=[]
+        self.lcd_draws=[]  # lcd_draw_image's: (lcd, bitmap, rectf_t source, rectf_t destination)
         self.style_ints={}  # (a style, its name): what style_get_int answers; else the fallback
         self.clock=(18,14)  # local (hour, minute) for time/localtime, or the one of them that fails
         self.clock_minutes=False; self.marquee=False
@@ -656,6 +657,7 @@ class Machine:
                 ret=0
         elif name=='style_get_int': ret=self.style_ints.get((a,self.text(b)),c)
         elif name=='canvas_draw_image': self.image_draws.append(tuple(tuple(signed(self.get(r+4*i)) for i in range(4)) for r in (c,d))); ret=0
+        elif name=='lcd_draw_image': self.lcd_draws.append((a,b,*(struct.unpack('<4f',self.u.mem_read(r,16)) for r in (c,d)))); ret=0
         elif name=='widget_load_image':  # list_into is 50x50; image_size None fails the load
             self.image_loads.append(self.text(b)); ret=1 if self.image_size is None or self.text(b) in getattr(self,'image_fail',()) else 0
             if not ret: self.word(c,self.image_size[0]); self.word(c+4,self.image_size[1]); self.u.mem_write(c+8,bytes(16))  # no pixels

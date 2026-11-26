@@ -467,6 +467,7 @@ static int slides(widget_t *win) {
 static void motion_hint(widget_t *win, int kind) {
     const char *hint = theme()->motion[kind].hint;
     if (!hint) return;
+    window_split_register(); /* the payload's own animation, which a hint may name */
     const char *prop = kind == MOTION_PLAYING ? "close_anim_hint" : "anim_hint";
     if (tk_strcmp(widget_get_prop_str(win, prop, ""), hint)) widget_set_prop_str(win, prop, hint);
 }

@@ -1338,7 +1338,9 @@ def test_motion_today(tmp_path):  # Minimal: the asset hint kept (0), today's nu
 
 MOTION_CLASSIC_LIGHT = {**MOTION_TODAY,
                         'motion.swap.ms': 120, 'motion.swap.easing': 0, 'motion.inplace.ms': 120, 'motion.inplace.easing': 5, 'recall_ms': 0, 'bump_px': 0,
-                        'motion.coverflow_step.ms': 81, 'motion.coverflow_step.easing': 24, 'motion.coverflow_step_fast.ms': 81, 'motion.coverflow_step_fast.easing': 24}
+                        'motion.coverflow_step.ms': 81, 'motion.coverflow_step.easing': 24, 'motion.coverflow_step_fast.ms': 81, 'motion.coverflow_step_fast.easing': 24,
+                        'motion.coverflow.ms': 200, 'motion.coverflow.easing': 8, 'motion.coverflow.anim': theme.ANIMS.index('split')}
+SPLIT_HINT = '.motion[MOTION_COVERFLOW].hint = "split(duration=200,easing=sin_inout)",'
 
 
 @pytest.mark.parametrize('kind', [k for k in (*theme.MOTION_WINDOW, *theme.MOTION_WIDGET) if not k.startswith('coverflow_step')])
@@ -1352,7 +1354,9 @@ def test_motion_classic_light(tmp_path):
     assert {k.field: light[k.field] for k in theme.SCHEMA.values() if k.cls == 'motion'} == MOTION_CLASSIC_LIGHT
     inc = boot_inc(tmp_path, theme.builtins())
     assert inc.count('.motion[MOTION_PAGE].hint = 0,') == 4  # every theme's pages: the asset's own
-    assert '.hint = "' not in inc  # no window animates beyond stock's own slide: no push, no dialog fade
+    # Cover Flow's split, Classic's and Classic Modern's by extends; no other window animates beyond stock's own slide:
+    # no push, no dialog fade
+    assert inc.count(SPLIT_HINT) == 2 and inc.count('.hint = "') == 2
 
 
 def test_motion_composes_hints(tmp_path):

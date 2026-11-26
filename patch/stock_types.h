@@ -8,9 +8,12 @@ typedef struct event event_t;   /* what a handler is given: a key, a touch, a wi
 typedef struct canvas canvas_t; /* what a paint draws on: the LCD's, or an offline one */
 typedef struct vgcanvas vgcanvas_t;               /* a canvas's vector half (canvas_get_vgcanvas) */
 typedef struct widget_animator widget_animator_t; /* a glide or a fade in progress */
+typedef struct window_animator window_animator_t; /* a window's open or close animation */
 typedef struct widget_factory widget_factory_t;   /* widget_factory()'s */
 typedef struct image_manager image_manager_t;     /* image_manager()'s */
 typedef struct input_method input_method_t;       /* input_method()'s */
 typedef struct font font_t; /* a face, as font_stb_create makes it (script.c's glyphs) */
 typedef struct font_manager font_manager_t; /* font_manager()'s */
+/* window_animator_factory()'s */
+typedef struct window_animator_factory window_animator_factory_t;
 #endif

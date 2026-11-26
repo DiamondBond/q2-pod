@@ -464,23 +464,33 @@ going Home, with its slide when held on the list itself. The release latch on th
 
 ## Transitions
 
-Pages slide with stock's own window animator; the payload adds no animation code. The build sets
+Pages slide with stock's own window animator. The build sets
 `anim_hint` to `SLIDE` (`tools/ipod.py`) on the window of the nine local browsing pages, the
 settings and streaming pages and the equalizer page. A hinted page slides in from the right,
 pushing the page below it out to the left, and Return reverses that; the status bar is not part
 of either page and stays still.
 
 Left immediate: Home (opened once, never closed), Now Playing (its open starts the player, which
-can hold the UI thread), Cover Flow (its open loads the albums and covers), the dialogs and quick
+can hold the UI thread), Cover Flow but under Classic (below), the dialogs and quick
 settings, the queue, More and jump pages over Now Playing, and the pages that keep their stock
 assets: Tidal and the other online pages, Wi-Fi transfer and the firmware download. Moving between
 folders reloads the folder page in place, so only opening and leaving that page slides. Stock
 drops every key and touch while a page slides; none is queued
 ([internals.md](internals.md#page-transitions-ipod)).
 
-A theme can set these from its `motion` view, but no builtin theme does: Classic's pages open and
-close as Minimal's, with stock's slide or none, as above, and confirms, add to playlist, the hold
-menu and every other dialog show at once, with no fade. Classic's own motion is inside a page: a
+A theme can set these from its `motion` view. Classic sets Cover Flow's alone, and Classic Modern
+takes it from Classic: Cover Flow opens as an iPod classic's does. The page underneath splits at
+Home's split line (`HOME_SPLIT_W`, between Home's list and its art), its left half sliding off to
+the left and its right half off to the right, each by its own width, over 200 ms (`sin_inout`), and
+Cover Flow shows between them, still; Return closes it the same way back. Its covers are as its
+first frame draws them, placeholders where a cover isn't decoded yet, and the status bar stays
+still, as for a slide. An artist's covers and the playlists' (Display's Artist View and Playlist
+View) open at once, as before, as the page under them opened unseen; they close with the split.
+The split is the payload's own animation, which stock's window manager runs as it runs its slides
+([internals.md](internals.md#themes), Motion). Minimal and Modern open Cover Flow at once.
+
+Classic's other pages open and close as Minimal's, with stock's slide or none, as above, and
+confirms, add to playlist, the hold menu and every other dialog show at once, with no fade. Classic's own motion is inside a page: a
 level's list pushes in from the right over 120 ms, and Return's from the left: a card app's levels
 (when their rows arrive), an artist's text albums and their tracks, a Photos album and a folder and
 its sub-folders. A list that only refreshes stays still, and keys and the wheel work during the
