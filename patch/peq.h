@@ -878,6 +878,7 @@ int rockbox_available(void); /* theme_engine.c: a regular Rockbox binary on the 
 int page_keyup(void *ctx, event_t *event); /* navigation.c: Return leaves a payload page */
 int ringnav_localclass(int cls);           /* navigation.c: load_localclass_list's hook */
 int shelf_open(void *ctx, event_t *event); /* netupdate.c: Library's App Store page */
+int shelf_has_app(const char *id);         /* netupdate.c: the App Store's list has app id */
 void shelf_tab(int tab); /* netupdate.c: the App Store's open tab, 0 Apps, 1 Games */
 /* app_store.c: the App Store's tabs (Era's too) and rows, drawn in ringnav_paint (store_paint);
  * Previous and Next switch the tabs (store_tabs_key) */

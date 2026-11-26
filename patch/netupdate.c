@@ -1289,6 +1289,19 @@ static int sh_check(void *ctx, event_t *event) {
 /* Library's App Store row. The card's last list, until a check fetches the list again: with Wi-Fi
  * when the last whole check is over SH_STALE_MS old (or none), a request per app; while Smart Wi-Fi
  * brings the radio back, once its link is up. */
+/* Whether the App Store's last fetched list (SH_LIST, with the card's own lines) has the app id,
+ * not dropped: scrobble_ui.c offers the Vault only when the App Store can install it. */
+int shelf_has_app(const char *id) {
+    unsigned n = 0;
+    int own, found = 0;
+    char *list = read_all(SH_LIST, 1u << 16, &n);
+    shelf_app *out = list ? calloc(SH_MAX, sizeof *out) : 0;
+    for (int i = 0, k = out ? custom_sources(list, out, &own) : 0; i < k; ++i)
+        found |= !out[i].dropped && !strcmp(out[i].id, id);
+    free(out), free(list);
+    return found;
+}
+
 int shelf_open(void *ctx, event_t *event) {
     if (sh.page || !(sh.page = page_open("apps_page", sh_closed, page_keyup))) return 0;
     if (sh.job != JOB_CHECK && !shelf_n) { /* an erase can run from Configuration before it opens */

@@ -21,6 +21,7 @@ static struct {
     int running, woke; /* woke: Smart Wi-Fi's radio woken for this upload */
     /* tries in a row that sent nothing, and the last one's time */
     unsigned misses, missed_at;
+    int hinted; /* the Vault offered this boot (upload_wait) */
 } sa __attribute__((section(".scratch")));
 unsigned scrobble_auto_ms(unsigned pending) {
     int min = SA_MAX_MIN - SA_STEP_MIN * (int)pending;
@@ -89,8 +90,7 @@ static int upload_wait(const void *unused) {
                 sent);
     toast(done > 0 && !sent ? tr("Nothing to upload") : s);
     if (scrobble_note()) toast(tr("Last.fm: add the new account's password to .scrobble.ini"));
-    /* the logins went into the Vault (scrobble.c): offered off the card, once; Keep is remembered
-     */
+    /* the logins in the Vault (scrobble.c): offered off the card, once; Keep is remembered */
     if (scrobble_ask()) {
         if (confirm_over(
                 tr("Logins saved in the Vault. Remove your password and tokens from the card?"),
@@ -99,6 +99,18 @@ static int upload_wait(const void *unused) {
                                    : tr("Couldn't change .scrobble.ini"));
         else
             scrobble_keep();
+    } else if (done > 0 && scrobble_had() && !sa.hinted && !vault_installed() &&
+               config_value("Q2POD", "VAULTHINT", 2, 0) != 1 && shelf_has_app("vault")) {
+        /* the logins sit on the card and the App Store has the Vault: offered once a boot, never
+         * again after Not now */
+        sa.hinted = 1;
+        if (confirm_over(
+                tr("Keep your Last.fm and ListenBrainz logins encrypted, safe if the card is "
+                   "lost or copied?"),
+                tr("Get Vault"), 0) == 10)
+            shelf_open(0, 0);
+        else
+            write_int_config(1, "Q2POD", "VAULTHINT");
     }
     return 0;
 }

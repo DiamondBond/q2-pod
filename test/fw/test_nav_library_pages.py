@@ -3680,3 +3680,64 @@ def test_another_last_fm_user_is_told(fw, ui):
     scrobbler.up.note = 1
     ui.fire('upload_wait')
     assert "Last.fm: add the new account's password to .scrobble.ini" in texts(prompts)
+
+
+# Without the Vault: a scrobbler whose logins sit on the card is offered the Vault, once.
+
+HINT = 'Keep your Last.fm and ListenBrainz logins encrypted, safe if the card is lost or copied?'
+
+
+class Hint:
+    """The Vault installed or not, the App Store's list with it or not (real files, netupdate's Disk); VAULTHINT=1 once
+    Not now was picked. opened: the App Store page's window, which Get Vault opens."""
+    def __init__(self, fw, scrobbler, installed=False, listed=True, declined=False):
+        from test_netupdate import Disk, SOURCES
+        files = {SOURCES: b'js-surya/q2-vault Vault\n' if listed else b'me/q2-foo Foo\n'}
+        if installed:
+            files[b'/mnt/mmc/.vault/q2-vault'] = b'\x7fELF'
+        self.disk, self.saved, self.named = Disk(fw, files), [], []
+        scrobbler.values[b'VAULTHINT'] = b'1' if declined else b''
+        fw.mock('write_int_config', lambda v, s, k, *_: self.saved.append((v, C.string_at(s), C.string_at(k))))
+        fw.mock('widget_set_name', lambda w, n, *_: self.named.append(C.string_at(n).decode()))
+
+    @property
+    def opened(self):
+        return [1] if 'apps_page' in self.named else []
+
+
+def hint_upload(fw, ui, scrobbler, ok=1, had=1):
+    call(fw, 'upload_scrobbles')
+    scrobbler.ends(ok, 1)
+    scrobbler.up.had = had
+    ui.fire('upload_wait')
+
+
+@pytest.mark.parametrize('answer', [10, 0])
+def test_a_scrobbler_without_the_vault_is_offered_it(fw, ui, answer):
+    scrobbler = Scrobbler(fw)
+    prompts = Prompts(fw, answer=answer)
+    hint = Hint(fw, scrobbler)
+    hint_upload(fw, ui, scrobbler)
+    assert texts(prompts).count(HINT) == 1
+    if answer == 10:
+        assert hint.opened == [1] and hint.saved == []
+    else:
+        assert hint.opened == [] and hint.saved == [(1, b'Q2POD', b'VAULTHINT')]
+
+
+def test_the_vault_is_offered_once_a_boot(fw, ui):
+    scrobbler = Scrobbler(fw)
+    prompts = Prompts(fw, answer=10)
+    Hint(fw, scrobbler)
+    hint_upload(fw, ui, scrobbler)
+    hint_upload(fw, ui, scrobbler)
+    assert texts(prompts).count(HINT) == 1
+
+
+@pytest.mark.parametrize('why', ['installed', 'not listed', 'declined', 'no secrets on the card', 'failed'])
+def test_the_vault_isnt_offered(fw, ui, why):
+    scrobbler = Scrobbler(fw)
+    prompts = Prompts(fw, answer=10)
+    Hint(fw, scrobbler, installed=why == 'installed', listed=why != 'not listed', declined=why == 'declined')
+    hint_upload(fw, ui, scrobbler, ok=0 if why == 'failed' else 1, had=0 if why == 'no secrets on the card' else 1)
+    assert HINT not in texts(prompts)

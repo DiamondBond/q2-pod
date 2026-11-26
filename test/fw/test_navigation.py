@@ -2560,7 +2560,7 @@ def test_qm_restore_puts_back_what_a_go_to_overwrote(fw, qm):
 # Scrobbling.
 class Sa(C.Structure):
     _fields_ = [('pending', C.c_uint), ('first_at', C.c_uint), ('check_at', C.c_uint), ('running', C.c_int),
-                ('woke', C.c_int), ('misses', C.c_uint), ('missed_at', C.c_uint)]
+                ('woke', C.c_int), ('misses', C.c_uint), ('missed_at', C.c_uint), ('hinted', C.c_int)]
 
 
 MINUTE = 60000

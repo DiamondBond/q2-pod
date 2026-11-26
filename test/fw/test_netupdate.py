@@ -3399,3 +3399,14 @@ def test_classic_moves_the_list_under_the_tabs_strip(fw):
     fw.fn('store_tabs', C.c_void_p, C.c_void_p, C.c_void_p, C.c_void_p, C.c_void_p)(page, view, None, None)
     assert moved[lst] == (0, 54, 375, 346) and moved[view] == (0, 0, 375, 346)
     fw.fn('store_tabs', C.c_void_p, C.c_void_p, C.c_void_p, C.c_void_p, C.c_void_p)(0, 0, None, None)  # closed
+
+
+@pytest.mark.parametrize('files, listed', [
+    ({SOURCES: b'me/q2-foo Foo\njs-surya/q2-vault Vault\n'}, 1),
+    ({SOURCES: b'me/q2-foo Foo\n-js-surya/q2-vault Vault\n'}, 0),  # dropped from the list
+    ({SOURCES: b'me/q2-foo Foo\n', CUSTOM: b'js-surya/q2-vault Vault\n'}, 1),  # the card's own list
+    ({SOURCES: b'me/q2-foo Foo\n'}, 0),
+    ({}, 0)])  # no list fetched yet
+def test_shelf_has_app_is_whether_the_app_store_has_an_app(fw, files, listed):
+    Disk(fw, files)
+    assert fw.fn('shelf_has_app', C.c_int, C.c_char_p)(b'vault') == listed
