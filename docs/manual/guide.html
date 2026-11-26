@@ -202,6 +202,7 @@ p:has(+ ul), p:has(+ ol), p:has(+ table), p:has(+ pre), .task, h2, h3, .lead { b
 
     <li class="chap" data-n="7"><a class="t" href="#c7">Podcasts, Audiobooks and More</a><span class="n">{{p:c7}}</span></li>
     <li><a class="t" href="#pods">Podcasts and audiobooks</a><span class="n">{{p:pods}}</span></li>
+    <li><a class="t" href="#longbooks">Long audiobooks</a><span class="n">{{p:longbooks}}</span></li>
     <li><a class="t" href="#pbv">Photos and videos</a><span class="n">{{p:pbv}}</span></li>
     <li><a class="t" href="#games">Games</a><span class="n">{{p:games}}</span></li>
 
@@ -967,6 +968,16 @@ TOKEN=12345678-1234-1234-1234-123456789abc</pre>
   <h3>Books divided by a CUE sheet</h3>
   <p>A book that a <code>.cue</code> sheet divides into chapters keeps one position for the full book. A chapter that you select plays from its start, and becomes your position after 30 seconds. To continue, open the book’s chapters, hold Play/Pause on a chapter and select <b>Resume</b>. Music albums with a CUE sheet do not continue where you stopped.</p>
   </div>
+  </div>
+
+  <div class="sec">
+  <h2 id="longbooks">Long audiobooks</h2>
+  <p>Before an <code>.m4b</code> plays, the Q2 puts a list of all its audio frames in memory. If the list is too large, the book does not play, and the Q2 shows “Too long to play on the Q2: split it into parts”. A book that is almost too large can show this message at some chapters, or freeze the Q2.</p>
+  <p>The limit is not one number. A longer book, or a higher sample rate, gives more frames, and the free memory changes with what the Q2 does. As a guide, a 44.1 or 48 kHz book of more than approximately 24 hours possibly does not play. At 22 kHz, a book can be approximately two times as long. The file size has no effect, but an <code>.m4b</code> of 2 GB or more never plays.</p>
+  <p>To play a long book, divide it into parts on a computer with ffmpeg. Select a chapter start near the middle (HH:MM:SS). These commands copy the audio and do not encode it again:</p>
+  <pre>ffmpeg -i book.m4b -map 0:a -c copy -t HH:MM:SS "book part 1.m4b"
+ffmpeg -ss HH:MM:SS -i book.m4b -map 0:a -c copy "book part 2.m4b"</pre>
+  <p>Embedded chapters go into each part. A CUE sheet does not: make one for each part, and in the sheet of part 2, subtract the split time from each chapter time.</p>
   </div>
 
   <div class="sec">
