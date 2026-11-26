@@ -443,6 +443,34 @@ def test_a_needed_app_being_replaced_isn_t_started_but_the_app_is(fw):
     assert wake_with_needs(fw, {'a': b'root=1\nneeds=v\n', 'v': b'root=1\n'}, replacing=b'v') == [b'a']
 
 
+def test_after_usb_storage_a_needed_app_starts_once(fw):
+    """Both marked to start again with the card (addon_card_away), the app's slot first: launch() leaves the needed
+    app to its own poll_one, which starts it once."""
+    world = card(fw, a=b'root=1\nneeds=v\n', v=b'root=1\n')
+    scan(fw)
+    a, v = ap(fw).a[0], ap(fw).a[1]
+    a.relaunch = v.relaunch = 1
+    fw.mock('navigator_window_is_exist', lambda *_: 0)
+    world.ms = 2000
+    poll = fw.fn('addon__poll_one', None, C.POINTER(App))
+    poll(C.pointer(a))
+    poll(C.pointer(v))
+    runs = [r[0] for r in world.of('system')]
+    assert runs.count(b'/bin/sh /mnt/mmc/.v/run') == 1 and runs.count(b'/bin/sh /mnt/mmc/.a/run') == 1
+
+
+def test_an_app_being_replaced_starts_nothing_it_needs(fw):
+    """A wifi=1 app the App Store is updating isn't started, and neither is what it needs, at every Wi-Fi pass."""
+    world = card(fw, a=b'root=1\nneeds=v\n', v=b'root=1\n')
+    scan(fw)
+    table = C.addressof(C.c_char.in_dll(fw.lib, 'shelf_apps'))
+    fw.var('shelf_n', C.c_int).value = fw.fn('shelf_sources', C.c_int, C.c_char_p, C.c_void_p, C.c_int)(b'me/a', table, 1)
+    sh = fw.var('netupdate__sh', Sh)
+    sh.running, sh.job, sh.app = 1, JOB_INSTALL, 0
+    fw.fn('addon_wake', C.c_int, C.c_char_p)(b'a')
+    assert world.of('system') == []
+
+
 def running_needer(fw, **needing_args):
     """The App Store over Plex (needs=vault) and Vault, Plex installed and its chained install of Vault under way, Plex
     running (launched, its pid file there) when Vault's install is to end. Returns the Store, the card."""
@@ -479,15 +507,35 @@ def test_a_chained_install_no_running_app_needs_isn_t_started(fw):
     assert s.run() == 0 and s.sh.job == 0 and vault_runs(card) == []
 
 
-def test_a_user_s_install_of_a_needed_app_isn_t_started(fw):
-    s, card = needing(fw, installed=[b'plex'])
+def user_installs_a_needed_app(fw, installed):
+    """Plex (needs=vault) installed and running, the user's own install of Vault from its row (an update when
+    `installed` has it): Vault's runs after the install ends."""
+    from test_netupdate import Disk, NEEDS_LIST, SOURCES, app_zip, github, one_app, store_net
+    tags = {b'/mnt/mmc/.q2/apps/%s.tag' % n: b'1.0' for n in installed}
+    bins = {b'/mnt/mmc/.q2/apps/%s.files' % n: b'.%s/q2-%s\n' % (n, n) for n in installed}
+    bins.update({b'/mnt/mmc/.%s/q2-%s' % (n, n): b'ELF' for n in installed})
+    card = Disk(fw, {SOURCES: NEEDS_LIST, **tags, **bins, b'/mnt/mmc/.plex/q2app': b'name=Plex\nneeds=vault\n'})
+    z = app_zip(one_app('vault', b''))  # 2.0: an update over an installed 1.0
+    s = Store(fw, card)
+    s.net = store_net(fw, listed=NEEDS_LIST, api=[(0, 200, None, github('2.0', ('app.zip', len(z))))] * 3,
+                      zip=[(0, 200, None, z)])
     s.run()
     scan(fw)
     ap(fw).a[0].launched = 1
     card.files[b'/tmp/q2-plex'] = b'1'
-    s.click(2)  # Vault's row: the user's own install
+    s.click(2)  # Vault's row: the user's own install or update
     assert s.sh.chained == 0
-    assert s.run() == 0 and s.sh.job == 0 and vault_runs(card) == []
+    assert s.run() == 0 and s.sh.job == 0
+    return vault_runs(card)
+
+
+def test_a_user_s_install_of_a_needed_app_starts_it_for_the_app_that_runs(fw):
+    assert len(user_installs_a_needed_app(fw, [b'plex'])) == 1
+
+
+def test_an_update_of_a_needed_app_starts_it_again_for_the_app_that_runs(fw):
+    """Stage 3 stops the old one (addon_quit); with no wake after, it stayed stopped while Plex ran."""
+    assert len(user_installs_a_needed_app(fw, [b'plex', b'vault'])) == 1
 
 
 def test_with_the_card_away_nothing_needed_starts(fw):
