@@ -3398,6 +3398,8 @@ def test_the_unknown_check_tests_the_tag_before_the_music_filter(fw, records):
     db.db.executemany("insert into songtable(id, fileurl, album) values (?, ?, '')", [
         (1000, '/mnt/mmc/Music/Loose/b.flac'), (1001, '/mnt/mmc/Podcasts/Show/1.mp3'), (1002, '/mnt/mmc/Music/Loose/a.flac')])
     assert [r[0] for r in db.rows(songs)] == [r[0] for r in db.rows(as_wrapped)] == [b'9', b'1000', b'1002']
+    db.db.execute('create index songtable_album on songtable(album collate nocase)')
+    assert [r[0] for r in db.rows(songs)] == [r[0] for r in db.rows(as_wrapped)] == [b'9', b'1000', b'1002']
     assert [r[0] for r in db.rows(tag_first)] == [b'9']  # the first loose song
     db.db.execute("update songtable set album = 'Loose' where id in (9, 1000, 1002)")
     assert db.rows(tag_first) == db.rows(songs) == []  # no untagged music song: the spoken and the hidden ones aren't found
@@ -3425,7 +3427,7 @@ def test_the_unknown_check_compares_the_tag_nocase_and_albums_searches_its_index
         return ' '.join(str(step[-1]) for step in db.db.execute('explain query plan ' + sql))
     assert 'USING INDEX songtable_album' in plan(album) and 'USING INDEX songtable_album' in plan(songs)
     assert 'songtable_album' not in plan(stock) and 'songtable_album' not in plan(artist)  # no index answers these
-    # a row a value: only the empty text is "no tag", compared either way, with the index and without it
+    # one row at a time, each value: only the empty text is "no tag", compared either way, with the index and without it
     values = ['', ' ', 'a', 'A', '0', 0, None, b'', '\0', 'a\0', chr(0xc9), chr(0xe9), chr(0x200b)]
     for index in (True, False):
         if not index:

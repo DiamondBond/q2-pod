@@ -103,11 +103,13 @@ static int library_query(int content, const char *db, const char *sql, void *row
          * subquery's where comes ahead of stock's, and SQLite tests the terms in order, so the
          * music filter's three LIKEs, dearer a row than the tag test, go after it, not before it.
          * The tag's ="" is compared NOCASE: '' equals only '' as it does compared BINARY, so the
-         * same songs in the same order, and Albums' two search songtable_album (coverflow.c) where
-         * they read the table. The other tags have no index: theirs read the table, the check to
-         * the first such song. ponytail: this needs stock's where (Album Artist's after its
-         * rewrite) to be one term with no space that ends ="" (the five NULL queries are,
-         * internals.md Unknown rows); any other shape is wrapped as before. */
+         * same songs in the same order, and Albums' check and songs search songtable_album
+         * (coverflow.c) where they read the table. The other tags have no index: theirs read the
+         * table, the check to the first such song. ponytail: this needs stock's where (Album
+         * Artist's after its rewrite) to be one term with no space that ends ="" (the five NULL
+         * queries are, internals.md Unknown rows); any other shape is wrapped as before. Albums'
+         * search fetches each untagged song's row for the filter: dearer than the scan where most
+         * songs have no album tag, or most untagged ones are spoken. */
         int n = strstr(rest, " where ") == rest && !strstr(rest + 7, " ") &&
                         !strcmp(rest + strlen(rest) - 3, "=\"\"")
                     ? tk_snprintf(filtered, sizeof filtered, "%s collate nocase and (%s)%s", sql,
