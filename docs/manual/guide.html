@@ -930,7 +930,11 @@ TOKEN=12345678-1234-1234-1234-123456789abc</pre>
   <pre>python3 lastfm_key.py /path/to/card/.scrobble.ini</pre>
   <p>(On Windows, use <code>py</code>, not <code>python3</code>.) It signs in one time and replaces <code>PASSWORD</code> with a <code>SESSION_KEY</code>. Without a <code>PASSWORD</code> line, it shows a password prompt. The key cannot sign in or change your password, but it can scrobble and edit your profile. If somebody gets your card, revoke the application in <b>Settings → Applications</b> on last.fm. Somebody can possibly read a password that was on the card before, thus change it if this is important.</p>
   </div>
-  <div class="note important"><p><span class="label">Caution:</span> Keep the card safe. <code>.scrobble.ini</code> contains your credentials in plain text.</p></div>
+  <div class="sub">
+  <h3>Keep your logins in the Vault</h3>
+  <p>Install <b>Vault</b> from the App Store. At the next upload, Q2 Pod moves your password, keys and token from <code>.scrobble.ini</code> into the Vault, encrypted, with its key inside the Q2, and swaps a Last.fm password for a session key. It then asks <b>Remove your password and tokens from the card?</b>: <b>Remove</b> keeps only your user name and settings in the file, with <code>VAULT=1</code> where the logins were. To change an account, write its lines in the file again. The Vault's page lists them as <b>Q2 Pod (scrobbling)</b>, with <b>Remove</b>.</p>
+  </div>
+  <div class="note important"><p><span class="label">Caution:</span> Keep the card safe. Without the Vault, <code>.scrobble.ini</code> contains your credentials in plain text.</p></div>
   </div>
 
 </section>

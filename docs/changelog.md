@@ -1,6 +1,7 @@
 # Changelog
 
 - **1.9.5**:
+  - Scrobbling: with the Vault card app installed, your Last.fm and ListenBrainz logins are kept in it, encrypted, and Q2 Pod offers to remove them from the card. Without it, a scrobbler is offered the Vault once.
   - Library: going back to **Albums** from an album, Now Playing or the hold menu shows the list at once, unless the library has changed or is updating. It used to read and sort the whole library again each time.
 - **1.9.4**:
   - Playlists: holding Play/Pause on a Cover Flow cover offers **Add to Playlist**, which adds that album's songs. From an **Albums** row it adds only that album, not every album with the same name.
