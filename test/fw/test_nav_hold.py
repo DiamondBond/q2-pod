@@ -3708,6 +3708,41 @@ def test_a_names_article_is_left_out_of_its_sort(fw, name, key):
     assert s.value == key and len(fw.calls('toolsTrimLeft')) == 1
 
 
+@pytest.mark.parametrize('a, b, want', [
+    ('Zebra', '你好', 1), ('你好', 'Zebra', 0), ('あ', 'ア', 1),
+    ('ア', '世界', 1), ('世界', '가', 1), ('가', '𠮷', 1), ('𠮷', '가', 0),
+    ('你好', '你好', 0), ('你好', '你好呀', 1), ('你好a', '你好A', 0),
+    ('The 你好', '你好', 0), ('  さくら', 'ア', 1), ('A', 'An', -1),
+    ('Été', 'Zebra', -1), ('Ánh', '世界', 1), ('A你好', 'Zebra', -1),
+    ('ㄱ', '가', 1), ('ｱ', '𠮷', 1), ('', '你好', 1),
+    (b'\xe4\x00', '你好', 1), (b'\xed\xa0\x80', 'Zebra', -1),
+    (b'\xf4\x90\x80\x80', 'Zebra', -1), (b'\xe0\x80\x80', 'Zebra', -1),
+])
+def test_cjk_title_sort(fw, a, b, want):
+    encode = lambda s: s.encode() if isinstance(s, str) else s
+    less = fw.fn(ui_name(fw.lib, 'sort_cjk_less'), C.c_int, C.c_char_p, C.c_char_p)
+    assert less(encode(a), encode(b)) == want
+
+
+@pytest.mark.parametrize('suffix', ['', '_pinyin'])
+def test_cjk_library_comparator_preserves_stock_and_uses_title(fw, recs, suffix):
+    cmp = fw.fn('ringnav_name_cmp' + suffix, None, C.c_void_p, C.c_void_p, C.POINTER(C.c_uint))
+    stock = 'stock_name_cmp' + suffix + '_trampoline'
+    def original(a, b, out, *_):
+        C.c_uint.from_address(out).value = 1
+        return 0
+    fw.mock(stock, original)
+    a = recs(title='Zebra', name='你好.flac')
+    b = recs(title='世界', name='A.flac')
+    c = recs(name='你好.flac')
+    d = recs(title='Apple')
+    for x, y, want in [(a, b, 1), (b, a, 0), (b, c, 1), (c, c, 0), (d, a, 1)]:
+        out = C.c_uint(0xffffffff)
+        cmp(x, y, C.byref(out))
+        assert out.value == want
+    assert len(fw.calls(stock)) == 1
+
+
 # The charge limit (charge_poll): charging stops at CHARGE_STOP and is handed back at CHARGE_RESUME.
 STOP_AT, RESUME_AT, CHARGE_POLL = O['CHARGE_STOP'], O['CHARGE_RESUME'], O['CHARGE_POLL_MS']
 

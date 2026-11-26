@@ -58,6 +58,16 @@ names=['Daft Punk','The Cure','Coldplay','Them Crooked Vultures','A Tribe Called
 for cmp in (0x5cd188,0x5cc870):
     assert ordered(names,cmp)==['Anthrax','Coldplay','The Cure','Daft Punk','an Orchestra','The','Them Crooked Vultures','Toto','A Tribe Called Quest'],ordered(names,cmp)
     passed()
+    cjk=['안녕하세요','你好','𠮷野','さくら','世界','가나다','アイドル','あいしてる','月亮','사랑해','你好呀','你好A']
+    mixed=['Zebra',*cjk,'apple','Blue Sky']
+    assert ordered(mixed,cmp)==['apple','Blue Sky','Zebra',*sorted(cjk)],ordered(mixed,cmp)
+    # Check the callback's word result, not just its low byte, and the filename fallback.
+    out=m.alloc(4); a=sort_rec(''); m.word(a+8,m.string('你好.flac')); b=sort_rec('Zebra')
+    for x,y,want in ((a,b,0),(b,a,1),(a,a,0)):
+        m.word(out,0xffffffff)
+        m.call(address=cmp,args=(x,y,out,0),gap=0,count=2_000_000)
+        assert m.get(out)==want
+    passed()
 key=lambda t: (m.u.mem_write(0x1100000,t.encode()+b'\0'), m.call(address=payload_syms['ringnav_sort_key'],args=(0x1100000,0,0,0),gap=0), m.text(0x1100000))[2]
 assert [key(t) for t in ('  The Cure','THE CURE','The ','The  Cure','A','An ','Ant','周杰伦','The 周杰伦')]==['Cure','CURE','The ','The  Cure','A','An ','Ant','周杰伦','周杰伦']; passed()
 # iPod boots to Home: home_page_init's memory-play resume, run from its stock context build, starts
