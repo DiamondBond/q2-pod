@@ -1119,6 +1119,25 @@ def test_songs_action_row(monkeypatch):
     assert n['view_navbar_allplay'][1] == [0, 0, 375, 50]
 
 
+def album_page():
+    """An album's page as stock's: the toolbar, Play All's bar under it and the songs under that."""
+    page = list_page('localmusic/albuminfo_page.bin')
+    page[3][1][1] = [0, 100, 375, 190]
+    page[3].insert(1, w('view_navbar_allplay', at=[0, 50, 375, 50]))
+    return page
+
+
+# An album's Play All bar is the same plain row as Songs' under Classic, its songs right under it. A set without action_row
+# keeps stock's 50 px bar.
+def test_album_action_row(monkeypatch):
+    path = 'localmusic/albuminfo_page.bin'
+    data = ipod.encode(album_page()); monkeypatch.setitem(ipod.UI_ASSETS, path, ipod.sha(data))
+    n = named(ipod.decode(ipod.patch_asset(path, data, g=CLASSIC_LIGHT)))
+    assert n['view_navbar_allplay'][1] == [0, 0, 375, 32] and n['list_view'][1] == [0, 32, 375, 262]
+    n = named(ipod.decode(ipod.patch_asset(path, data)))
+    assert n['view_navbar_allplay'][1] == [0, 0, 375, 50] and n['list_view'][1][:2] == [0, 50]
+
+
 def test_settings_lists_follow_the_set(monkeypatch):
     # Settings lists hold the set's rows from its top: SET0 four 68 px rows from 8, Classic's whole window of 32 px rows from 0.
     path = 'systemset/sysset_page.bin'
@@ -1227,7 +1246,7 @@ def test_stock_rows_are_stocks_under_set0():
 def test_lists_beside_settings_rows_take_item_height(monkeypatch):
     # A library list with the set's settings row height is told apart by its item_height (Classic only).
     path = 'localmusic/albuminfo_page.bin'
-    data = ipod.encode(list_page(path)); monkeypatch.setitem(ipod.UI_ASSETS, path, ipod.sha(data))
+    data = ipod.encode(album_page()); monkeypatch.setitem(ipod.UI_ASSETS, path, ipod.sha(data))
     assert named(ipod.decode(ipod.patch_asset(path, data, g=CLASSIC_LIGHT)))['list_view'][2]['item_height'] == '32'
     assert 'item_height' not in named(ipod.decode(ipod.patch_asset(path, data)))['list_view'][2]
 

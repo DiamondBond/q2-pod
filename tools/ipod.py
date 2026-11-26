@@ -1140,13 +1140,13 @@ def patch_word(data, address, old, new, purpose, changes=None):
 
 
 def songs_action_row(root, g):
-    """Songs' action bar as a plain row: the row and what is under it. Stock rebuilds the row's children on each refresh, so the
-    payload shapes those as it paints (navigation.c action_row)."""
+    """Songs' action bar, and an album page's, as a plain row: the row and what is under it. Stock rebuilds the row's children on
+    each refresh, so the payload shapes those as it paints (navigation.c action_row)."""
     row = next(n for n in root[3] if n[2].get('name') == 'view_navbar_allplay')
     row[1][3] = g.action_row
     for n in root[3]:
         if n[1][1] == 50 and n is not row:
-            if n[0] == 'table_view':
+            if n[0] in ('table_view', 'list_view'):
                 n[1][3] = 320 - g.bar - g.action_row
             n[1][1] = g.action_row
 
@@ -1243,7 +1243,7 @@ def patch_asset(path, data, g=SET0):  # pragma: no mutate block
             if n[0] == 'hscroll_label' and n[1][1:2] == [25] and n[1][3] == 20:
                 n[1][1], n[1][3] = 0, SET_STOCK_BODY
         return encode(root)
-    if path == 'localmusic/allmusic_page.bin' and g.action_row:
+    if path in ('localmusic/allmusic_page.bin', 'localmusic/albuminfo_page.bin') and g.action_row:
         songs_action_row(root, g)
 
     def rows(n, in_row=False):

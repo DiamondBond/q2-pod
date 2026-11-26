@@ -5328,11 +5328,12 @@ int title_gone(void *w, event_t *event) {
     return 0;
 }
 
-/* Songs' action bar as a plain row (a set's action_row, its view tools/ipod.py sizes). Stock
- * rebuilds its children on each refresh (0x4a9e78): the label first, then Play All's image and
- * maybe Sort's, each bound as it is made. They stay as hit areas: the label at the list's text x in
- * the row's face and size, Play All's image over the row's left without its icon, Sort's three bars
- * (tools/art.py) over the right. Their first child's height says they are done. */
+/* Songs' action bar, and an album page's, as a plain row (a set's action_row, its view
+ * tools/ipod.py sizes). Stock rebuilds its children on each refresh (0x4a9e78, an album page's
+ * 0x4a8494): the label first, then Play All's image and maybe Sort's, each bound as it is made.
+ * They stay as hit areas: the label at the list's text x in the row's face and size, Play All's
+ * image over the row's left without its icon, Sort's three bars (tools/art.py) over the right.
+ * Their first child's height says they are done. */
 static void action_row(widget_t *view) {
     int h = geom_val(V_ACTION_ROW), n = widget_count_children(view);
     if (n < 2 || I(widget_get_child(view, 0), W_H) == h) return;

@@ -1265,7 +1265,7 @@ void playback_np(void) {
 /* The same row of the same list: nothing starts. SyncLink's (0x5264c4, 0x5266b4), off the UI
  * thread, stays silent, the track playing on. From another list stock loads it, and the poll goes
  * back to the place. Not a press: an app's .play (press_natural), Shuffle Albums' load, DLNA and
- * online. */
+ * online. An album's Play All then opens Now Playing, as a song's row does. */
 int ringnav_player_start(void *q, int at, int cls, int mode) {
     void *from = __builtin_return_address(0);
     if (!press_natural && !s.grouping && local_class(cls) && playback_keeps(q, at)) {
@@ -1279,7 +1279,9 @@ int ringnav_player_start(void *q, int at, int cls, int mode) {
             return 1;
         }
     }
-    return stock_player_start_trampoline(q, at, cls, mode);
+    int result = stock_player_start_trampoline(q, at, cls, mode);
+    if (from == (void *)ALBUM_PLAY_RET) playback_np();
+    return result;
 }
 int playback_group_skip(int forward) {
     if (!s.active && !playback_set(2, s.folder)) return 0;

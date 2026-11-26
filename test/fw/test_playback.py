@@ -3503,6 +3503,17 @@ def test_a_pick_of_the_playing_file_from_a_page_shows_it_playing(fw, keeps, play
     assert now_playing(fw) == ([b'playing_page'] if opens else []) and len(fw.calls('player_play_pause')) == plays
 
 
+@pytest.mark.parametrize('ret, opens', [(ALBUM_PLAY_RET, True), (ALBUMINFO_PLAY_RET, False), (PAGE_PICK_RET, False)])
+def test_an_albums_play_all_opens_now_playing_after_its_start(fw, keeps, player, stock_call, ret, opens):
+    """An album page's Play All starts the album, then opens Now Playing, as a song's row does; Songs' Play All stays."""
+    album = player.deques.new([player.song(b'/m/a%d.flac' % i) for i in range(2)])
+    start = stock_call(ret, 'ringnav_player_start', C.c_int, C.c_void_p, C.c_int, C.c_int, C.c_int)
+    fw.mock('stock_player_start_trampoline', lambda *_: 4)
+    assert start(album, 0, LIBRARY, 2) == 4
+    assert [a[:3] for _, a in fw.calls('stock_player_start_trampoline')] == [(album, 0, LIBRARY)]
+    assert now_playing(fw) == ([b'playing_page'] if opens else [])
+
+
 @pytest.mark.parametrize('site, at, kept', [
     ('view queue', 1, True), ('view queue', 2, False),
     ('elsewhere', 1, False),  # the queue's delete, a DLNA or URL play: stock's start, even on the playing row
