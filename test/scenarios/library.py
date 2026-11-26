@@ -41,7 +41,8 @@ for boot,want in ((lambda k:classic_light_boot(k,'1'),''),(lambda k:classic_ligh
         assert m.nodes[meta].get('text')==text,(artist,m.nodes[meta].get('text'),want)
     assert m.formats==(['Unknown Artist']*2 if want else []),m.formats
 passed()
-# Library sorts: both stock name comparators, on the patched trim calls, skip a leading article.
+# Library sorts: both name comparators skip a leading article (their entries' hooks here; stock's own bodies, on the
+# patched trim calls, in scenarios/name_sort.py).
 from build import SORT_TRIMS
 for a in SORT_TRIMS: assert struct.unpack_from('<I',demo,fileoff(demo,a))[0]==jal(payload_syms['ringnav_sort_key'])
 

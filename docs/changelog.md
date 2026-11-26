@@ -8,6 +8,7 @@
   - Library: **Unknown Album** opens sooner on a big library.
   - Library: under Classic, **Play All** at the top of an album's songs is a row like the one on **Songs**, with the songs right under it, and tapping it plays the album from its first song and opens Now Playing. It sat in a taller band, and tapping it did nothing.
   - Library: names that start with Chinese, Japanese or Korean characters come after the A–Z names in **Artists**, **Albums**, **Songs**, **Genres** and **Composers**, in Unicode order. Chinese names were filed among A–Z by their pinyin. With a Chinese language pack, the lists keep their pinyin order.
+  - Library: lists sorted by name (**Songs** in Alphabetical order, **Albums**, **Artists**, **Composers**, **Genres**, **Hi-Res**, **My Fav** and Search's results) take less of the processor to sort, in the same order. Each comparison of two names used to copy both and measure them again at every character.
   - User guide: **Long audiobooks** says what makes an `.m4b` too long for the Q2, about how long one can be, and how to divide one into parts.
 - **1.9.4**:
   - Playlists: holding Play/Pause on a Cover Flow cover offers **Add to Playlist**, which adds that album's songs. From an **Albums** row it adds only that album, not every album with the same name.

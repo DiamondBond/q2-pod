@@ -12735,4 +12735,5 @@ assert any(c[0]=='hscroll_label_set_only_focus' for c in m.calls); passed()
 import scenarios.flat_pages  # last: its cases follow every other's
 import scenarios.classic_modern  # after flat_pages: its cases follow
 import scenarios.rotate  # after classic_modern: its cases follow
+import scenarios.name_sort  # after rotate: its cases follow
 print(f'{q2emu.checks} MIPS execution scenarios passed; toolkit services mocked, stock lock filter executed.')
