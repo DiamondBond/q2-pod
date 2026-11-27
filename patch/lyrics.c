@@ -74,6 +74,18 @@ static int lrc_stamps(char **s, int *t, int n) {
     return k;
 }
 
+/* p past the singer marker leading it: "v", digits and a colon ("v1:", "v12:"), and one space after
+ * it; else p. Apple Music's lyrics name the singer of each line that way for their duet layout, and
+ * the files built from them (lrc.red's) carry the marker over. It goes once a line and only at its
+ * start. */
+static char *lrc_singer(char *p) {
+    char *q = p;
+    if (*q++ != 'v' || *q < '0' || *q > '9') return p;
+    while (*q >= '0' && *q <= '9') ++q;
+    if (*q++ != ':') return p;
+    return q + (*q == ' ');
+}
+
 /* s with its word stamps cut out, in place; when keep, each one's ms and byte offset into m (up to
  * cap, counted in *n). */
 static void lrc_words(char *s, lrc_mark *m, unsigned cap, unsigned *n, int keep) {
@@ -156,6 +168,7 @@ static int lrc_parse(char *text, lrc_line **lp, lrc_mark **mp) {
         c = *e, *e = 0;
         if ((k = lrc_stamps(&line, t, 8)) && !synced)
             synced = 1, n = 0; /* LRC: the lines before go */
+        line = lrc_singer(line);
         first = nm;
         lrc_words(line, m, caps, &nm, k == 1);
         line = lrc_trim(line, m + first, nm - first);
