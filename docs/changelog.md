@@ -1,5 +1,7 @@
 # Changelog
 
+- **1.9.6**:
+  - Home: with a card app as the **Shortcut**, Split's pane shows the app's own picture when it has one, in the theme's style, where it always showed the Games controller. Mixtape 1.0.10 has a cassette.
 - **1.9.5**:
   - Ratings: artists take 0 to 5 hearts, as albums do. Hold Play/Pause on an artist in **Artists** and choose **Rate Artist**, or **Add to Favourites** for five; the artist's songs stay as they are. **Library → Ratings → Artists** lists the rated artists, most hearts first, and opens one. **Rated Artists** joins the **Shortcut** list in **Display → Appearance**, and `.ratings.tsv` on the card lists the rated artists too.
   - Display: **Show Sample Rate** is gone from the status bar; Now Playing's info pane shows the rate.
@@ -18,7 +20,6 @@
   - Cover Flow: under Classic and Classic Modern, Cover Flow opens as on an iPod classic: the screen splits down the middle, between Home's list and its art, and the two halves slide apart to show the covers. Return slides them back together. An artist's covers and the playlists' still open at once, and close the same way.
   - Apps: in an app's list with covers, a row with no cover, such as Mixtape's **Artists**, **Re-roll** and **Save as Playlist**, is a normal row's height. It was as tall as a row with a cover. A song whose cover is missing still leaves room for one, so it lines up with the others.
   - Cover Flow: **Hide Duplicate Songs** lists a song once where an album's card holds two copies with the same title and artist, even when their disc or track numbers differ. It hid only copies whose disc and track numbers matched too, so a copy with no disc number, or one numbered by its place in a playlist, still showed twice.
-  - Home: with a card app as the **Shortcut**, Split's pane shows the app's own picture when it has one, in the theme's style, where it always showed the Games controller. Mixtape 1.0.10 has a cassette.
   - Lyrics: a timed line that names its singer after its time, as in Apple Music's duet lyrics (`[00:16.898]v1:I ponder…`), shows without the `v1:`. It showed as part of the line.
 - **1.9.4**:
   - Playlists: holding Play/Pause on a Cover Flow cover offers **Add to Playlist**, which adds that album's songs. From an **Albums** row it adds only that album, not every album with the same name.
