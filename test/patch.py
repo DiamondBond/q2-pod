@@ -10264,10 +10264,11 @@ bw=335; fw=bw*470//1000; rows=[(0,i,bw,1) for i in range(17)]; fills=[(0,i,fw,1)
 assert [b[:4] for b in pn.bands if b[2]==bw]==rows and [b[:4] for b in pn.bands if b[2]==fw]==fills
 assert not [b for b in pn.bands if b[4]==0xff3a3a3a]; pn.close(); passed()
 # Covers (addon.c art_rows, art_row): a row's cover is /tmp/q2-<id>.art/<key>.jpg, key the FNV-1a 32 of its URI, a
-# tab and its context, in 8 lowercase hex digits, at most 128 px either way. One cover in a list draws all its rows as stock Tidal's: 78 px
+# tab and its context, in 8 lowercase hex digits, at most 128 px either way. One cover in a list draws its rows as stock Tidal's: 78 px
 # high, the 64 px cover (scaled to fit) at the theme's left, the title over the subtitle beside it, a row without
-# a file keeping the room empty and a row that opens a page its chevron. Without a file for any row (another
-# row's key is no match), or with a progress row, the list is as before.
+# a file keeping the room empty when a row of its URI has one (art_tall), else a plain row's height, and a row that
+# opens a page its chevron. Without a file for any row (another row's key is no match), or with a progress row, the
+# list is as before.
 ART_JPEG=bytes.fromhex('ffd8ffc0001108004000400301')+bytes(16)  # all picture_size reads
 COVERS=[('list','album','One','An Artist','al-1','playalbum'),('local','/mnt/mmc/.soulseek/Two.flac','Two','','','')]
 def covers(files=(),rows=COVERS,msg='',cursor=''):
@@ -10280,17 +10281,19 @@ c=covers((art_file('album','al-1'),),[COVERS[0],('progress','','Half','','','500
 assert heights(c)==[64,64] and not cover_images(c); passed()
 c=covers((art_file('album','al-1'),)); x=O['CF_EDGE']; tx=x+76; plain=covers()
 assert c.labels()==['Downloads','One','An Artist','Two',''],c.labels()
-assert c.nodes[c.get(c.find('scroll_view')+O['W_PARENT'])]['item_height']==78 and heights(c)==[78,78] and [c.get(r+O['W_Y']) for r in c.rows()]==[0,78]
+assert c.nodes[c.get(c.find('scroll_view')+O['W_PARENT'])]['item_height']==0 and heights(c)==[78,64] and [c.get(r+O['W_Y']) for r in c.rows()]==[0,78]
 title,detail,img,_=c.nodes[c.rows()[0]]['children']; cap,det=[box(plain,k) for k in plain.nodes[plain.rows()[0]]['children'][:2]]; dy=(78-heights(plain)[0])//2
 assert c.nodes[img]['image']=='file://'+art_file('album','al-1') and c.nodes[img]['draw_type']==4 and box(c,img)==[x,7,64,64],box(c,img)
 assert box(c,title)==[tx,cap[1]+dy,316-tx,cap[3]] and box(c,detail)==[tx,det[1]+dy,316-tx,det[3]] and chevron(c,0),(box(c,title),box(c,detail))
-two,_=c.nodes[c.rows()[1]]['children']; assert box(c,two)==[tx,0,375-x-tx,78],box(c,two); passed()
-# Its later pages (page_next) join it as 78 px rows, the trailing Loading… one too, the rows shown kept.
+two,_=c.nodes[c.rows()[1]]['children']; assert box(c,two)==[tx,0,375-x-tx,64],box(c,two)
+c=covers((art_file('album','al-1'),),[COVERS[0],('list','album','Three','','al-3',''),COVERS[1]])
+assert heights(c)==[78,78,64] and [c.get(r+O['W_Y']) for r in c.rows()]==[0,78,156] and len(cover_images(c))==1; passed()
+# Its later pages (page_next) join it, rows of a URI with no cover and the trailing Loading… one plain, the rows shown kept.
 more=[(*COVERS,*[('info','',f'Row {i}','','','') for i in range(8)]),[('info','','Last','','','')]]
 c=covers((art_file('album','al-1'),),more[0],'pages','c1'); rows=c.rows()
-assert c.labels()[-2]=='Loading…' and heights(c)==[78]*11,(c.labels()[-3:],heights(c))
+assert c.labels()[-2]=='Loading…' and heights(c)==[78]+[64]*10,(c.labels()[-3:],heights(c))
 c.answer('ok','pages','',more[1]); assert c.requests[-1]==('downloads','c1') and c.rows()[:10]==rows[:10] and c.labels()[-2]=='Last'
-assert heights(c)==[78]*11 and c.get(c.find('scroll_view')+O['VIEW_CONTENT_H'])==11*78 and len(cover_images(c))==1; passed()
+assert heights(c)==[78]+[64]*10 and c.get(c.find('scroll_view')+O['VIEW_CONTENT_H'])==78+10*64 and len(cover_images(c))==1; passed()
 # Search: the T9 box, its OK opening "search" for the text, escaped.
 m.pick(1); edit=m.find('edit'); assert m.nodes[edit]['tips']=='Search Soulseek'
 m.nodes[edit]['text']='aphex\ttwin'; f,ctx=m.handler(edit,O['EVT_VALUE_CHANGED'])
@@ -10377,10 +10380,11 @@ s.pick(0); assert s.labels()==['Loading…']
 s.answer('ok','pages','c1',arts(0)); assert s.requests[-1]==('downloads','c0'),s.requests[-1]; s.answer('ok','','',[*arts(1,49),('page','next','Next page','','c200','')])
 assert s.nodes[s.find('scroll_view')]['_ringnav_index']==99,s.nodes[s.find('scroll_view')]['_ringnav_index']
 s.back(); s.answer('ok','refresh','',SMENU); assert s.requests[-1]==('menu',) and s.labels()==SLABELS; passed()
-# In a list drawn with covers a page row is a row of that list: 78 px, its caption centred, the cover's room empty.
+# In a list drawn with covers a page row is a row of that list: a plain row's height under the cover's, its
+# caption centred in the covers' text column.
 page_c=covers((art_file('album','al-1'),),[COVERS[0],('page','next','Next page','','c2','')]); page_tx=O['CF_EDGE']+76
-assert heights(page_c)==[78,78] and [page_c.get(r+O['W_Y']) for r in page_c.rows()]==[0,78] and len(cover_images(page_c))==1,(heights(page_c),cover_images(page_c))
-page_t=page_c.nodes[page_c.rows()[1]]['children'][0]; assert page_c.nodes[page_t]['text']=='Next page' and box(page_c,page_t)==[page_tx,0,375-O['CF_EDGE']-page_tx,78],box(page_c,page_t); passed()
+assert heights(page_c)==[78,64] and [page_c.get(r+O['W_Y']) for r in page_c.rows()]==[0,78] and len(cover_images(page_c))==1,(heights(page_c),cover_images(page_c))
+page_t=page_c.nodes[page_c.rows()[1]]['children'][0]; assert page_c.nodes[page_t]['text']=='Next page' and box(page_c,page_t)==[page_tx,0,375-O['CF_EDGE']-page_tx,64],box(page_c,page_t); passed()
 # A page kept holds its own size, its bytes and their NUL: realloc'd before its fields are cut (the mock moves it
 # and spoils the old block), not the request's 64 KB.
 s=SlskMachine(); s.open(); s.answer('ok','refresh','',SMENU); s.pick(2); s.resized.clear(); s.answer('ok','pages','c1',arts(0)); s.answer('ok','pages','',arts(1,3))

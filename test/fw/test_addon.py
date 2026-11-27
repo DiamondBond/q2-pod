@@ -79,7 +79,7 @@ class Pg(C.Structure):
                 ('f', C.POINTER(C.c_char_p)), ('pages', C.c_int), ('paging', C.c_int), ('moved', C.c_byte),
                 ('sec', C.c_void_p), ('nsec', C.c_byte), ('cur', C.c_byte), ('sx', C.c_int), ('sy', C.c_int),
                 *((n, C.c_byte) for n in ('sdown', 'sclaim')), ('art_lo', C.c_int), ('art_hi', C.c_int),
-                ('sort', C.c_char_p * 6), ('field', C.c_int), ('up', C.c_int)]
+                ('sort', C.c_char_p * 6), ('field', C.c_int), ('up', C.c_int), ('tall', C.c_uint * 16), ('art_uri', C.c_uint * 8), ('art_uris', C.c_int)]
 
 
 class Qp(C.Structure):
@@ -3315,11 +3315,12 @@ def test_a_rows_bitmap_is_let_go_before_its_image_and_at_the_level_end(fw):
 
 
 def scrolled(fw, count):
-    """A list of count rows with a cover in row 0, 390 px high (five 78 px rows); its unload names; a row's URL."""
+    """A list of count rows with a cover each, 390 px high (five 78 px rows); its unload names; a row's URL."""
     p = Page(fw)
     names = unloads(fw)
     C.c_int.from_address(p.view + W_H).value = 390
-    p.world.files[art_path(b'op0', b'')] = jpeg()
+    for k in range(count):
+        p.world.files[art_path(b'op%d' % k, b'')] = jpeg()
     p.answer(rows=[item(k) for k in range(count)])
     del names[:]
     return p, names, lambda k: b'file://' + art_path(b'op%d' % k, b'')
@@ -3515,14 +3516,29 @@ def test_a_press_with_a_page_in_flight_asks_for_the_window(fw):
 
 
 def test_a_page_row_in_a_list_with_covers_is_as_high_as_its_rows(fw):
-    """addon.c row: a page row takes art_row's path, 78 px, its cover's room empty, as the trailing row."""
+    """addon.c row: a page row takes art_row's path, a plain row's height under the cover's, as the trailing row."""
     p = Page(fw)
     p.world.files[art_path(b'op0', b'')] = jpeg()
     moved, images = [], []
     fw.mock('widget_move_resize', lambda _, x, y, w, h, *__: moved.append((x, y, w, h)) or 0)
     fw.mock('image_create', lambda *_: images.append(1) or 0)
     p.answer(rows=[item(0), NEXT])
-    assert p.top.art == 1 and (0, 0, 375, 78) in moved and (0, 78, 375, 78) in moved and len(images) == 1
+    plain = fw.fn('page_h', C.c_int, C.c_int)(64)
+    assert p.top.art == 1 and (0, 0, 375, 78) in moved and (0, 78, 375, plain) in moved and len(images) == 1
+
+
+def test_a_row_without_a_cover_is_plain_unless_a_row_of_its_uri_has_one(fw):
+    """addon.c art_tall: a song whose cover is missing keeps the cover's room, as a row of its uri has one; a row
+    of another uri (an info line, an action) is a plain row's height, and the rows under it move up."""
+    p = Page(fw)
+    p.world.files[art_path(b'song', b'1')] = jpeg()
+    moved = []
+    fw.mock('widget_move_resize', lambda _, x, y, w, h, *__: moved.append((x, y, w, h)) or 0)
+    p.answer(rows=[(b'action', b'song', b'One', b'sub', b'1', b''), (b'info', b'', b'Artists', b'sub', b'', b''),
+                   (b'action', b'song', b'Two', b'sub', b'2', b''), (b'action', b'save', b'Save', b'sub', b'', b'')])
+    plain = fw.fn('page_h', C.c_int, C.c_int)(64)
+    rows = [m for m in moved if m[0] == 0 and m[2] == 375]
+    assert rows == [(0, 0, 375, 78), (0, 78, 375, plain), (0, 78 + plain, 375, 78), (0, 156 + plain, 375, plain)]
 
 
 def test_more_is_a_level_of_its_own_at_the_newest_cursor(fw):

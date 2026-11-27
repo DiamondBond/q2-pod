@@ -61,9 +61,10 @@
  * key the row's URI, a tab and its context, hashed FNV-1a 32 (hash_bytes from FNV_SEED) and written
  * as 8 lowercase hex digits. A list with a cover for any of its rows is drawn as stock Tidal's
  * lists are (art_row): ART_ROW_H rows, the cover at the left, the title and subtitle beside it; a
- * row without one keeps the cover's room empty. The app sizes the covers: one over ART_MAX px
- * either way counts as none. The protocol is unchanged, so an app without covers, or firmware
- * without "art", shows the plain rows.
+ * row without one keeps the cover's room empty when a row of its uri has one (a song whose cover
+ * is missing), else is a plain row's height, its text in the same column (art_tall). The app sizes
+ * the covers: one over ART_MAX px either way counts as none. The protocol is unchanged, so an app
+ * without covers, or firmware without "art", shows the plain rows.
  *
  * The card-app features this firmware has are words in /tmp/q2-addon.caps (ADDON_CAPS), written at
  * every Streaming scan. */
@@ -111,6 +112,7 @@
 #define ART_PX 64         /* its cover, square, centred in the row's height */
 #define ART_MAX 128 /* the most a cover's or an icon's file may be, either way; larger is none */
 #define ART_KEEP 24 /* the rows' covers kept decoded around the list's scroll position */
+#define ART_URIS 8  /* a cover list's uris with a cover told apart (art_tall); more: all tall */
 #define ART_URL (APP_ID + 32) /* art_file's file:// URL, its NUL included */
 #define BAR_ICON_W 40 /* the most an app's status bar icon may be: wider or higher is none */
 #define BAR_ICON_H 20
@@ -1706,6 +1708,10 @@ static struct {
     char *sort[6];      /* the sort icon's row (take_sort), its fields in the shown reply */
     int field;          /* the box open is field row field - 1's; 0, a search's */
     int up;             /* the app has answered this page since its last start (got, revive) */
+    /* a cover list's rows with a cover's room (art_tall), a bit each, the rest plain rows; and the
+     * uris with a cover, hashed: art_uris of them, -1 past ART_URIS */
+    unsigned tall[(ADDON_PAGES * ADDON_ROWS + 31) / 32], art_uri[ART_URIS];
+    int art_uris;
 } pg __attribute__((section(".scratch")));
 
 static void qr_open(const char *state, const char *title);
@@ -1844,6 +1850,12 @@ static void page_next(lv_t *l) {
         req_send(app()->browse, l->op, a), l->id = req.id;
 }
 
+static unsigned uri_hash(int i) {
+    return hash_bytes(FNV_SEED, (const unsigned char *)cell(i, 1), strlen(cell(i, 1)));
+}
+
+static int is_tall(int i) { return i < ADDON_PAGES * ADDON_ROWS && pg.tall[i / 32] >> i % 32 & 1; }
+
 /* How many of the first count rows have covers, so the list is drawn with them; 0 too with a
  * progress row among them, whose bar is page_row_detail's. */
 static int art_rows(int count) {
@@ -1856,28 +1868,83 @@ static int art_rows(int count) {
     return art;
 }
 
-static int row_h(const lv_t *l) { return l->art ? ART_ROW_H : page_h(64); }
+/* Which rows from from to count of a cover list have a cover's room (pg.tall): a row with a cover,
+ * and one without whose uri a row with a cover has, so a song whose cover is missing lines up with
+ * the rest; from 0 starts the list again, a later page (append) adds its rows. Past ART_URIS such
+ * uris, every row from there. */
+static void art_tall(int from, int count) {
+    char url[ART_URL];
+    if (count > ADDON_PAGES * ADDON_ROWS) count = ADDON_PAGES * ADDON_ROWS;
+    if (!from) memset(pg.tall, 0, sizeof pg.tall), pg.art_uris = 0;
+    for (int i = from; i < count && pg.art_uris >= 0; ++i) {
+        if (!art_file(i, url)) continue;
+        unsigned h = uri_hash(i);
+        int k = 0;
+        while (k < pg.art_uris && pg.art_uri[k] != h) ++k;
+        if (k == pg.art_uris) pg.art_uris = k < ART_URIS ? (pg.art_uri[k] = h, k + 1) : -1;
+    }
+    for (int i = from; i < count; ++i) {
+        unsigned h = uri_hash(i);
+        int tall = pg.art_uris < 0;
+        for (int k = 0; k < pg.art_uris && !tall; ++k) tall = pg.art_uri[k] == h;
+        if (tall) pg.tall[i / 32] |= 1u << i % 32;
+    }
+}
 
-/* A stock Tidal list row, page_row_detail's item moved over: the cover (url, or room for one) at
- * the theme's left, the theme's label boxes beside it, centred in the taller row, an empty detail
- * centring the caption, and the chevron when it opens a page. The image goes before row_into, whose
- * chevron stays the last child (navigation.c into_mark), and is sized after it. */
+/* Row i's top in the list, its rows before it each a plain row's height or, tall, ART_ROW_H. */
+static int row_top(int i) {
+    int tall = 0;
+    for (int k = 0; k < i; ++k) tall += is_tall(k);
+    return i * page_h(64) + tall * (ART_ROW_H - page_h(64));
+}
+
+/* The row under y, the list's content from its top, of n rows: clamped to 0 to n - 1. */
+static int row_at(int y, int n) {
+    int lo = 0, hi = n - 1;
+    while (lo < hi) {
+        int mid = (lo + hi + 1) / 2;
+        if (row_top(mid) <= y)
+            lo = mid;
+        else
+            hi = mid - 1;
+    }
+    return lo > 0 ? lo : 0;
+}
+
+/* A cover list's n rows each its own height: the list_view's item_height, which stock's layout
+ * forces on every row, cleared, and a short list shrunk to its rows, as page_list shrinks one. */
+static void rows_fit(int n) {
+    int h = row_top(n);
+    widget_set_prop_int(P(pg.view, W_PARENT), "item_height", 0);
+    if (h < I(pg.view, W_H)) {
+        widget_resize(P(pg.view, W_PARENT), I(pg.view, W_W), h);
+        widget_resize(pg.view, I(pg.view, W_W), h);
+    }
+    widget_set_prop_int(pg.view, "virtual_h", h);
+}
+
+/* A stock Tidal list row, page_row_detail's item moved over: the cover (url, or room for one when
+ * tall) at the theme's left, the theme's label boxes beside it, centred in the row, an empty detail
+ * centring the caption, and the chevron when it opens a page; not tall (art_tall), a plain row's
+ * height, its text in the covers' column. The image goes before row_into, whose chevron stays the
+ * last child (navigation.c into_mark), and is sized after it. */
 static widget_t *art_row(int index, const char *caption, const char *detail, const char *url,
                          int into) {
-    int x = page_x(), tx = x + ART_PX + 12, w = 375 - x - tx, dy = (ART_ROW_H - page_h(64)) / 2;
+    int x = page_x(), tx = x + ART_PX + 12, w = 375 - x - tx;
+    int h = is_tall(index) ? ART_ROW_H : page_h(64), dy = (h - page_h(64)) / 2, y = row_top(index);
     widget_t *item = page_row_detail(pg.view, index, caption, detail, clicked), *img = 0;
     widget_t *t = widget_get_child(item, 0), *s = widget_get_child(item, 1);
-    widget_move_resize(item, 0, index * ART_ROW_H, 375, ART_ROW_H);
-    widget_move_resize(t, tx, *detail ? I(t, W_Y) + dy : 0, w, *detail ? I(t, W_H) : ART_ROW_H);
+    widget_move_resize(item, 0, y, 375, h);
+    widget_move_resize(t, tx, *detail ? I(t, W_Y) + dy : 0, w, *detail ? I(t, W_H) : h);
     widget_move_resize(s, tx, I(s, W_Y) + dy, w, I(s, W_H));
     if (url) {
-        img = image_create(item, x, (ART_ROW_H - ART_PX) / 2, ART_PX, ART_PX);
+        img = image_create(item, x, (h - ART_PX) / 2, ART_PX, ART_PX);
         image_set_draw_type(img, 4); /* scaled to fit, as Cover Flow's covers */
         image_manager_unload_bitmap_by_name(image_manager(), url); /* a file written since */
         image_base_set_image(img, url);
     }
-    if (into) row_into(item, ART_ROW_H);
-    if (img) widget_move_resize(img, x, (ART_ROW_H - ART_PX) / 2, ART_PX, ART_PX);
+    if (into) row_into(item, h);
+    if (img) widget_move_resize(img, x, (h - ART_PX) / 2, ART_PX, ART_PX);
     return item;
 }
 
@@ -1917,11 +1984,12 @@ static void row(lv_t *l, int i) {
 static void art_window(void) {
     const lv_t *l = top();
     if (!pg.view || !l->art || l->state != K_READY) return;
-    int rh = row_h(l), y = widget_get_prop_int(pg.view, "yoffset", 0);
+    int y = widget_get_prop_int(pg.view, "yoffset", 0);
     if (y < 0)
         y = 0; /* a drag past the top: stock's rubber band reads to minus the view's height */
     /* a row either side of the view, which stock paints when it's within 4 px of the edge */
-    int first = y / rh ? y / rh - 1 : 0, last = (y + I(pg.view, W_H) + rh - 1) / rh + 1;
+    int first = row_at(y, l->n), last = row_at(y + I(pg.view, W_H) - 1, l->n) + 2;
+    if (first) --first;
     if (last > l->n) last = l->n;
     if (first > last) first = last;
     int lo = (first + last - ART_KEEP) / 2;
@@ -2013,14 +2081,14 @@ static void append(lv_t *l, int from) {
     if (cur == from && l->sel > from) cur = l->sel;
     if (n && cur >= n) cur = n - 1; /* past an empty last page: its last row */
     if (cur < n - 1 || !pg.paging || l->sel < cur) l->sel = cur; /* unless still on its way */
-    if ((from + 1) * row_h(l) <=
-        I(pg.view, W_H)) { /* page_list shrank a short first page: rebuilt */
+    if (row_top(from + 1) <= I(pg.view, W_H)) { /* page_list shrank a short first page: rebuilt */
         show();
         return;
     }
     widget_destroy(widget_get_child(pg.view, (unsigned)from));
+    if (l->art) art_tall(from, l->n);
     for (int i = from; i < n; ++i) row(l, i);
-    widget_set_prop_int(pg.view, "virtual_h", n * row_h(l));
+    widget_set_prop_int(pg.view, "virtual_h", row_top(n));
     ringnav_select(pg.view, cur, n);
 }
 
@@ -2130,9 +2198,11 @@ static void show(void) {
          * its pages there (a short first page, the search box closing) counts them */
         art_forget(); /* the rows are built anew: nothing of theirs decoded yet */
         l->art = art_rows(l->n);
+        art_tall(0, l->art ? l->n : 0);
         pg.view = page_list(pg.page, pg.page, 0, l->title, n = l->n + (pg.f[3][0] != 0),
                             l->art ? ART_ROW_H : 64);
         for (int i = 0; i < n; ++i) row(l, i);
+        if (l->art) rows_fit(n);
         if (l->find) find_icon(l->sort);
         page_push(pg.view, pg.moved), pg.moved = 0;
     }
