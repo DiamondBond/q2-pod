@@ -239,7 +239,7 @@ void *qm_collect(void *r) {
 
 /* Insert at pos+1 or append; playback_queue_insert keeps every queue index right. Shuffle picks at
  * random, so the first inserted track is forced once (ringnav_shuffle). */
-static void qm_insert(void *queue, void *add, int next) {
+void qm_insert(void *queue, void *add, int next) {
     unsigned at = playback_queue_insert(queue, add, next);
     if (next) {
         /* stock Shuffle's only: advanced Shuffle Songs (also MCL_MODE 2) plays its own order */

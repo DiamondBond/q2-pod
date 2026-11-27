@@ -3666,7 +3666,7 @@ unsigned np_track(void) {
 }
 
 /* Stock's seek resumes playback; a paused seek must wait for Play instead. */
-static int seek_position(int to) {
+int seek_position(int to) {
     unsigned at, n;
     void *r = mclGetPlayStatus() == 3 ? queue_now(&at, &n) : 0;
     if (r) {

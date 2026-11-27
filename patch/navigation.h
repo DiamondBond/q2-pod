@@ -414,6 +414,7 @@ void drop_input(void);
 int pointer_down(void);
 char *scrobble_tag(char *o, char *end, const char *s);
 unsigned np_track(void);
+int seek_position(int to); /* to, the track's seconds: the playing song there, a paused one kept */
 void scrub_end(void);
 void view_still(widget_t *w);
 extern const char *const lock_names[4];
@@ -509,6 +510,7 @@ void *qm_collect(void *r);
 void *qm_songs(void), qm_songs_free(void); /* queue_menu.c: Add to Playlist's own songs */
 unsigned qm_album_id(void *r), qm_artist_id(void *r);
 void artist_page(unsigned cls, void *r);
+void qm_insert(void *queue, void *add, int next); /* Play Next (next) or Add to Queue's insert */
 
 /* clock.c */
 long clock_back(long long wall);

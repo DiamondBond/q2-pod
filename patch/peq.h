@@ -585,6 +585,10 @@ void ringnav_wdt_long(void);   /* system.c: the watchdog's long count for a long
 int ringnav_smart_awake(void); /* navigation.c: Smart Awake (IPOD KEEPLIT) is on */
 void library_poll(void); /* addon_library.c: an app's library update request, once per addon_poll */
 void addon_eq_poll(int slot, const char *id); /* addon_eq.c: app id's EQ request, in its poll */
+/* addon_player.c, from addon_poll: a running player=1 app's request (every pass, at most every
+ * 30 ms an app), then the state files, kept while such an app runs (on) and removed otherwise */
+void addon_player_ask(int slot, const char *id);
+void addon_player_poll(int on);
 /* spotify.c's Q2SPOT/1 framing (docs/librespot.md), which the card apps speak too */
 int spot_escape(const char *s, char *out, unsigned size);
 int spot_put(char *out, unsigned size, const char *s); /* "\t" and s escaped appended */

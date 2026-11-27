@@ -43,7 +43,7 @@ class App(C.Structure):
                 *((n, C.c_int) for n in ('qr', 'game', 'audio', 'view', 'hidden', 'present', 'launched', 'hold', 'relaunch', 'restart', 'nostop',
                                          'nowifi', 'row', 'wifi', 'wifi_off')),
                 *((n, C.c_uint) for n in ('polled', 'launch_at', 'restart_at', 'play')), ('baricon', C.c_char * 56),
-                ('barword', C.c_char * 12), ('barw', C.c_int), ('root', C.c_int), ('takeover', C.c_int)]
+                ('barword', C.c_char * 12), ('barw', C.c_int), ('root', C.c_int), ('takeover', C.c_int), ('player', C.c_int)]
 
 
 class Ap(C.Structure):
@@ -794,7 +794,7 @@ def test_more_apps_than_slots(fw):
 def test_the_features_are_published_at_every_scan(fw):
     world = card(fw)
     scan(fw)
-    assert world.written[b'/tmp/q2-addon.caps.tmp'] == b'playlist progress pages library goto sleep game audio sections art window urls sort field more fav now fieldtext wake audio2 dim gameview eq screen volume wifi network bar switch playkept playing takeover\n'
+    assert world.written[b'/tmp/q2-addon.caps.tmp'] == b'playlist progress pages library goto sleep game audio sections art window urls sort field more fav now fieldtext wake audio2 dim gameview eq screen volume wifi network bar switch playkept playing takeover player\n'
     assert world.of('rename') == [(b'/tmp/q2-addon.caps.tmp', b'/tmp/q2-addon.caps')]
 
 

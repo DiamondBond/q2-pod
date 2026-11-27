@@ -900,11 +900,12 @@ class Records:
     def fresh(self):
         return next(self.words)
 
-    def song(self, path, album=b'', title=b'', artist=b'', name=None, album_artist=None, kind=8, disc=0, track=0, cue=(0, 0)):
+    def song(self, path, album=b'', title=b'', artist=b'', name=None, album_artist=None, kind=8, disc=0, track=0, cue=(0, 0), genre=None):
         record, words = C.create_string_buffer(0x60), {}
         fields = [('REC_NAME', path.rsplit(b'/', 1)[-1] if name is None else name), ('REC_PATH', path),
                   ('REC_TITLE', title), ('REC_ALBUM', album), ('REC_ARTIST', artist)]
         fields += [('REC_ALBUM_ARTIST', album_artist)] if album_artist is not None else []
+        fields += [('REC_GENRE', genre)] if genre is not None else []  # its word is the artist's high half: given, it maps
         for field, value in fields:
             low, high = words.setdefault(O[field], self.fresh()), words.setdefault(O[field] + 4, self.fresh())
             assert libc.mmap(high << 32, 0x10000, 3, 0x100022, -1, 0) == high << 32  # MAP_FIXED_NOREPLACE

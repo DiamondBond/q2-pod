@@ -105,7 +105,7 @@
 #define ADDON_CAPS                                                                                 \
     "playlist progress pages library goto sleep game audio sections art window urls sort field "   \
     "more fav now fieldtext wake audio2 dim gameview eq screen volume wifi network bar switch "    \
-    "playkept playing takeover"
+    "playkept playing takeover player"
 #define ADDON_SECTIONS 8  /* sections an app's first page may have */
 #define SWIPE_CLAIM_PX 24 /* a sideways move this far, twice as far as up or down, is a swipe's */
 #define SWIPE_PX 60       /* and this far at the lift, more than up or down, changes section */
@@ -138,6 +138,7 @@ typedef struct {
     int barw;     /* the icon's width, for its slot in the bar */
     int root;     /* q2app's root=1: it runs as root, not as APP_UID (app_user.c) */
     int takeover; /* q2app's takeover=1: it runs in demo's place (takeover) */
+    int player;   /* q2app's player=1: the player's state and requests (addon_player.c) */
 } app_t;
 enum { ROW_STREAMING, ROW_GAMES, ROW_LIBRARY, ROW_NETWORK }; /* as addon_scan's rows[] names them */
 
@@ -211,6 +212,7 @@ static void slots_read(void) {
         a->hidden = number(raw, "hidden") == 1;
         a->root = number(raw, "root") == 1;
         a->takeover = number(raw, "takeover") == 1;
+        a->player = number(raw, "player") == 1;
         /* its row where row says, else as firmware without the key lists it: Games for a game,
          * Streaming for any other */
         static const char *const rows[] = { "streaming", "games", "library", "network" };
@@ -1452,6 +1454,13 @@ void addon_poll(void) {
     library_poll();
     addon_wifi_poll();
     addon_playing_poll();
+    int player = 0; /* an app with player=1 launched or restarting: the state is kept */
+    for (int i = 0; i < ap.n; ++i)
+        if (ap.a[i].player && (ap.a[i].launched || ap.a[i].restart)) {
+            player = 1;
+            if (ap.a[i].launched) addon_player_ask(i, ap.a[i].id);
+        }
+    addon_player_poll(player);
     /* the status bar picks its icon as it paints (bar_sync): an app starting, stopping or changing
      * its bar= repaints nothing else, so the bar is repainted when the icon changes */
     static char bar_was[sizeof ap.a[0].baricon] __attribute__((section(".scratch")));

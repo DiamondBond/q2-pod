@@ -9908,7 +9908,7 @@ passed()
 CAPS='/tmp/q2-addon.caps'
 m=AppMachine(); stream_rows(m); caps=bytes(m.files[CAPS])
 assert caps.endswith(b'\n') and caps.count(b'\n')==1,caps
-assert set(caps.split())=={b'playlist',b'progress',b'pages',b'library',b'goto',b'sleep',b'game',b'audio',b'sections',b'art',b'window',b'urls',b'sort',b'field',b'more',b'fav',b'now',b'fieldtext',b'wake',b'audio2',b'dim',b'gameview',b'eq',b'screen',b'volume',b'wifi',b'network',b'bar',b'switch',b'playkept',b'playing',b'takeover'},caps
+assert set(caps.split())=={b'playlist',b'progress',b'pages',b'library',b'goto',b'sleep',b'game',b'audio',b'sections',b'art',b'window',b'urls',b'sort',b'field',b'more',b'fav',b'now',b'fieldtext',b'wake',b'audio2',b'dim',b'gameview',b'eq',b'screen',b'volume',b'wifi',b'network',b'bar',b'switch',b'playkept',b'playing',b'takeover',b'player'},caps
 m.files[CAPS]=bytearray(b'stale\n'); stream_rows(m); assert m.files[CAPS]==caps; passed()
 # Classic, Home's Split: the Streaming row slides Streaming's rows in, as the Library's: the page's own constructor fills the
 # list, what it sets on a window goes again, every row (stock's 70 px Tidal row and the added ones) takes Home's width and height,
@@ -10645,7 +10645,7 @@ assert not m.systems and m.top!=m.page; passed()
 # "until <time>" or "end"; Q2 Pod keeps the timer and pauses whatever plays when it is due, or as the
 # local track ends, then removes the file (the app's sign it is done). The app removing it cancels;
 # playback stopping lets "end" go without pausing.
-unlinked=lambda m: [p for p in m.unlinked if p!='/tmp/q2-playing']  # addon_playing.c's file goes as playback stops
+unlinked=lambda m: [p for p in m.unlinked if p not in ('/tmp/q2-playing','/tmp/q2-player','/tmp/q2-player.queue')]  # addon_playing.c's file goes as playback stops; addon_player.c's, with no player=1 app, at the first poll
 m=pod_sleep(); m.files[SLEEP]=bytearray(b'until 86460\n')  # time() is 86400: a minute on
 assert not paused(m.poll()); assert not paused(m.poll(30000))
 names=m.poll(31000); assert paused(names)==1 and unlinked(m)==[SLEEP],(names,unlinked(m))

@@ -2834,7 +2834,7 @@ def test_a_paused_seek_waits_for_play(fw, mcl, status, held):
     fw.var('fw_ctx_mcl_pdeqplaylist', C.c_uint).value = deques.new([C.addressof(record)])
     fw.mock('mclGetPlayStatus', lambda *_: status)
     fw.mock('player_playtime_and_length', lambda sec, total, *_: C.memmove(sec, struct.pack('<i', 42), 4) and 0)
-    assert fw.fn('navigation__seek_position', C.c_int, C.c_int)(30) == held
+    assert fw.fn('seek_position', C.c_int, C.c_int)(30) == held
     if status == 3:  # stock's seek resumes: the player's own, at the CUE track's offset, plays nothing
         assert [c[1][0] for c in fw.calls('mclSetSeek')] == [150] and not fw.calls('player_seek_time')
     else:
