@@ -11841,6 +11841,20 @@ for held in ({},{'LANGUAGE':'0'},{'LANGUAGE':'2'},{'LANGUAGE':'6'}):
         assert c.u.mem_read(syms['g_language'],1)[0]==(2 if patched else int(held.get('LANGUAGE','0'))),(held,patched)
         assert c.u.mem_read(syms['g_guideflag'],1)[0]==(not held) and c.config==before,(held,patched)
 passed()
+# A Japanese pick in stock's first-boot guide leaves the lists' order alone (build.py JAPANESE_ORDER): stock's
+# set_jplanguage, which switch_language hands 1 for Japanese, leaves its byte 0 whatever it is handed and whatever the
+# byte held, where stock's own stores what it is handed. Every register but $zero holds a value whose low byte is not 0,
+# so a store of any other register shows.
+from build import JAPANESE_ORDER
+assert struct.unpack_from('<I',demo,fileoff(demo,JAPANESE_ORDER[0]))[0]==JAPANESE_ORDER[2]
+for patched in (True,False):
+    for held,pick in ((0,1),(1,1),(1,0),(0,0)):
+        c=Machine(patched); c.byte(0xa5011d,held)
+        for r in range(UC_MIPS_REG_1,UC_MIPS_REG_31+1): c.u.reg_write(r,0x5a5a5a5a)
+        for r,v in ((UC_MIPS_REG_A0,pick),(UC_MIPS_REG_T9,syms['set_jplanguage']),(UC_MIPS_REG_RA,0x1000004)): c.u.reg_write(r,v)
+        c.u.emu_start(syms['set_jplanguage'],0x1000004,count=100)
+        assert c.u.reg_read(UC_MIPS_REG_PC)==0x1000004 and c.u.mem_read(0xa5011d,1)[0]==(0 if patched else pick),(patched,held,pick)
+passed()
 # Home binds no key-up of its own (build.py HOME_KEYUP): stock V1.36's home_page_init gives the page one, whose Return
 # opens Now Playing, where Home's keys are ringnav's. The word that goes is a `jalr $25`, which tens of thousands of
 # stock's calls are, so the build's check can't tell this call from another. home_page_init's own code, from the

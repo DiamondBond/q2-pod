@@ -9,6 +9,7 @@
   - Library: under Classic, **Play All** at the top of an album's songs is a row like the one on **Songs**, with the songs right under it, and tapping it plays the album from its first song and opens Now Playing. It sat in a taller band, and tapping it did nothing.
   - Library: names that start with Chinese, Japanese or Korean characters come after the A–Z names in **Artists**, **Albums**, **Songs**, **Genres** and **Composers**, in Unicode order. Chinese names were filed among A–Z by their pinyin. With a Chinese language pack, the lists keep their pinyin order.
   - Library: lists sorted by name (**Songs** in Alphabetical order, **Albums**, **Artists**, **Composers**, **Genres**, **Hi-Res**, **My Fav** and Search's results) open sooner on a big library, in the same order.
+  - Library: choosing Japanese in the first-start guide no longer puts the lists and folders in a different order until the next restart. Stock's sorting for that order could go wrong on long lists.
   - User guide: **Long audiobooks** says what makes an `.m4b` too long for the Q2, about how long one can be, and how to divide one into parts.
   - Cover Flow: under Classic and Classic Modern, Cover Flow opens as on an iPod classic: the screen splits down the middle, between Home's list and its art, and the two halves slide apart to show the covers. Return slides them back together. An artist's covers and the playlists' still open at once, and close the same way.
 - **1.9.4**:

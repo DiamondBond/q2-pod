@@ -539,6 +539,14 @@ WHEEL_MODE = (0x504ba4, 0x0003100a, 0x24020001)
 # call becomes li $v0, 2, en_US's index, whatever an older version saved; the key is never written. ponytail: stock's
 # first-boot guide (no LANGUAGE key: a new unit or a reset) still lists languages, and a pick there lasts until the next boot.
 LANGUAGE_EN = (0x50482c, 0x0320f809, 0x24020002)
+# switch_language hands set_jplanguage 1 for Japanese, and while its byte (0xa5011d) is set stock sorts by its Japanese
+# comparators: 0x5cd188 for names (hooked, name_sort.c), 0x5ca690 for Songs by file name and 0x5c9b70 for a folder's
+# listing. toolsQueryDbTable, toolsQueryDbTableAndSort, toolsQueryContentDbTable, the format comparator and
+# toolsLoadDirectory, the byte's only readers, choose by it. Those three are not orders libcstl's sort can rely on: each
+# can answer that a name comes before itself. Q2 Pod boots in English (LANGUAGE_EN), so only a Japanese pick in stock's
+# first-boot guide set the byte, until the next boot. set_jplanguage's sb $a0 stores $zero: that pick keeps the order
+# every other boot has.
+JAPANESE_ORDER = (0x5cb494, 0xa044011d, 0xa040011d)
 # V1.36's home_page_init binds a key-up of its own on Home (0x534a74: Return opens Now Playing and stops there; its wheel and
 # Centre act only outside Volume Mode). Home's keys are ringnav's and on_wm_keyup_fun's, as they were: the widget_on call goes.
 HOME_KEYUP = (0x534c28, 0x0320f809, 0)
@@ -2196,6 +2204,7 @@ def build(zip_path, out, logo, dev=False, repo=REPO, stock_flac=False):  # pragm
     patch_word(patched, *NAV_SHOWN, "stock's navigation bar stays shown")
     patch_word(patched, *WHEEL_MODE, "stock's wheel stays in Volume Mode")
     patch_word(patched, *LANGUAGE_EN, 'every unit boots in English')
+    patch_word(patched, *JAPANESE_ORDER, "a Japanese pick keeps the lists' usual order")
     patch_word(patched, *HOME_KEYUP, 'Home binds no key-up of its own')
     patch_word(patched, *NP_CENTRE, "Now Playing leaves Centre to stock's power-key handling")
     patch_word(patched, *SCAN_CENTRE, "Update Library's dialog leaves Centre to stock's power-key handling")
