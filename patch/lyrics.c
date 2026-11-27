@@ -168,7 +168,7 @@ static int lrc_parse(char *text, lrc_line **lp, lrc_mark **mp) {
         c = *e, *e = 0;
         if ((k = lrc_stamps(&line, t, 8)) && !synced)
             synced = 1, n = 0; /* LRC: the lines before go */
-        line = lrc_singer(line);
+        if (k) line = lrc_singer(line);
         first = nm;
         lrc_words(line, m, caps, &nm, k == 1);
         line = lrc_trim(line, m + first, nm - first);

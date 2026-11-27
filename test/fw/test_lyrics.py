@@ -260,6 +260,7 @@ def test_a_line_loses_its_singer_marker(fw):
         (16898, b'I ponder', []), (18000, b'of something great', [])]
     assert lrc(fw, b'[00:16.186]v2:<00:16.186>That <00:16.386>depends') == [
         (16186, b'That depends', [(16186, 0), (16386, 5)])]
+    assert lrc(fw, b'v1:plain') == [(FAR, b'v1:plain', [])]  # only after a stamp
 
 
 def test_word_stamps_of_a_synced_line(fw):
