@@ -1,6 +1,7 @@
 # Changelog
 
 - **1.9.6**:
+  - The shutdown prompt keeps its **Shut Down** button when the screen turns off and wakes again.
   - Home: with a card app as the **Shortcut**, Split's pane shows the app's own picture when it has one, in the theme's style, where it always showed the Games controller. Mixtape 1.0.10 has a cassette.
   - Apps: an app can show what the Q2 is playing and control it: play and pause, skip, seek, the volume, Shuffle and Repeat, the heart, and the queue, where it can play a song, move one to play next, remove one, or play or add a list of songs from the card. The app can also show the Q2's screen and press its buttons, turn its wheel and touch its screen, as if in hand. The app's `q2app` asks for it with `player=1`.
 - **1.9.5**:

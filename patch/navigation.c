@@ -2150,31 +2150,22 @@ static int confirm_form(widget_t *win) {
     if (theme()->painter[PAINT_CONFIRM] == CONFIRM_STOCK) return FORM_NONE;
     return st.confirm_tray && win == st.confirm_win ? FORM_TRAY : FORM_PAGE;
 }
-/* The confirm's second cell names what it does, in every theme: the verb confirm_over gave,
- * Shut Down?'s (the top window while g_poweroff_state is 1: a held power key opens it over any
- * prompt, which keeps its own word) or a delete's (stock's context kind 3, the only one with
- * msg_delcheckbutton: Local Music's album, all-songs and album-info deletes, Now Playing's). Any
- * other keeps the asset's tr_text, OK as the pack has it, and a prompt that was top when the power
- * key set the state gets it back.
+/* The confirm's second cell names what it does, in every theme: the verb confirm_over gave
+ * or a delete's (stock's context kind 3, the only one with msg_delcheckbutton). All others
+ * keep their tr_text, set for Shut Down as its asset loads.
  * ponytail: stock's kind-1 prompts (its playlist Add and Delete, Remove from Playlist) and the
  * Line Out warning open with nothing to tell them by but their translated text; a hook on their
  * callers would name theirs. Runs in paints, so only if it differs. */
 static void confirm_verb(widget_t *w) {
+    const char *verb = w == st.confirm_win                         ? st.confirm_verb
+                       : widget_lookup(w, "msg_delcheckbutton", 0) ? tr("Delete")
+                                                                   : (const char *)0;
+    if (!verb) return;
     widget_t *ok = widget_lookup(w, "img_enter", 0);
-    const char *down = tr("Shut Down"),
-               *verb =
-                   w == st.confirm_win ? st.confirm_verb
-                   : g_poweroff_state == 1 && w == window_manager_get_top_window(window_manager())
-                       ? down
-                   : widget_lookup(w, "msg_delcheckbutton", 0) ? tr("Delete")
-                                                               : (const char *)0;
     char now[64] = "";
     if (!ok) return;
     widget_get_text_utf8(ok, now, sizeof now);
-    if (verb && strncmp(now, verb, sizeof now - 1))
-        widget_set_text_utf8(ok, verb);
-    else if (!verb && !tk_strcmp(now, down))
-        widget_set_tr_text(ok, widget_get_prop_str(ok, "tr_text", "OK"));
+    if (strncmp(now, verb, sizeof now - 1)) widget_set_text_utf8(ok, verb);
 }
 /* An inset shadow from above (0, 2, blur 2): of its alpha a, what a gaussian leaves on each row. */
 void inset_top(canvas_t *canvas, const rect_t *r, int R, unsigned a) {
@@ -5054,6 +5045,7 @@ static int usb_poll(const void *info) {
     return 7; /* RET_REMOVE */
 }
 
+static int shutdown_opening;
 widget_t *ringnav_ui_load(const char *name, widget_t *parent) {
     char path[64]; /* this call's own: a window stock loads inside this one keeps its name */
     /* application_init's first window; accent() makes theme() final */
@@ -5065,6 +5057,11 @@ widget_t *ringnav_ui_load(const char *name, widget_t *parent) {
     int np = name && !tk_strcmp(name, "playing_page");
     if (np) name = np_pages[np_layout()];
     widget_t *root = stock_ui_load_trampoline(ui_redirect(name, path), parent);
+    if (shutdown_opening && name && !tk_strcmp(name, "dialog/confirminfo_dialog")) {
+        shutdown_opening = 0;
+        widget_t *ok = root ? widget_lookup(root, "img_enter", 0) : (void *)0;
+        if (ok) widget_set_tr_text(ok, N_("Shut Down"));
+    }
     /* the two small dialogs stock leaves dimming what's under them; its others clear it themselves
      */
     if (root && classic_dialogs() &&
@@ -8357,6 +8354,14 @@ int ringnav_keylong(void *ctx, event_t *event) {
     if (event &&
         (ple_key((unsigned)I(event, EVENT_KEY), 3) || side_seek((unsigned)I(event, EVENT_KEY), 3)))
         return STOP;
+    /* Stock wakes the screen, then opens a modal confirm. Give that button its translation
+     * key at load time so it keeps its name through a wake or another window painting over it. */
+    if (event && I(event, EVENT_KEY) == KEY_CENTER && !g_poweroff_state) {
+        shutdown_opening = 1;
+        int ret = stock_keylong_trampoline(ctx, event);
+        shutdown_opening = 0;
+        return ret;
+    }
     if (!event || I(event, EVENT_KEY) != KEY_PLAY) return stock_keylong_trampoline(ctx, event);
     widget_t *top = window_manager_get_top_window(window_manager());
     const char *fav = radio_hold(top);

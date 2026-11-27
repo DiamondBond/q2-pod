@@ -17,6 +17,7 @@ import pytest
 
 import host
 from conftest import NAVIGATION_SOURCE, O, POD, c_enum, pod_value, Deques, Files, claim, high_halves, libc, rgba, ui_name, opus
+from test_nav_loop import key_event
 
 STRINGS = dict(re.findall(r'^#define (\w+) "([^"]*)"', (host.ROOT/'patch/offsets.inc').read_text(), re.M))
 LIST_INTO_WHITE, BT_GLYPH = STRINGS['LIST_INTO_WHITE'], STRINGS['BT_GLYPH']
@@ -1058,6 +1059,26 @@ class Confirm:
         return self.canvas
 
 
+def shutdown_prompt(fw, ui):
+    down = Confirm(fw, ui, ['Shut Down?'])
+
+    def set_tr_text(w, key, *_):
+        cell = ui.nodes[w]
+        cell.props['tr_text'] = C.string_at(key).decode()
+        ui.set_text(cell, cell.props['tr_text'])
+
+    def stock_hold(*_):
+        g(fw, 'g_poweroff_state', 1)
+        fw.fn('ringnav_ui_load', C.c_void_p, C.c_char_p, C.c_void_p)(b'dialog/confirminfo_dialog', ui.wm.addr)
+
+    fw.mock('widget_set_tr_text', set_tr_text)
+    fw.mock('stock_ui_load_trampoline', lambda *_: down.win.addr)
+    fw.mock('stock_keylong_trampoline', stock_hold)
+    fw.fn('ringnav_keylong', C.c_int, C.c_void_p, C.c_void_p)(None, key_event(O['KEY_CENTER'], O['EVT_KEY_LONG']))
+    down.paint()
+    return down
+
+
 def classic(fw, st, light=0, **config):
     theme(fw, CLASSIC, LIGHT=str(light).encode(), **config)
     st('geom').value = CLASSIC_SET
@@ -1189,9 +1210,7 @@ def test_a_row_actions_question_is_the_tray_its_cell_the_verb(fw, st):
         canvas = confirm.paint()
         seen['tray'] = (ui.text(confirm.enter), confirm.lines[0].visible, list(canvas.images),
                         [confirm.cancel.box, confirm.enter.box], {t: c for t, r, c in canvas.texts[1::2]})
-        g(fw, 'g_poweroff_state', 1)  # a held power key: stock opens Shut Down? over it, a question
-        over = Confirm(fw, ui, ['Shut down?'])
-        over.paint()
+        over = shutdown_prompt(fw, ui)
         g(fw, 'g_poweroff_state', 0)
         seen['over'] = (ui.text(over.enter), over.lines[0].visible, over.lines[0].box, over.enter.box)
         return 1
@@ -1218,9 +1237,7 @@ def test_minimal_leaves_stocks_confirm(fw, st):
     box = confirm.cancel.box
     confirm.paint()
     assert confirm.cancel.box == box and 'style:normal:bg_color' not in confirm.win.props
-    g(fw, 'g_poweroff_state', 1)  # a held power key's Shut Down? names its verb, undressed
-    down = Confirm(fw, confirm.ui, ['Shut Down?'])
-    down.paint()
+    down = shutdown_prompt(fw, confirm.ui)
     g(fw, 'g_poweroff_state', 0)
     assert confirm.ui.text(down.enter) == 'Shut Down' and down.enter.box == (195, 250, 140, 50)
 
@@ -1244,9 +1261,7 @@ def test_a_confirms_second_cell_is_its_verb(fw, st, minimal):
     assert fw.fn('restart_asked', C.c_int)() == 1
     text, shown, width = seen['restart']
     assert text == 'Restart' and shown  # the page, not the tray: its question asked
-    g(fw, 'g_poweroff_state', 1)
-    down = Confirm(fw, ui, ['Shut Down?'])
-    down.paint()
+    down = shutdown_prompt(fw, ui)
     g(fw, 'g_poweroff_state', 0)
     delete = Confirm(fw, ui, ['Delete this song?'], check=0)
     delete.paint()
@@ -1258,21 +1273,23 @@ def test_a_confirms_second_cell_is_its_verb(fw, st, minimal):
 
 
 def test_shut_down_names_only_its_own_prompt(fw, st):
-    """g_poweroff_state 1 names the top window's cell alone: a prompt under Shut Down? keeps OK, and one that was top
-    when the power key set the state reads OK again, as its tr_text has it, once the state clears."""
     ui = classic(fw, st)
-    fw.mock('widget_set_tr_text', lambda w, s, *_: ui.set_text(ui.nodes[w], C.string_at(s).decode()) or 0)
     under = Confirm(fw, ui, ['Remove from playlist?'])
-    g(fw, 'g_poweroff_state', 1)
-    Confirm(fw, ui, ['Shut Down?']).paint()  # over it, top
+    down = shutdown_prompt(fw, ui)
+    assert ui.text(down.enter) == 'Shut Down'
+    g(fw, 'g_backlight_status', 0)
+    ui.window('saverscreen_page')
+    g(fw, 'g_backlight_status', 1)
+    down.paint()
+    assert ui.text(down.enter) == 'Shut Down'
+    ui.top = under.win
     under.paint()
     assert ui.text(under.enter) == 'OK'
-    ui.top = under.win  # top when the state was set, before Shut Down? opened
-    under.paint()
-    assert ui.text(under.enter) == 'Shut Down'
+    ui.top = down.win
     g(fw, 'g_poweroff_state', 0)
-    under.paint()
-    assert ui.text(under.enter) == 'OK'
+    ui.set_text(down.enter, down.enter.props['tr_text'])  # AWTK refreshes the button from its translation key
+    down.paint()
+    assert (ui.text(down.cancel), ui.text(down.enter)) == ('Cancel', 'Shut Down')
 
 
 # The toast and the update's dialog: a box sized to its lines.
