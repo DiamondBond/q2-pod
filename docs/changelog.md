@@ -1,6 +1,7 @@
 # Changelog
 
 - **1.9.5**:
+  - Display: **Show Sample Rate** is gone from the status bar; Now Playing's info pane shows the rate.
   - Playlists: holding Play/Pause on a Cover Flow cover and choosing **Add to Playlist** no longer crashes Q2 Pod. It crashed when no list row had been held and no folder had been opened since the Q2 started.
   - Playlists: **Add to Playlist** on an album, artist, composer, genre or folder row, or a Cover Flow cover, adds up to 500 songs. A row with more shows **Too many songs to add** and adds nothing, and a row with no songs shows **No songs yet**. The list of playlists shows **Working…** while the songs are added, and the wheel and Return still answer; Return stops the add. A folder's row adds the songs in its subfolders too. A song whose file is missing is left out. When nothing is added, the message is **Already in playlist** or **Could not save playlist**, not **Added to Playlist**.
   - Lock Screen: under **Light Mode**, **At a Glance** shows its text in the theme's dark colour on every **Background**. The text stayed white on the pale background and could not be read. With Light Mode on **Auto**, the background also changes with the time of day while the lock screen stays up.

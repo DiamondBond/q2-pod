@@ -431,7 +431,6 @@ enum {
      * coverflow_cover_tracks */
     POD_CF_DUP_ALBUMS,
     POD_CF_DUP_SONGS,
-    POD_SAMPLERATE, /* Appearance's Show Sample Rate (samplerate.c): the output's rate in the bar */
     POD_LOCKLAYOUT, /* the Lock Screen's Layout: 1 At a Glance (lock_glance.c), else Default */
     POD_LOCKGROUND, /* At a Glance's Background: 0 Cover Colour, 1 Plain, 2 Blurred Cover */
     POD_LOCKSLIDER, /* At a Glance's Classic Slider: 1 the grey slider and its shine, 0 (default)
