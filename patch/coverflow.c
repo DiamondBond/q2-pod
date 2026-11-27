@@ -3576,14 +3576,15 @@ void *coverflow_album_tracks(void *r) {
     int n;
     return in_order(staged_music(albums, r, &n), r);
 }
-/* Hide Duplicate Songs: the disc, the number and the title tag (ASCII case aside), so an album
- * held twice (a FLAC and an MP3 copy tagged alike, one card) lists each song once. A song with no
- * title is never a copy (its path and CUE start tell it apart): disc folders' 01.flac are two. */
+/* Hide Duplicate Songs: the title tag, then the artist (ASCII case aside), so a card's copies of a
+ * song list it once, whatever their disc and track numbers (one copy's DISCNUMBER missing, or its
+ * number a playlist's position). A song with no title is never a copy (its path and CUE start tell
+ * it apart): disc folders' 01.flac are two. */
 static int song_cmp(void *a, void *b) {
-    const char *x = P(a, REC_TITLE), *y = P(b, REC_TITLE);
-    int d = I(a, REC_DISC) - I(b, REC_DISC);
-    if (!d) d = I(a, REC_TRACK) - I(b, REC_TRACK);
-    if (!d) d = strcasecmp(x ? x : "", y ? y : "");
+    const char *x = P(a, REC_TITLE), *y = P(b, REC_TITLE), *s = P(a, REC_ARTIST),
+               *t = P(b, REC_ARTIST);
+    int d = strcasecmp(x ? x : "", y ? y : "");
+    if (!d && x && *x) d = strcasecmp(s ? s : "", t ? t : "");
     if (d || (x && *x)) return d;
     d = strcmp(P(a, REC_PATH) ? P(a, REC_PATH) : "", P(b, REC_PATH) ? P(b, REC_PATH) : "");
     return d ? d : I(a, REC_CUE_START) - I(b, REC_CUE_START);
