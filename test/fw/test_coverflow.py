@@ -45,6 +45,7 @@ class Home(C.Structure):
                 *((k, C.c_uint) for k in 'key repaint drift drift_ms drift_last'.split()),
                 ('tex', C.c_void_p), ('frame', C.c_void_p), *((k, C.c_int) for k in 'tw rx ry u0 v0 du dv pane'.split()),
                 *((k, C.c_void_p) for k in 'row row_image row_label svc'.split()), ('svc_name', C.c_char * 72),
+                ('app', C.c_void_p), ('app_name', C.c_char * 72), ('app_look', C.c_int),
                 *((k, C.c_int) for k in 'kind songs albums services games free_tenths counted counting got_songs got_albums'.split()),
                 ('count_thread', C.c_ulong), *((k, C.c_uint) for k in 'asked pane_read count_timer pane_timer'.split()),
                 ('ring', (C.c_uint * HOME_PW) * 4), ('clip', C.c_int * 4), ('clipped', C.c_int), ('playing', C.c_int)]
@@ -3607,6 +3608,60 @@ def test_a_card_app_s_icon_is_scaled_to_the_pane_once_and_its_file_let_go(fw):
     assert len(b.unloads) == 1  # the app's file leaves the image cache
     paint()
     assert canvas.images == [(home.svc, *icon_at(t, side))] and b.loads == [ICON] and len(b.made) == 1
+
+
+PANE = 'file:///mnt/mmc/.mixtape/pane.png'
+CLASSIC_MODERN = 3
+
+
+def png_head(w, h):
+    return b'\x89PNG\r\n\x1a\n\0\0\0\rIHDR' + struct.pack('>II', w, h)
+
+
+def app_rig(fw, theme=CLASSIC, w=10, h=6, light=0, files=True):
+    """Home's pane on the Shortcut row with a card app as the Shortcut, its pane.png a w x h white bar on clear."""
+    t, ui, h_, home = home_open(fw, theme, SHORTCUT='0', SHORTCUT_APP='mixtape', LIGHT=str(light))
+    home.kind = PANE_ROCKBOX
+    Files(fw, {PANE[7:]: png_head(w, h)} if files else {})
+    bitmaps, canvas = Bitmaps(fw, {PANE: (w, h, rgba(w, h, lambda x, y: (255, 255, 255, 255 if 0 < x < w - 1 else 0)))}), Canvas(fw)
+
+    def paint():
+        canvas.images.clear()
+        fw.fn('home_pane_paint', None, C.c_void_p, C.c_int, C.c_int, C.c_int, C.c_int)(canvas.p, 5, -3, HOME_PW, 294)
+    return t, home, bitmaps, canvas, paint
+
+
+def test_a_card_app_s_pane_png_takes_the_games_icon_s_place_in_classic_s_look(fw):
+    t, home, b, canvas, paint = app_rig(fw)
+    paint()
+    assert canvas.images == [(home.app, (0, 0, 96, 96), (5 + t['pane_icon_x'], -3 + t['pane_icon_y'], 96, 96))]
+    assert b.loads == [PANE] and len(b.unloads) == 1  # the file leaves the image cache
+    rows = pixels_of(b, home.app)
+    bar = [p for p in rows[48][43:53]]  # the 10 x 6 bar, centred in the 96 px box: x 43-52, y 45-50
+    assert bar[0] == 0 and bar[-1] == 0 and all(p & 0xffffff == 0xffffff for p in bar[1:-1])
+    assert all(p == 0 for row in rows[:45] + rows[51:] for p in row)
+    inner, edge = rows[47][47] >> 24, rows[47][44] >> 24
+    assert 0 < inner < edge <= 255  # the gradient's fill, the outline over it at the clear's side
+    paint()
+    assert b.loads == [PANE] and len(canvas.images) == 1  # drawn from its copy
+
+
+@pytest.mark.parametrize('light, ink', ((0, 0xffffff), (1, 0x1e1c1c)))
+def test_a_card_app_s_pane_png_in_the_flat_look_is_the_ink_whole(fw, light, ink):
+    t, home, b, canvas, paint = app_rig(fw, CLASSIC_MODERN, light=light)
+    paint()
+    assert len(canvas.images) == 1 and canvas.images[0][0] == home.app
+    assert {p for row in pixels_of(b, home.app) for p in row} == {0, 0xff000000 | ink}  # RGBA8888's bytes r, g, b, a
+
+
+@pytest.mark.parametrize('w, h, files', ((97, 6, True), (10, 97, True), (10, 6, False)))
+def test_a_card_app_without_a_pane_png_that_fits_keeps_the_games_icon(fw, w, h, files):
+    t, home, b, canvas, paint = app_rig(fw, w=w, h=h, files=files)
+    b.images['classic_light_icon_game'] = (96, 96, rgba(1, 1, lambda x, y: (0, 0, 0, 0)))
+    paint()
+    assert b.loads == ['classic_light_icon_game'] and not home.app
+    paint()
+    assert b.loads == ['classic_light_icon_game'] * 2  # its file not looked for again
 
 
 def test_a_service_icon_that_won_t_load_shows_the_card_apps_own(fw):

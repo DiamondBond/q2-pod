@@ -292,7 +292,7 @@ static int shortcut_target(void) {
     int s = shortcut();
     return s == SHORTCUT_NONE ? 3 : s;
 }
-/* Whether the Shortcut opens a card app (coverflow.c's pane: the Games icon). */
+/* Whether the Shortcut opens a card app (coverflow.c's pane: its pane.png, else the Games icon). */
 int shortcut_is_app(void) { return shortcut_target() == SHORTCUT_APP; }
 /* Whether the Shortcut's card app's binary is on the card, a stat (bar_sync asks it). */
 int shortcut_app_there(void) {

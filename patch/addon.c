@@ -19,7 +19,8 @@
  *   q2-<id>  the app;
  *   icon-40.png, icon.png
  *            its Streaming row's icon, 40 px (SET_ICON), drawn 1:1, else 52 px, scaled to fit;
- *            one over ART_MAX px either way counts as none; without them, the shared stream_app.
+ *            one over ART_MAX px either way counts as none; without them, the shared stream_app;
+ *   pane.png Home's pane on the Shortcut row while the app is the Shortcut (coverflow.c pane_app).
  * Streaming lists those on the card (home.c ringnav_stream), but the ones whose row says the
  * Library (Library's Apps page, addon_apps) or Games. A row starts its app and opens
  * addon_page, a list the app draws over Q2SPOT/1 (docs/librespot.md) on /tmp/q2-<id>.browse.sock:

@@ -4323,6 +4323,11 @@ static struct {
         *row_label; /* a Streaming row's image and name widgets, found once per row */
     void *svc;      /* a card app's icon at the pane's size (pane_scaled), its name */
     char svc_name[72];
+    /* the Shortcut's card app's pane.png in the theme's look (pane_app), its file and look; look
+     * -1: the file can't be drawn */
+    void *app;
+    char app_name[72];
+    int app_look;
     int kind;
     /* the pane's captions, read off the wheel's path (home_counts), 0 unknown; counted: songs and
      * albums answer asked, the library_gen they were asked at; counting: 1 count_worker runs, 2 it
@@ -4343,7 +4348,8 @@ extern int ipod_home(void), ipod_home_shown(void), shortcut_is_app(void),
 extern void library_rows(widget_t *list), stream_rows(widget_t *list);
 extern void home_pane_read(int *services, int *games, int *free_tenths);
 extern int library_count(const char *sql), msg_counting(void);
-extern const char *ipod_home_shortcut(void);
+extern const unsigned flat_ink[2]; /* flat.c */
+extern const char *ipod_home_shortcut(void), *shortcut_app(void);
 /* Split's menu width; the art fills the rest. */
 
 /* player_parsecover_thd writes the playing track's cover and then sets g_playcover_type, as Now
@@ -4902,6 +4908,84 @@ static void pane_service(canvas_t *canvas, int x, int y) {
         draw_centred(canvas, s, n, box, (unsigned)px, RGBA(ipod_light() ? 0u : 0xffffffu));
 }
 
+#define PANE_APP_PX 96 /* the pane's icons' box (tools/art.py ICON_BOX) */
+/* t, 1/256 of the way along the Classic icons' gradient (tools/art.py ICON_GRADIENT, in their box
+ * from 2, -2 to 80, 92), to its alpha out of 256: 1, .9 at .42, .5 at .52, .3 at the end. */
+static unsigned pane_fade(unsigned t) {
+    static const unsigned short at[] = { 0, 108, 133, 256 }, a[] = { 256, 230, 128, 77 };
+    unsigned i = t < at[1] ? 0 : t < at[2] ? 1 : 2;
+    return a[i] - (a[i] - a[i + 1]) * (t - at[i]) / (at[i + 1] - at[i]);
+}
+
+/* home.app from a card app's pane.png: its alpha drawn as the theme's own icons are (pane_art),
+ * look 0 Classic's white gradient with a 1 px outline at .42, 1 the flat look's white, 2 its ink on
+ * the light half's pane, centred in their box. 0 when the file isn't 32-bit or doesn't fit. */
+static int pane_tint(void *bitmap, int look) {
+    static const unsigned char at[4][4] = BITMAP_RGBA_AT;
+    unsigned *b = bitmap, w = b[0], h = b[1], format = ((unsigned short *)bitmap)[7] - 1u,
+             n = PANE_APP_PX;
+    if (format >= 4 || !w || !h || w > n || h > n) return 0;
+    if (!home.app) home.app = bitmap_create_ex(n, n, n * 4, 1 /* RGBA8888 */);
+    const unsigned char *data = home.app ? bitmap_lock_buffer_for_read(bitmap) : 0;
+    unsigned *d = data ? (unsigned *)bitmap_lock_buffer_for_write(home.app) : 0;
+    if (!d) {
+        if (data) bitmap_unlock_buffer(bitmap);
+        return 0;
+    }
+    unsigned stride = bitmap_get_line_length(bitmap), line = bitmap_get_line_length(home.app) / 4;
+    unsigned ox = (n - w) / 2, oy = (n - h) / 2, ink = look ? flat_ink[look - 1] : 0xffffffu;
+    unsigned rgb = (ink & 255) << 16 | (ink & 0xff00) | (ink >> 16 & 255); /* its bytes r, g, b */
+    const unsigned char *o = at[format];
+#define PANE_A(x, y) ((x) < w && (y) < h ? data[(y) * stride + (x) * 4 + o[3]] : 0u)
+    for (unsigned y = 0; y < n; ++y)
+        for (unsigned x = 0; x < n; ++x) {
+            unsigned sx = x - ox, sy = y - oy, a = PANE_A(sx, sy);
+            if (a && !look) {
+                /* along the gradient from the pixel's centre, of 2 * (78² + 94²) */
+                int dot = (2 * (int)x - 3) * 78 + (2 * (int)y + 5) * 94;
+                unsigned t = dot <= 0 ? 0 : dot >= 29840 ? 256 : (unsigned)dot * 256 / 29840;
+                unsigned fill = a * pane_fade(t) >> 8;
+                /* the outline: a pixel by the clear */
+                if (PANE_A(sx - 1, sy) < 128 || PANE_A(sx + 1, sy) < 128 ||
+                    PANE_A(sx, sy - 1) < 128 || PANE_A(sx, sy + 1) < 128)
+                    fill += a * 107 / 255 * (255 - fill) / 255;
+                a = fill;
+            }
+            d[y * line + x] = a ? a << 24 | rgb : 0;
+        }
+#undef PANE_A
+    bitmap_unlock_buffer(home.app);
+    bitmap_unlock_buffer(bitmap);
+    return 1;
+}
+
+/* The Shortcut row's card app's own image in its pane: pane.png in its folder, white on clear and
+ * at most PANE_APP_PX either way, in the theme's icons' look and place (pane_tint). Read once for
+ * the app and look, and again after home_counts' card read; 0 when it has none, for the Games icon.
+ * ponytail: a file that isn't there is looked for at each paint until that read. */
+static int pane_app(canvas_t *canvas, int x, int y) {
+    const theme_t *T = theme();
+    int flat = flat_pages(), look = flat ? 1 + ipod_light() : 0, w = 0, h = 0;
+    unsigned bitmap[64]; /* bitmap_t */
+    char name[72];
+    if (flat && !T->pane_icon_x) return 0; /* a flat pane that doesn't follow the rows */
+    tk_snprintf(name, sizeof name, "file:///mnt/mmc/.%s/pane.png", shortcut_app());
+    if (tk_strcmp(home.app_name, name) || (home.app_look != look && home.app_look >= 0)) {
+        home.app_look = -1;
+        tk_snprintf(home.app_name, sizeof home.app_name, "%s", name);
+        if (picture_size(name + 7, &w, &h) && w && h && w <= PANE_APP_PX && h <= PANE_APP_PX &&
+            !widget_load_image(home.art, name, bitmap)) {
+            if (pane_tint(bitmap, look)) home.app_look = look;
+            widget_unload_image(home.art, bitmap);
+        }
+    }
+    if (home.app_look < 0) return 0;
+    int src[4] = { 0, 0, PANE_APP_PX, PANE_APP_PX },
+        dst[4] = { x + T->pane_icon_x, y + T->pane_icon_y, PANE_APP_PX, PANE_APP_PX };
+    canvas_draw_image(canvas, home.app, src, dst);
+    return 1;
+}
+
 /* Split's panel in the theme's home_pane, the half's: the stops, its light, a shadow down its left
  * edge, the row's image from the theme (tools/art.py) and its caption. Raw colours, but the
  * caption's: ui_ink flips black to the light half's white paper, and the dark half draws white as
@@ -4925,7 +5009,8 @@ void home_pane_paint(canvas_t *canvas, int x, int y, int w, int h) {
     }
     int flat = flat_pages(), light = ipod_light();
     char name[40];
-    if (!widget_load_image(home.art, pane_art(home.kind, name, sizeof name), bitmap)) {
+    int app = home.kind == PANE_ROCKBOX && shortcut_is_app() && pane_app(canvas, x, y);
+    if (!app && !widget_load_image(home.art, pane_art(home.kind, name, sizeof name), bitmap)) {
         int note = home.kind <= PANE_SHUFFLE;
         int src[4] = { 0, 0, (int)bitmap[0], (int)bitmap[1] },
             dst[4] = { x + (note ? T->pane_note_x : T->pane_icon_x),
@@ -5052,7 +5137,8 @@ static int home_counts(const void *unused) {
     if (!home.pane_read || now - home.pane_read >= PANE_READ_MS) {
         home.pane_read = now | 1;
         home_pane_read(&home.services, &home.games, &home.free_tenths);
-        unsigned bitmap[64]; /* bitmap_t: decoded once, so no row's first show reads it */
+        home.app_name[0] = 0; /* the Shortcut app's pane.png, read again */
+        unsigned bitmap[64];  /* bitmap_t: decoded once, so no row's first show reads it */
         char name[40];
         for (unsigned i = 0; i < sizeof pane_icons / sizeof *pane_icons; ++i)
             widget_load_image(home.art, pane_art(i, name, sizeof name), bitmap);
