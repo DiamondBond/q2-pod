@@ -52,8 +52,8 @@ extern int stock_dbquery_trampoline(const char *, const char *, void *, int),
  **************************************************************************************************/
 
 static int library_music __attribute__((section(".scratch")));
-/* failed library reads: an Albums load one touched isn't kept, library_lists.c albums_made */
-static unsigned library_failed __attribute__((section(".scratch")));
+/* failed library reads: an Albums load or a Search query one touched isn't kept, library_lists.c */
+unsigned library_failed __attribute__((section(".scratch")));
 static int library_first __attribute__((section(".scratch")));
 
 /* Failed exec in a forked child must not flush demo's copied stdio or run its exit handlers. */

@@ -915,3 +915,110 @@ void albums_made(int whole, unsigned gen) {
     al.n = whole && !library_scanning() ? deque_size(list) : 0;
     if (al.n) al.gen = gen, al.hash = albums_hash(list);
 }
+
+/* Search's rows as its last query left them (ringnav_search_foreground below). A tab's
+ * builder destroys the tab's rows, runs stock's search_load_results for the tab and the box's text,
+ * and makes a row for each record of p_deque_searchshowlist: a widget tree a record, about half of
+ * what a search costs, the query and the name sort the rest. Stock's foreground handler runs the
+ * builder each time the dialog comes back on top: after an album's or artist's page or Now Playing,
+ * when a toast closes over it, and when the keyboard closes inside a confirm, whose own build
+ * follows, so every search is built twice. With the tab, the text, Artists' source and songtable
+ * unchanged and no scan running, the query would leave the same list and the builder the same rows,
+ * so they stay. The list's size and albums_hash's hash catch another list in the deque, and the
+ * tab's row count rows that are not this list's (a new dialog has none): a row's click reads its
+ * record from the list by the row's number. With no text there is nothing to ask for: stock's
+ * like '%%' is every song, which that handler builds when a window closes over an empty box (the
+ * keyword toast does). Rows that are still their query's are then left, as stock's own tab click
+ * leaves them, but as no text's rows: a text that comes back without a query (Tidal's search shares
+ * the buffer) builds. Rows that are no longer their query's go with their list, since nothing can
+ * be asked in their place. A query during a scan, or one a failed read touched, is not noted, and a
+ * writer's step of library_gen retires the note. */
+static struct {
+    int type, made;
+    unsigned artists, gen, n, hash;
+    char text[256]; /* g_historical_record's size */
+} sr __attribute__((section(".scratch")));
+static void search_made(int type, int whole, unsigned gen) {
+    void *list = P(p_deque_searchshowlist, 0);
+    const char *text = (const char *)g_historical_record;
+    unsigned len = strlen(text);
+    sr.made = whole && !library_scanning() && len < sizeof sr.text && (unsigned)(type - 0xff15) < 4;
+    if (!sr.made) return;
+    sr.type = type, sr.artists = (unsigned)I(artist_type, 0), sr.gen = gen;
+    sr.n = deque_size(list), sr.hash = albums_hash(list);
+    memcpy(sr.text, text, len + 1);
+}
+/* by type, 0xff15 on: Songs, Albums, Artists, Genres */
+static const char *const search_views[] = { "scroll_view_track", "scroll_view_album",
+                                            "scroll_view_artist", "scroll_view_genre" };
+/* Whether the dialog win's rows are still what a new query would list: 0 no, 1 the Songs tab's,
+ * 2 another tab's or no text to ask for */
+static int search_kept(widget_t *win) {
+    void *list = P(p_deque_searchshowlist, 0);
+    const char *text = (const char *)g_historical_record;
+    widget_t *view = 0;
+    int same = sr.made && sr.artists == (unsigned)I(artist_type, 0) && sr.gen == library_gen &&
+               !library_scanning() && deque_size(list) == sr.n && albums_hash(list) == sr.hash &&
+               (view = widget_lookup(win, search_views[sr.type - 0xff15], 1)) &&
+               (unsigned)widget_count_children(view) == sr.n;
+    if (*text && (!same || strcmp(sr.text, text))) return 0;
+    if (!same) { /* no text to ask for, and rows that are no longer their query's: they go */
+        for (unsigned i = 0; i < 4; ++i)
+            if ((view = widget_lookup(win, search_views[i], 1)) && widget_count_children(view))
+                widget_destroy_children(view);
+        deque_clear(list);
+        albumcoverinfo_init(list); /* as stock's builder leaves the cover list for no results */
+        return 2;
+    }
+    if (!*text) *sr.text = 0;
+    /* The art of the Songs and Albums rows comes through one cover list for whichever page is on
+     * show: stock's builder sets it up for the search list (albumcoverinfo_init) and asks for the
+     * first rows' covers, and a page opened over Search has since set it up for its own rows. As
+     * the builder, for the rows on show: 78 px a row, stock's own division at its scroll end
+     * (search_scroll_on_scroll_end, 0x49e4ac). */
+    if (sr.n && sr.type <= 0xff16) {
+        int y = widget_get_prop_int(view, "yoffset", 0), first = y > 0 ? y / 78 : 0;
+        albumcoverinfo_init(list);
+        if (first < get_albumcover_listsize()) {
+            if (sr.type == 0xff15)
+                local_songercover_task(first, 9);
+            else
+                local_albumsmallcover_task(first, 9);
+        }
+    }
+    return sr.type == 0xff15 ? 1 : 2;
+}
+
+/* Search's hooks. A tab's query (stock's search_load_results, 0x49c924) is noted with what it was
+ * asked and left. The dialog's foreground handler (search_dialog_on_foreground, 0x49f924) builds
+ * the tab on show again each time the dialog comes back on top; while that would list the same
+ * records the rows stay (search_kept), and stock's two steps after a build run as they do: the
+ * playing song's row marked, on the Songs tab alone as in stock, and the dialog's refresh timer,
+ * which its background handler stops, started again. Stock's confirm (search_run_query, 0x49fc68,
+ * the keyboard's OK) closes the keyboard and then builds the tab and marks the playing row; the
+ * close brings the dialog to the foreground first, so that handler built the same tab a moment
+ * earlier. While the confirm runs the build and the mark are left to it; the timer is started
+ * here, which the confirm itself never does. */
+extern int stock_search_query_trampoline(int type),
+    stock_search_foreground_trampoline(widget_t *win, event_t *event),
+    stock_search_confirm_trampoline(void *ctx, event_t *event);
+static int search_confirming __attribute__((section(".scratch")));
+int ringnav_search_confirm(void *ctx, event_t *event) {
+    search_confirming = 1;
+    int result = stock_search_confirm_trampoline(ctx, event);
+    search_confirming = 0;
+    return result;
+}
+int ringnav_search_query(int type) {
+    unsigned gen = library_gen, failed = library_failed;
+    int n = stock_search_query_trampoline(type);
+    search_made(type, failed == library_failed, gen);
+    return n;
+}
+int ringnav_search_foreground(widget_t *win, event_t *event) {
+    int kept = search_confirming ? 2 : search_kept(win);
+    if (!kept) return stock_search_foreground_trampoline(win, event);
+    if (kept == 1) search_track_highlight_playing(win);
+    search_timer_start(win);
+    return 0;
+}

@@ -1773,6 +1773,81 @@ def albums_kept():
     assert load(q)==500 and not read(q); q.u.hook_del(counter)
     cost_line('albums return 500 kept',count[0]); passed()
 albums_kept()
+# Search's rows stay while a new query would list the same records (library_lists.c search_kept). Stock's foreground
+# handler (0x49f924), through the build's hook, with stock's builders and search_load_results running for real over the
+# machine's deques and widgets: a row's widgets a record. The five queries stage `found` and are counted; stock's two
+# steps after a build (0x49c6b8 the playing row's mark, 0x49dd94 the refresh timer) and its cover list's setup
+# (albumcoverinfo_init) are the machine's, counted too.
+class SearchRowsMachine(QueueMachine):
+    budget=400000
+    def __init__(self):
+        super().__init__(); n={}
+        def add(kind,name,*kids): n[name]=self.node(kind,name,list(kids)); return n[name]
+        views=[add('view','view_'+t,self.node('list_view','list_view',[add('scroll_view','scroll_view_'+t)]),add('label',f'label_{t}_msg'))
+               for t in ('track','artist','album','genre')]
+        self.win=self.node('dialog','search_dialog',[add('list_item','list_item_search',add('edit','search_edit')),
+                                                     add('tab_control','tab_control',add('pages','pages',*views))])
+        parents(self,self.win); self.word(self.win+O['W_PARENT'],self.wm); self.top=self.win
+        self.nodes[self.wm]=dict(type='window_manager',name='',children=[self.win],visible=1); self.views=n
+        for name in ('SearchMusicByName','SearchSongerByName','SearchAlbumSongerByName','SearchAlbumByName','SearchGenreByName'):
+            self.handlers[syms[name]]='S:'+name
+        self.handlers[syms['view_create']]='view_create'  # a row's text box: a node, as its other widgets
+        self.handlers[syms['get_albumcover_listsize']]='S:covers'  # the cover list's rows: the list it was set up for
+        self.mock('widget_use_style','widget_set_name','widget_set_text_utf8','widget_set_visible','widget_set_enable','image_set_draw_type',
+                  'image_base_set_image','set_hscroll_label_attribute','tk_snprintf','file_is_playing','getFormatString',
+                  'local_songercover_task','local_albumsmallcover_task','albumcoverinfo_init','widget_set_children_layout',
+                  'widget_set_focusable','widget_get_prop_int')
+        self.list=self.deque([]); self.word(syms['p_deque_searchshowlist'],self.list)
+        self.deqs[self.get(syms['tools_pdeq_directory'])][1]=[]
+        self.found=[self.song(t) for t in ('Night One','Night Two','Night Three')]; self.tab(0); self.type('')
+    def hook(self,u,address,size,unused):
+        name=self.handlers.get(address,'')
+        if not name.startswith('S:'): return super().hook(u,address,size,unused)
+        if name=='S:covers': self.returns(len(self.items(self.list))); return
+        self.calls.append((name,self.text(u.reg_read(REGS[0])),0,0))
+        self.deqs[self.get(syms['tools_pdeq_directory'])][1]=[self.copy('stSongInfo',e) for e in self.found]
+        self.returns(len(self.found))
+    def tab(self,i): self.word(self.get(0xa3aae0-0x5810)-0x4f4c,i)  # the tab on show: 0 Songs, 1 Artists, 2 Albums, else Genres
+    def type(self,text): self.u.mem_write(syms['g_historical_record'],text.encode()+b'\0')  # the text the last confirm took
+    def foreground(self):
+        """The dialog back on top; what ran: the queries, stock's mark step, its timer step; and, kept apart, the cover
+        list's setups and the covers asked for (cover)."""
+        assert self.call(address=HOOKS['search_dialog_on_foreground'][0],args=(self.win,self.event,0,0),gap=0,count=3_000_000)==0
+        ran=[c[0] for c in self.calls]
+        self.cover=ran.count('albumcoverinfo_init'),[c[1:3] for c in self.calls if c[0] in ('local_songercover_task','local_albumsmallcover_task')]
+        return [c for c in ran if c.startswith('S:')],ran.count('search_track_highlight_playing'),ran.count('search_timer_start')
+    def rows(self,t='track'): return list(self.nodes[self.views['scroll_view_'+t]]['children'])
+def search_kept():
+    q=SearchRowsMachine(); gen=payload_syms['library_gen']
+    # no text: nothing is asked for, where stock's handler lists every song
+    assert q.foreground()==([],0,1) and not q.rows() and not q.items(q.list)
+    # a text: stock's builder runs, a row a record; again with nothing changed the rows stay, marked, the timer step runs,
+    # and the cover list is set up for the search list as the builder sets it, the first rows' covers asked for
+    q.type('night'); assert q.foreground()==(['S:SearchMusicByName'],1,1) and q.cover==(1,[(0,9)])
+    rows=q.rows(); assert len(rows)==3==len(q.items(q.list))
+    assert q.foreground()==([],1,1) and q.rows()==rows and q.cover==(1,[(0,9)])
+    # each thing the list depends on, changed, builds the tab again: songtable, the text, another list, a row gone
+    q.word(gen,q.get(gen)+2); assert q.foreground()==(['S:SearchMusicByName'],1,1) and q.rows()!=rows and q.foreground()[0]==[]
+    q.type('nigh'); assert q.foreground()[0]==['S:SearchMusicByName'] and q.foreground()[0]==[]
+    q.deqs[q.list][1]=list(reversed(q.items(q.list))); assert q.foreground()[0]==['S:SearchMusicByName'] and q.foreground()[0]==[]
+    q.nodes[q.views['scroll_view_track']]['children'].pop(); assert q.foreground()[0]==['S:SearchMusicByName'] and len(q.rows())==3
+    # no text over rows that are still their query's: they stay, marked; over rows that are not, they go with their list
+    q.type(''); rows=q.rows(); assert q.foreground()==([],1,1) and q.rows()==rows and len(q.items(q.list))==3
+    q.type('nigh'); assert q.foreground()[0]==['S:SearchMusicByName']  # a text back without a query: kept rows were no text's
+    q.type(''); assert q.foreground()==([],1,1)
+    q.word(gen,q.get(gen)+2); assert q.foreground()==([],0,1) and not q.rows() and not q.items(q.list) and q.cover==(1,[])
+    # Artists, by its source: no playing mark and no cover list there, as in stock
+    q.type('nigh'); q.tab(1); q.word(syms['artist_type'],1)
+    assert q.foreground()==(['S:SearchAlbumSongerByName'],0,1) and q.foreground()==([],0,1) and q.cover==(0,[])
+    q.word(syms['artist_type'],0); assert q.foreground()==(['S:SearchSongerByName'],0,1)
+    # a scan running: built each time, as stock; done, built once more (its query ran during the scan) and then kept
+    q.word(O['SCAN_THREAD'],1); q.word(O['SCAN_DONE'],0)
+    assert q.foreground()[0]==['S:SearchSongerByName'] and q.foreground()[0]==['S:SearchSongerByName']
+    q.word(O['SCAN_DONE'],1); assert q.foreground()[0]==['S:SearchSongerByName'] and q.foreground()[0]==[]
+    # inside stock's confirm the build and the mark are the confirm's own: the handler starts the timer and no more
+    q.byte(payload_syms['search_confirming'],1); q.word(gen,q.get(gen)+2); assert q.foreground()==([],0,1) and q.cover==(0,[])
+    q.byte(payload_syms['search_confirming'],0); assert q.foreground()[0]==['S:SearchSongerByName']; passed()
+search_kept()
 # Run the actual Library query wrapper against SQLite, with mixed music/book/podcast tags and Unknowns.
 # The flag is scoped by ringnav_localclass above; outside it (Coverflow, folders, Podcasts) SQL stays intact.
 lm=LibraryQueryMachine(); AA="ifnull(nullif(albumsonger,''),songer)"

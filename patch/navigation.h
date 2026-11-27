@@ -694,6 +694,7 @@ void album_view_toggle(void);
  * load from library_gen gen, whole when no read failed */
 int albums_again(int cls);
 void albums_made(int whole, unsigned gen);
+extern unsigned library_failed; /* navigation.c: failed library reads, as albums_made's */
 int era_menu(void *ctx, event_t *event);
 int era_sql(const char *sql, int (*row)(void *, int, char **, char **), void *ctx);
 int long_songs(void *ctx, event_t *event);
