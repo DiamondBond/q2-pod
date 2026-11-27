@@ -3920,6 +3920,63 @@ def test_a_panel_row_keeps_its_reserve_with_no_canvas(fw):
     assert not resize and not move
 
 
+# A playlist's songs whose file is gone (a moved or renamed file's old row, which stock's playlist table keeps)
+
+PLAYLISTS, PANEL_MUTED = 4, C.c_int(0xffaaaaaa).value
+
+
+def playlist_panel(fw, files, card=True):
+    """Classic's panel over a playlist of five songs, the files on the card those in files; its Ui, items and songs."""
+    from test_nav_library_pages import Songs, Ui as PageUi
+    ui = PageUi(fw)
+    ui.songs = song = Songs()  # the records live as long as the Ui
+    themed(fw, CLASSIC)
+    tracks = [song(b'/mnt/mmc/%d.flac' % i, b'Song %d' % i) for i in range(5)]
+    staging = fw.var('fw_ctx_tools_pdeq_directory', C.c_uint)
+    fw.mock('getMusicByPlayList', lambda *_: ui.deques[staging.value].extend(tracks) or len(tracks))
+    have = {f'/mnt/mmc/{i}.flac' for i in files} | ({'/tmp/mmc_add'} if card else set())
+    fw.mock('fw_access', lambda path, *_: 0 if C.string_at(path).decode() in have else -1)
+    fw.mock('bitmap_create_ex', lambda *_: libc.calloc(1, 0x48))
+    c = cf(fw)
+    page = ui.new('window_create', 0, 0, 0, 0, 0)
+    c.page, c.body, c.covers, c.scoped, c.album = page, page, ui.new('view', page, 0, 0, 0, 0), PLAYLISTS, 0
+    fw.var('fx', Fx).frame = 1
+    c.albums = ui.deques.new([song(title=b'Mix', disc=3)])
+    fw.fn('coverflow__to_tracks', C.c_int, C.c_void_p)(None)
+    items = ui.kids[ui.view(page)]
+    assert len(items) == 5
+    return ui, items, tracks
+
+
+def test_a_playlist_s_gone_song_is_dimmed_and_marked_missing(fw):
+    ui, items, _ = playlist_panel(fw, files=(0, 2, 4))
+    assert [ui.text[ui.kids[w][1]] for w in items] == ['', 'Missing', '', 'Missing', '']  # else the artist's line
+    titles = [ui.kids[w][0] for w in items]
+    assert [ui.props.get((t, 'style:normal:text_color')) for t in titles] == [None, PANEL_MUTED, None, PANEL_MUTED, None]
+    assert len([c for c in fw.calls('fw_access') if C.string_at(c[1][0]).startswith(b'/mnt/mmc/')]) == 5  # once a row
+
+
+def test_a_playlist_song_plays_the_playlist_without_its_gone_ones(fw):
+    ui, items, tracks = playlist_panel(fw, files=(0, 2, 4))
+    ui.handler(items[2], EVT_CLICK)()
+    assert ui.played == [([tracks[0], tracks[2], tracks[4]], 1, 0xf001)]  # the row's own place among those left
+    assert len([c for c in fw.calls('fw_access') if C.string_at(c[1][0]).startswith(b'/mnt/mmc/')]) == 6  # its own file
+
+
+def test_a_playlist_song_back_since_its_panel_opened_plays_too(fw):
+    ui, items, tracks = playlist_panel(fw, files=(0, 4))
+    fw.mock('fw_access', lambda *_: 0)  # 2 is back
+    ui.handler(items[2], EVT_CLICK)()
+    assert ui.played == [([tracks[0], tracks[2], tracks[4]], 1, 0xf001)]
+
+
+@pytest.mark.parametrize('card, said', [(True, 'File not found'), (False, 'Storage unavailable')])
+def test_a_gone_playlist_song_says_why_it_doesn_t_play(fw, card, said):
+    ui, items, _ = playlist_panel(fw, files=(0,), card=card)
+    ui.handler(items[1], EVT_CLICK)()
+    assert not ui.played and ui.text[cf(fw).title] == said
+
+
 # Classic's landing (coverflow_land.c): its state from the click to the hand-over, on the device path. test/coverflow.py
 # runs it from the panel's click on the host; here the tick and the paint over Now Playing's window, with the C's own
 # buffers (calloc'd: land_end frees them).
