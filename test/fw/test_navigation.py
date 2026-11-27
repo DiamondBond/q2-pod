@@ -2740,10 +2740,10 @@ def test_the_key_is_its_low_byte(fw, post):
     assert remote_key(fw, KEY_PLAY, 1001) == 1
 
 
-def test_the_oldest_of_five_posts_is_gone(fw, post):
-    for key in (1, 2, 3, 4, 5):
+def test_the_oldest_post_past_128_is_gone(fw, post):
+    for key in range(1, 130):
         post(key)
-    assert remote_key(fw, 1, 1001) == 0 and remote_key(fw, 5, 1009) == 1
+    assert remote_key(fw, 1, 1001) == 0 and remote_key(fw, 2, 1003) == 1 and remote_key(fw, 129, 1257) == 1
 
 
 def test_a_post_across_the_clocks_wrap(fw):

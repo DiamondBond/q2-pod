@@ -1714,6 +1714,7 @@ FUNCTIONS = {
  'album_covermode': ('int', 'void *, event_t *'),  # album_page's list/grid switch's click (library_lists.c album_view_toggle)
  # q2video's start (radio.c radio_start): the output in use, the music stopped, the DAC's power, and the standby timeouts held off
  'mclGetOutputWay': ('int', 'void'),
+ 'awake_screen': ('int', 'void'),  # the screen lit if dark, no lock window (a card app's wake)
  'mclGetLyricSize': ('int', 'void'),  # the playing track's lyric lines, 0 without
  'player_play_pause': ('int', 'void'),
  'player_next_music': ('int', 'void'), 'player_prev_music': ('int', 'void'),

@@ -17,7 +17,8 @@
  * those are new for the app's slot, as addon_eq_poll reads an .eq. The commands run in order and
  * the answer goes to .player.done, written whole: "<seq> ok", or "<seq> error <N>: <why>" for line
  * N, the lines before it done and none after it run. A seq .player.done already answers is taken as
- * done, and a first line that isn't a seq is never answered. */
+ * done, and a first line that isn't a seq is never answered. With the caps word "input" the
+ * same request presses the Q2's keys, turns its wheel, touches its screen and wakes it (input). */
 #include "navigation.h"
 
 #define PLAYER_FILE "/tmp/q2-player"
@@ -133,6 +134,7 @@ static unsigned state_text(char *out, unsigned size) {
     num(&t, "count", "%d", (int)n);
     num(&t, "queue", "%x", (int)pr.qhash);
     num(&t, "accent", "%06x", (int)(accent_tone(0) & 0xffffff)); /* as the theme draws it */
+    key(&t, "screen", g_backlight_status ? "on" : "off");
     unsigned k = playback_upcoming(up, UPNEXT), own = 1;
     for (unsigned i = 0; i < k; ++i) own &= up[i] == pos + 1 + i;
     add(&t, "upnext=", 0);
@@ -274,6 +276,52 @@ static int refused(void) {
     return media_owner() == 1 && !addon_game_audio() && check_forbid_play_no_headset(0);
 }
 
+/* The screen's and keys' commands (the caps word "input"), as the hardware's: a key's press, or
+ * its half, posted as SyncLink's keys are (ringnav_post_key, which Buttons Lock passes), by the
+ * codes demo dispatches; the wheel's ticks (wheel_remote); a finger queued as the touch thread
+ * queues one (tslib_run: type, x, y and the pressed byte at +0x24), in the panel's portrait
+ * coordinates, the upright view's x its y and 319 less its y its x; wake as a USB cable's
+ * (awake_screen: no lock window, no click), the screen's timers started again. -1 not one of them,
+ * else as run. */
+static const char *input(const char *l, const char *arg) {
+    static const char *const names[] = { "centre", "return", "play", "next", "prev" };
+    static const int codes[] = { KEY_CENTER, KEY_RETURN, KEY_PLAY, KEY_FWD_BTN, KEY_BACK_BTN };
+    if (!strcmp(l, "key")) {
+        const char *half = strstr(arg, " ");
+        unsigned k = half ? (unsigned)(half - arg) : strlen(arg), i = 0;
+        while (i < 5 && (strncmp(arg, names[i], k) || names[i][k])) ++i;
+        int down = !half || !strcmp(half, " down"), up = !half || !strcmp(half, " up");
+        if (i == 5 || (!down && !up)) return BAD;
+        if (down) ringnav_post_key(main_loop(), 1, codes[i]);
+        if (up) ringnav_post_key(main_loop(), 0, codes[i]);
+    } else if (!strcmp(l, "wheel")) {
+        int n = arg_number(arg + (arg[0] == '-'));
+        if (n < 1 || n > 50) return BAD;
+        wheel_remote(arg[0] == '-' ? -n : n);
+    } else if (!strcmp(l, "touch")) {
+        static const int types[] = { EVT_POINTER_DOWN - 1, EVT_POINTER_MOVE_BEFORE - 1,
+                                     EVT_POINTER_UP_BEFORE - 1 }; /* as the touch thread's */
+        const char *sp = arg[0] && arg[1] == ' ' ? strstr(arg + 2, " ") : 0;
+        int t = arg[0] == 'd' ? 0 : arg[0] == 'm' ? 1 : arg[0] == 'u' ? 2 : -1, vx = -1, vy = -1;
+        char x[8];
+        if (sp && sp - arg - 2 < (int)sizeof x) {
+            snprintf(x, sizeof x, "%.*s", (int)(sp - arg - 2), arg + 2);
+            vx = arg_number(x), vy = arg_number(sp + 1);
+        }
+        if (t < 0 || vx < 0 || vx > 374 || vy < 0 || vy > 319) return BAD;
+        unsigned r[32] = { 0 }; /* an event_queue_req_t, whole */
+        pointer_event_init(r, types[t], 0, 319 - vy, vx);
+        r[EVENT_TIME / 4] = (unsigned)time_now_ms();
+        ((unsigned char *)r)[0x24] = t < 2; /* pressed */
+        ringnav_queue_event(main_loop(), r);
+    } else if (!strcmp(l, "wake")) {
+        if (arg[0]) return BAD;
+        if (!g_backlight_status) awake_screen(), reset_poweroptions_timer(1, 1, 1);
+    } else
+        return (const char *)-1;
+    return 0;
+}
+
 /* One command line: 0 done, else why not. */
 static const char *run(char *l, const char *id) {
     char *sp = strstr(l, " ");
@@ -364,8 +412,10 @@ static const char *run(char *l, const char *id) {
         else
             qm_insert(q, songs, next);
         deque_destroy(songs);
-    } else
-        return "Unknown command";
+    } else {
+        const char *why = input(l, arg);
+        return why == (const char *)-1 ? "Unknown command" : why;
+    }
     return 0;
 }
 

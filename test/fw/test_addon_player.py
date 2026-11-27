@@ -108,7 +108,7 @@ def test_the_state_says_what_plays(player):
     assert player.poll() == ('status=playing\nowner=player\nkind=f001\npath=/mnt/mmc/A/01 One.flac\ntitle=Title 0\n'
                              'artist=Artist\nalbum=Album\nalbumartist=AA\ngenre=Rock\ntrack=1\ndisc=1\ncuestart=0\ncueend=0\n'
                              'sec=12\nlen=200\nvolume=40\nmaxvolume=100\noutput=jack\nshuffle=0\nrepeat=2\ngroup=0\nheart=0\n'
-                             f'pos=0\ncount=3\nqueue={player.hash()}\naccent={accent(player.fw)}\nupnext=\n').encode()
+                             f'pos=0\ncount=3\nqueue={player.hash()}\naccent={accent(player.fw)}\nscreen=off\nupnext=\n').encode()
 
 
 def test_the_accent_is_the_theme_s_and_a_change_rewrites(fw, player, st):
@@ -398,3 +398,87 @@ def test_an_app_s_q2app_turns_it_on(fw, mcl):
     foo.restart = 0
     poll()
     assert b'/tmp/q2-player' not in world.files
+
+
+class Loop:
+    """The UI loop as these commands reach it: its queue's counters (read, write, full, capacity) at LOOP_QUEUE, its
+    poster at LOOP_POST, which keeps what it is handed, and SyncLink's key poster, past ringnav_post_key's stamps."""
+    def __init__(self, fw, used=0, size=64):
+        self.counters = (C.c_ushort * 4)(0, used, 0, size)
+        self.mem = C.create_string_buffer(0x100)
+        C.c_void_p.from_address(C.addressof(self.mem) + O['LOOP_QUEUE']).value = C.addressof(self.counters)
+        self.queued, self.keys = [], []
+        self.post = C.CFUNCTYPE(C.c_int, C.c_void_p, C.c_void_p)(lambda loop, r: self.queued.append(C.string_at(r, 0x28)) or 0)
+        C.c_void_p.from_address(C.addressof(self.mem) + O['LOOP_POST']).value = C.cast(self.post, C.c_void_p).value
+        fw.mock('main_loop', lambda *_: C.addressof(self.mem))
+        fw.mock('stock_post_key_trampoline', lambda loop, pressed, key, *_: self.keys.append((pressed, key)))
+        fw.mock('pointer_event_init', self.pointer)
+
+    def pointer(self, r, kind, target, x, y, *_):  # AWTK's: zeroed, its type, size, target, x and y
+        for offset, v in ((0, kind), (O['EVENT_X'], x), (O['EVENT_Y'], y)):
+            C.c_int.from_address(r + offset).value = v
+        return r
+
+    def touches(self):
+        return [(C.c_int.from_buffer_copy(r, 0).value, C.c_int.from_buffer_copy(r, O['EVENT_X']).value,
+                 C.c_int.from_buffer_copy(r, O['EVENT_Y']).value, r[0x24]) for r in self.queued]
+
+
+KEYS = {'centre': O['KEY_CENTER'], 'return': O['KEY_RETURN'], 'play': O['KEY_PLAY'], 'next': O['KEY_FWD_BTN'],
+        'prev': O['KEY_BACK_BTN']}
+
+
+@pytest.mark.parametrize('name', KEYS)
+def test_a_key_is_a_press_and_a_release_as_synclink_s(fw, player, name):
+    loop = Loop(fw)
+    assert player.ask(b'x\nkey %s\n' % name.encode()) == b'x ok\n' and loop.keys == [(1, KEYS[name]), (0, KEYS[name])]
+
+
+def test_a_key_s_halves_span_requests_for_a_hold(fw, player):
+    loop = Loop(fw)
+    assert player.ask(b'x\nkey centre down\n') == b'x ok\n' and loop.keys == [(1, O['KEY_CENTER'])]
+    assert player.ask(b'y\nkey centre up\n') == b'y ok\n' and loop.keys == [(1, O['KEY_CENTER']), (0, O['KEY_CENTER'])]
+
+
+@pytest.mark.parametrize('line', [b'key', b'key menu', b'key cent', b'key centre sideways', b'key centre down up', b'wheel 0',
+                                  b'wheel 51', b'wheel -51', b'wheel x', b'wheel +2', b'touch', b'touch d 1', b'touch x 1 1',
+                                  b'touch d 375 0', b'touch d 0 320', b'touch d -1 0', b'touch d 1 2 3', b'wake now'])
+def test_a_bad_input_line(fw, player, line):
+    loop = Loop(fw)
+    assert player.ask(b'x\n' + line + b'\n') == b'x error 1: Bad value\n' and not loop.keys and not loop.queued
+
+
+def test_the_wheel_ticks_as_the_ring_does_and_leaves_the_queue_room(fw, player):
+    loop = Loop(fw)
+    fw.var('wheel_frame_at', C.c_uint).value = 0
+    assert player.ask(b'x\nwheel 2\nwheel -1\n') == b'x ok\n'
+    down, back = O['KEY_NEXT'], O['KEY_PREV']  # clockwise is down a list
+    assert loop.keys == [(1, down), (0, down)] * 2 + [(1, back), (0, back)]
+    assert fw.var('wheel_frame_at', C.c_uint).value == player.now['ms']  # tick_gate takes them as a finger's
+    full = Loop(fw, used=64 - 9)  # WHEEL_QUEUE_FREE and a tick's two left: no more
+    assert player.ask(b'y\nwheel 50\n') == b'y ok\n' and not full.keys
+
+
+def test_the_wheel_passes_buttons_lock_while_dark(fw, player):
+    loop = Loop(fw)
+    assert player.ask(b'x\nwheel 50\n') == b'x ok\n' and len(loop.keys) == 100
+    remote = fw.fn('navigation__remote_key', C.c_int, C.c_void_p)
+    event = (C.c_uint * 16)()
+    event[O['EVENT_KEY'] // 4], event[O['EVENT_TIME'] // 4] = O['KEY_NEXT'], player.now['ms']
+    assert sum(remote(event) for _ in range(101)) == 100  # each post's stamp kept, spent once
+
+
+def test_a_touch_is_queued_as_the_panel_s_finger(fw, player):
+    loop = Loop(fw)
+    assert player.ask(b'x\ntouch d 10 20\ntouch m 374 0\ntouch u 0 319\n') == b'x ok\n'
+    first, move, lift = O['EVT_POINTER_DOWN'] - 1, O['EVT_POINTER_MOVE_BEFORE'] - 1, O['EVT_POINTER_UP_BEFORE'] - 1
+    assert loop.touches() == [(first, 299, 10, 1), (move, 319, 374, 1), (lift, 0, 0, 0)]  # x 319 less the view's y
+
+
+@pytest.mark.parametrize('lit', [0, 1])
+def test_wake_lights_a_dark_screen_and_nothing_else(fw, player, lit):
+    loop = Loop(fw)
+    fw.var('g_backlight_status', C.c_ubyte).value = lit
+    assert player.state()['screen'] == ('on' if lit else 'off')
+    assert player.ask(b'x\nwake\n') == b'x ok\n'
+    assert len(fw.calls('awake_screen')) == 1 - lit and not loop.keys and not loop.queued

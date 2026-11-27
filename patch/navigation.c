@@ -9119,16 +9119,19 @@ static int rim_centre(unsigned key) {
 
 /* main_loop_post_key_event: its one caller, on_wm_idle_status, posts SyncLink's (Eddict Player's)
  * play/pause, previous and next as a press and a release for the loop to dispatch later, stamped
- * with time_now_ms. Each post keeps its key and the time around it, so ringnav_input knows it. */
+ * with time_now_ms; a card app's keys and wheel come here too (addon_player.c, wheel_remote). Each
+ * post keeps its key and the time around it, so ringnav_input knows it: POSTED of them, a request's
+ * 50 wheel ticks and its keys. */
+#define POSTED 128
 static struct {
     unsigned key, from, to;
-} posted[4] __attribute__((section(".scratch")));
+} posted[POSTED] __attribute__((section(".scratch")));
 extern int stock_post_key_trampoline(void *, int, int);
 int ringnav_post_key(void *loop, int pressed, int key) {
     static unsigned next __attribute__((section(".scratch")));
     unsigned from = time_now_ms();
     int ret = stock_post_key_trampoline(loop, pressed, key);
-    next = (next + 1) % 4;
+    next = (next + 1) % POSTED;
     posted[next].key = key & 255;
     posted[next].from = from;
     posted[next].to = time_now_ms();
@@ -9136,7 +9139,7 @@ int ringnav_post_key(void *loop, int pressed, int key) {
 }
 static int remote_key(event_t *e) {
     unsigned key = (unsigned)I(e, EVENT_KEY), t = (unsigned)I(e, EVENT_TIME);
-    for (int i = 0; i < 4; i++)
+    for (int i = 0; i < POSTED; i++)
         if (posted[i].key == key && t - posted[i].from <= posted[i].to - posted[i].from)
             return posted[i].key = 0, 1;
     return 0;

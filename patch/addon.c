@@ -105,7 +105,7 @@
 #define ADDON_CAPS                                                                                 \
     "playlist progress pages library goto sleep game audio sections art window urls sort field "   \
     "more fav now fieldtext wake audio2 dim gameview eq screen volume wifi network bar switch "    \
-    "playkept playing takeover player"
+    "playkept playing takeover player input"
 #define ADDON_SECTIONS 8  /* sections an app's first page may have */
 #define SWIPE_CLAIM_PX 24 /* a sideways move this far, twice as far as up or down, is a swipe's */
 #define SWIPE_PX 60       /* and this far at the lift, more than up or down, changes section */

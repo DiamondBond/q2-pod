@@ -157,6 +157,23 @@ static volatile unsigned wh_tick_at __attribute__((section(".scratch"))),
     wh_since __attribute__((section(".scratch"))), wh_armed_at __attribute__((section(".scratch")));
 static volatile int wh_armed __attribute__((section(".scratch")));
 volatile int wheel_mute __attribute__((section(".scratch")));
+/* A card app's wheel (addon_player.c): n ticks, clockwise (KEY_NEXT, down a list) for n > 0, each
+ * a press and a release posted as SyncLink's keys are (ringnav_post_key, so Buttons Lock passes
+ * them), as many as leave WHEEL_QUEUE_FREE slots, wheel_post's guard; each stamps a ring frame, so
+ * tick_gate takes it as a finger's. Returns the ticks posted. */
+int wheel_remote(int n) {
+    unsigned char *loop = main_loop();
+    unsigned short *q = loop ? *(unsigned short **)(loop + LOOP_QUEUE) : 0;
+    int key = n > 0 ? KEY_NEXT : KEY_PREV, k = 0;
+    for (n = n < 0 ? -n : n; q && k < n; ++k) {
+        int used = q[2] ? q[3] : (q[1] - q[0] + q[3]) % q[3];
+        if (q[3] - used < WHEEL_QUEUE_FREE + 2) break;
+        wheel_frame_at = (unsigned)time_now_ms();
+        ringnav_post_key(loop, 1, key);
+        ringnav_post_key(loop, 0, key);
+    }
+    return k;
+}
 #if Q2POD_DEV
 /* ponytail: temporary, --dev builds only, comes out once the runaway report is explained. The last
  * WL_FRAMES ring frames in RAM, a store per frame; a copy goes to /mnt/data/q2-wheel.log, synced to
