@@ -1420,6 +1420,38 @@ unsigned playback_queue_insert(void *queue, void *add, int next) {
     playback_insert(at, n, next);
     return at;
 }
+/* A card app's remove (addon_player.c): the queue's row at, not the playing one, leaves it. The row
+ * is turned to the end and popped, and every index after it moves down, as playback_queue_insert
+ * moves them up: the position, the shuffle pool (at's own entry out), the last pick and the
+ * previous index; the preload closes, as its index may name at or one after it. Advanced play
+ * follows as it follows stock's own delete. 0 when at is no row or the playing one. */
+int playback_queue_remove(unsigned at) {
+    void *q = queue(), *pool = P(MCL_POOL, 0);
+    unsigned size = q ? deque_size(q) : 0, pos = (unsigned)M(MCL_POS), k = 0;
+    if (at >= size || at == pos) return 0;
+    close_preload();
+    reverse_rows(q, at, size);
+    reverse_rows(q, at, size - 1);
+    deque_pop_back(q);
+    unsigned n = pool ? deque_size(pool) : 0;
+    for (unsigned i = 0; i < n; ++i) {
+        int x = *(int *)deque_at(pool, i);
+        if ((unsigned)x != at) *(int *)deque_at(pool, k++) = (unsigned)x > at ? x - 1 : x;
+    }
+    for (; n > k; --n) deque_pop_back(pool);
+    if (pos > at && pos < size) M(MCL_POS) = (int)pos - 1;
+    if (M(MCL_LASTPOS) != -1 && (unsigned)M(MCL_LASTPOS) >= at)
+        M(MCL_LASTPOS) = (unsigned)M(MCL_LASTPOS) == at ? -1 : M(MCL_LASTPOS) - 1;
+    if (back_to && (unsigned)back_to - 1 >= at)
+        back_to = (unsigned)back_to - 1 == at ? 0 : back_to - 1;
+    if (!s.active) {
+        s.dirty = 1; /* the plain snapshot, on the next UI pass */
+        return 1;
+    }
+    follow_queue();
+    playback_save();
+    return 1;
+}
 /* Up Next's hold: the queue's track at from plays next, ahead of any pending Play Next. Only the
  * pending list changes: from joins its front (out of its old place there), so the queue, its
  * indices, the order and every album or folder group stay as they were. commit then takes its

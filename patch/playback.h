@@ -15,6 +15,7 @@ unsigned playback_upcoming(unsigned *out, unsigned max); /* Up Next: queue indic
 /* Play Next / Add: the tracks land at pos+1 (next) or the end; returns that index */
 unsigned playback_queue_insert(void *queue, void *add, int next);
 void playback_insert(unsigned at, unsigned n, int next); /* the advanced part alone */
+int playback_queue_remove(unsigned at); /* a row out, not the playing one; 0 when none goes */
 int playback_move(unsigned from); /* Up Next's hold: from plays next; its new index, else -1 */
 void playback_poll(void);
 void playback_speed_start(void);
