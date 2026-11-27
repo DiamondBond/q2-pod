@@ -101,6 +101,28 @@ def test_stamps_past_the_room_are_passed_over(fw):
     assert stamps(fw, b'[00:01]x', 0) == ([], b'x')
 
 
+def singer(fw, s):
+    return C.string_at(fw.fn('lyrics__lrc_singer', C.c_void_p, C.c_void_p)(block(fw, s)))
+
+
+@pytest.mark.parametrize('s,kept', [
+    (b'v1:Hello', b'Hello'), (b'v2: Hello', b'Hello'), (b'v12:Hello', b'Hello'),
+    (b'v1:  Hello', b' Hello'),                       # one space goes, the trim takes the rest
+    (b'v2:<00:16.186>That', b'<00:16.186>That'),      # the word stamps are still the words'
+    (b'v1:v1:real lyric', b'v1:real lyric'),          # once a line
+    (b'v1:', b''),
+])
+def test_a_singer_marker_goes(fw, s, kept):
+    assert singer(fw, s) == kept
+
+
+@pytest.mark.parametrize('s', [
+    b'Hello v1: there', b'V1:Hello', b'vx:Hello', b'v:Hello', b'v1Hello', b'v1', b'v', b'', b' v1:Hello',
+])
+def test_anything_else_stays(fw, s):
+    assert singer(fw, s) == s
+
+
 def words(fw, s, cap=8, keep=1, n=0):
     fn = fw.fn('lyrics__lrc_words', None, C.c_void_p, C.c_void_p, C.c_uint, C.POINTER(C.c_uint), C.c_int)
     buf, m, count = text(s), (Mark * 16)(), C.c_uint(n)
@@ -231,6 +253,13 @@ def test_lines_at_one_time_stay_in_file_order(fw):
 def test_a_stamp_alone_is_a_blank_line_but_still_means_lrc(fw):
     assert lrc(fw, b'plain\n[00:01.00]\n[00:02.00]b') == [(2000, b'b', [])]
     assert lrc(fw, b'plain\n[00:01.00]  ') == []
+
+
+def test_a_line_loses_its_singer_marker(fw):
+    assert lrc(fw, b'[00:16.898]v1:I ponder\n[00:18.00]v2: of something great') == [
+        (16898, b'I ponder', []), (18000, b'of something great', [])]
+    assert lrc(fw, b'[00:16.186]v2:<00:16.186>That <00:16.386>depends') == [
+        (16186, b'That depends', [(16186, 0), (16386, 5)])]
 
 
 def test_word_stamps_of_a_synced_line(fw):
