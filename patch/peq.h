@@ -484,7 +484,7 @@ void *coverflow_cover_tracks(void *r); /* as Cover Flow lists them: Hide Duplica
 int key_cmp(const void *a, const void *b);
 int has_key(const unsigned *keys, unsigned n, unsigned key);
 unsigned key_at(const unsigned *keys, unsigned n, unsigned key);
-unsigned album_id(void *r), album_dir(const char *p, int disc);
+unsigned album_id(void *r), album_dir(const char *p, int disc), artist_id(const char *name);
 /* navigation.c: Cover Flow's glide and its letter */
 int carousel_glide(widget_t *w, int goal, unsigned ms, int easing);
 void coverflow_letter(widget_t *w, unsigned letter, unsigned now);
@@ -868,6 +868,8 @@ void playlists_edit(int edit);
 int rockbox_available(void); /* theme_engine.c: a regular Rockbox binary on the card */
 #define SHORTCUT_APP 0       /* IPOD SHORTCUT's card app, IPOD SHORTCUT_APP its id */
 #define SHORTCUT_NONE 11     /* IPOD SHORTCUT's None: Home has no Shortcut row */
+/* IPOD SHORTCUT's Rated Artists: Ratings → Artists */
+#define SHORTCUT_RATED_ARTISTS 12
 int page_keyup(void *ctx, event_t *event); /* navigation.c: Return leaves a payload page */
 int ringnav_localclass(int cls);           /* navigation.c: load_localclass_list's hook */
 int shelf_open(void *ctx, event_t *event); /* netupdate.c: Library's App Store page */

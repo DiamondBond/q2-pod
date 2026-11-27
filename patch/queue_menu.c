@@ -137,6 +137,13 @@ unsigned qm_album_id(void *r) {
                ? st.art_ids[st.qm_idx]
                : 0;
 }
+/* The queue menu's artist's artist_id, 0 when not an artist it rates: a Library Artists row by the
+ * name it shows, not Unknown Artist's. */
+unsigned qm_artist_id(void *r) {
+    return qm.qm_kind == QM_GROUP && qm.qm_cls == 0xf004 && I(r, REC_ID) != -1
+               ? artist_id(P(r, REC_ARTIST))
+               : 0;
+}
 
 /* A blink cut short, whichever way the menu goes: its timer, and the selection shown as before the
  * press, as qm_blinked puts it back at a blink's end. The change is made already. */
@@ -262,6 +269,22 @@ static int qm_restore(void *page, event_t *event) {
     memcpy((void *)g_local_classinfo_save, qm.qm_classinfo, sizeof qm.qm_classinfo);
     return 0;
 }
+static void qm_restore_on(widget_t *page) {
+    widget_t *top = window_manager_get_top_window(window_manager());
+    if (top != page) widget_on(top, EVT_WINDOW_CLOSE, qm_restore, top);
+}
+
+/* Artist info's page for r: artistinfo_page with {class, record} (Ratings → Artists' rows too). */
+void artist_page(unsigned cls, void *r) {
+    widget_t *page = window_manager_get_top_window(window_manager());
+    struct {
+        int cls;
+        void *r;
+    } context = { (int)cls, r };
+    memcpy(qm.qm_classinfo, (void *)g_local_classinfo_save, sizeof qm.qm_classinfo);
+    navigator_to_with_context("localmusic/artistinfo_page", &context);
+    qm_restore_on(page);
+}
 
 /* Now Playing's More rows, for this record: Album info (0x5397cc) fills the album query and opens
  * playerjumpinfo_page; Artist info opens artistinfo_page with {class, record}. A song played in
@@ -270,29 +293,24 @@ static int qm_restore(void *page, event_t *event) {
  * (addon.c addon_goto). */
 static void qm_goto(void *r, int album) {
     unsigned char *info = (unsigned char *)g_local_classinfo_save;
-    widget_t *wm = window_manager(), *page = window_manager_get_top_window(wm);
+    widget_t *page = window_manager_get_top_window(window_manager());
     /* a card app's song (Qobuz's): the app's own page for its album or artist, when it says so */
     if (addon_goto(P(r, REC_PATH), P(r, album ? REC_ALBUM : REC_ARTIST), album)) return;
     if (album && (navigator_window_is_exist("coverflow_page") || pod_value(POD_ARTIST_CF)) &&
         coverflow_goto_album(r))
         return;
-    memcpy(qm.qm_classinfo, info, sizeof qm.qm_classinfo);
-    if (album) {
-        info[9] = 0;
-        tk_snprintf((char *)info + 0xd, 0x100, "%s", (const char *)P(r, REC_ALBUM));
-        tk_snprintf((char *)info + 0x10d, 0x100, "%s", (const char *)P(r, REC_ARTIST));
-        *(int *)info = 0xff10;
-        album_open(r);
-        navigator_to("playerjumpinfo_page");
-    } else {
-        struct {
-            int cls;
-            void *r;
-        } context = { (int)qm.qm_cls, r };
-        navigator_to_with_context("localmusic/artistinfo_page", &context);
+    if (!album) {
+        artist_page(qm.qm_cls, r);
+        return;
     }
-    widget_t *top = window_manager_get_top_window(wm);
-    if (top != page) widget_on(top, EVT_WINDOW_CLOSE, qm_restore, top);
+    memcpy(qm.qm_classinfo, info, sizeof qm.qm_classinfo);
+    info[9] = 0;
+    tk_snprintf((char *)info + 0xd, 0x100, "%s", (const char *)P(r, REC_ALBUM));
+    tk_snprintf((char *)info + 0x10d, 0x100, "%s", (const char *)P(r, REC_ARTIST));
+    *(int *)info = 0xff10;
+    album_open(r);
+    navigator_to("playerjumpinfo_page");
+    qm_restore_on(page);
 }
 
 /* Deferred so the dialog is never closed under its own click dispatch. */
@@ -340,7 +358,9 @@ static int qm_run(const void *unused) {
     if (qm.qm_action != QA_NEXT && qm.qm_action != QA_ADD) qm_close(); /* they may blink first */
     void *r = qm_record();
     int a = qm.qm_action, cls = qm.qm_kind == QM_COVERFLOW ? 0xf001 : (int)qm.qm_cls;
-    unsigned aid = r ? qm_album_id(r) : 0; /* an album's own Favourites and Rate */
+    /* an album's or artist's own Favourites and Rate */
+    unsigned artist = r ? qm_artist_id(r) : 0, aid = artist ? artist : r ? qm_album_id(r) : 0;
+    int k = artist ? RATE_ARTISTS : RATE_ALBUMS;
     if (r && a >= 100) {
         if (!playback_set(qm.qm_choice - 1, a - 100)) toast(tr("Queue unchanged"));
         qm.qm_choice = 0;
@@ -371,9 +391,10 @@ static int qm_run(const void *unused) {
     } else if (r && (a == QA_NEXT_GROUP || a == QA_PREV_GROUP)) {
         if (!playback_group_skip(a == QA_NEXT_GROUP)) toast(tr("No other group"));
     } else if (aid && a == QA_RATE) {
-        rate_show(window_manager_get_top_window(window_manager()), rate_kept(1, aid), aid);
+        rate_show(window_manager_get_top_window(window_manager()), rate_kept(k, aid), k, aid);
     } else if (aid && (a == QA_FAV || a == QA_UNFAV)) {
-        if (rate_saved(rate_keep(1, aid, a == QA_FAV ? 5 : 0))) rate_album_favs(r, a == QA_FAV);
+        if (rate_saved(rate_keep(k, aid, a == QA_FAV ? 5 : 0)) && !artist)
+            rate_album_favs(r, a == QA_FAV);
     } else if (r && a == QA_RATE) {
         rate_open();
     } else if (r && a >= QA_ADV_SHUFFLE && a <= QA_GROUP) {
@@ -622,9 +643,10 @@ static int qm_open(const void *unused) {
     }
     if (!song) acts[n++] = QA_SHUFFLE;
     if (song) acts[n++] = checkFavExist(r) ? QA_UNFAV : QA_FAV;
-    /* an album's own hearts, 5 its favourite */
-    unsigned aid = song ? 0 : qm_album_id(r);
-    int album_hearts = aid ? rate_kept(1, aid) : 0;
+    /* an album's or artist's own hearts, 5 its favourite */
+    unsigned by_artist = song ? 0 : qm_artist_id(r);
+    unsigned aid = by_artist ? by_artist : song ? 0 : qm_album_id(r);
+    int album_hearts = aid ? rate_kept(by_artist ? RATE_ARTISTS : RATE_ALBUMS, aid) : 0;
     if (aid) acts[n++] = album_hearts == 5 ? QA_UNFAV : QA_FAV, acts[n++] = QA_RATE;
     if (qm.qm_kind < QM_COVERFLOW || qm.qm_kind == QM_PLAYING || qm.qm_kind == QM_COVERALBUM)
         acts[n++] = QA_PLAYLIST;
@@ -686,7 +708,7 @@ static int qm_open(const void *unused) {
         widget_use_style(label, "s_scrlabel_white24l");
         if (acts[i] == QA_RATE) {
             int h = aid ? album_hearts : checkFavExist(r) ? 5 : rate_kept(0, listen_key(r));
-            const char *row = aid ? tr("Rate Album") : tr("Rate");
+            const char *row = by_artist ? tr("Rate Artist") : aid ? tr("Rate Album") : tr("Rate");
             char hs[16];
             tk_snprintf(rated, sizeof rated, h ? "%s  %s" : "%s", row, hearts_text(hs, h));
         }

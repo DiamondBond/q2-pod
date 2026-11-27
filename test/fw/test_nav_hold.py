@@ -2755,7 +2755,59 @@ def test_an_artist_composer_or_genre_row_is_titled_by_its_own_tag(hold, recs, ui
     rows = [recs(kind=4, **{field_: f'{field_} {i}'}) for i in range(2)]
     hold.songs_page('localclass_page', rows, sel=1, cls=cls)
     hold.hold()
-    assert hold.menu() == ['Play Next', 'Add to Queue', 'Shuffle', 'Add to Playlist'] and hold.title() == f'{field_} 1'
+    rated = ['Add to Favourites', 'Rate Artist'] if field_ == 'artist' else []  # artists alone are rated
+    assert hold.menu() == ['Play Next', 'Add to Queue', 'Shuffle', *rated, 'Add to Playlist']
+    assert hold.title() == f'{field_} 1'
+
+
+def test_an_artists_favourite_is_kept_by_its_name_and_leaves_its_songs(hold, recs, ui, fw):
+    artists = [recs(artist=a, kind=4, id_=i + 1) for i, a in enumerate(('The Beatles', 'Wings'))]
+    hold.songs_page('localclass_page', artists, sel=0, cls=0xf004)
+    hold.hold()
+    hold.menu()
+    hold.pick('Add to Favourites')
+    assert not ui.toasts and '/mnt/data/ringnav-artist-ratings' in hold.card.files
+    assert not fw.calls('batch_add_file')  # five hearts puts no song in My Fav
+    kept = fw.fn('rate_kept', C.c_int, C.c_int, C.c_uint)
+    artist_id = fw.fn('artist_id', C.c_uint, C.c_char_p)
+    assert kept(2, artist_id(b'the beatles')) == 5 and kept(1, artist_id(b'The Beatles')) == 0
+    hold.hold()
+    rows = hold.menu()
+    assert 'Remove from Favourites' in rows and 'Rate Artist  ' + '♥' * 5 in rows
+    hold.pick('Remove from Favourites')
+    assert kept(2, artist_id(b'The Beatles')) == 0 and not fw.calls('deleteMusicFromFav')
+
+
+def test_rate_artist_opens_the_picker_and_rates_that_artist(hold, recs, ui, st, fw):
+    artists = [recs(artist=a, kind=4, id_=i + 1) for i, a in enumerate(('The Beatles', 'Wings'))]
+    hold.songs_page('localclass_page', artists, sel=1, cls=0xf004)
+    hold.hold()
+    hold.menu()
+    hold.pick('Rate Artist')
+    assert st('rate_on', C.c_void_p).value == hold.page
+    key = fw.fn('rate_key', C.c_int, C.c_void_p, C.c_uint)
+    for k in ('KEY_NEXT', 'KEY_NEXT', 'KEY_NEXT', 'KEY_CENTER'):
+        assert key(hold.page, O[k])
+    hold.hold()
+    assert 'Rate Artist  ♥♥♥♡♡' in hold.menu() and hold.title() == 'Wings'
+
+
+def test_an_artist_changed_under_the_picker_is_not_rated(hold, recs, ui, st, fw):
+    artists = [recs(artist=a, kind=4, id_=i + 1) for i, a in enumerate(('The Beatles', 'Wings'))]
+    hold.songs_page('localclass_page', artists, sel=0, cls=0xf004)
+    hold.hold()
+    hold.menu()
+    hold.pick('Rate Artist')
+    C.memmove(C.addressof(fw.var('fw_ctx_g_folder_path', C.c_char)), b'/mnt/mmc/x\0', 11)  # browsing moved on
+    key = fw.fn('rate_key', C.c_int, C.c_void_p, C.c_uint)
+    assert key(hold.page, O['KEY_NEXT']) and key(hold.page, O['KEY_CENTER'])
+    assert ui.toasts == ['Artist changed'] and '/mnt/data/ringnav-artist-ratings' not in hold.card.files
+
+
+def test_unknown_artists_row_has_no_rating(hold, recs, ui):
+    hold.songs_page('localclass_page', [recs(artist='Wings', kind=4, id_=1), recs(kind=4, id_=-1)], sel=1, cls=0xf004)
+    hold.hold()
+    assert hold.menu() == ['Play Next', 'Add to Queue', 'Shuffle', 'Add to Playlist']
 
 
 def test_a_folder_rows_menu(hold, recs, ui, fw):
@@ -2813,16 +2865,21 @@ def test_most_playeds_tracks_hold_as_its_songs(hold, recs, ui, st, fw):
     assert (cls, kind, tracks & 0xffffffff) == (0xf001, 0xf00a, mp)  # its own tracks, as songs whatever the Library
 
 
-@pytest.mark.parametrize('sel, held', [(-1, 0), (0, 0), (1, 1), (3, 2), (4, 3)])  # -1: no turn yet, the first row
+@pytest.mark.parametrize('sel, held', [(-1, 0), (0, 0), (1, 1), (4, 2)])  # -1: no turn yet, the first row
 def test_a_ratings_list_s_row_held_shuffles_that_list(hold, recs, ui, fw, rates, sel, held):
-    hold.songs_page('ratings_page', [song(recs, i) for i in range(5)], sel=sel, showlist=False, cls=0)
+    hold.songs_page('ratings_page', [song(recs, i) for i in range(6)], sel=sel, showlist=False, cls=0)
     rates('rt_menu', C.c_void_p).value = hold.page
     assert hold.hold() == STOP and ui.pending() == [ui.fn('ratings__rt_shuffle')]
     assert rates('rt_held').value == held and not fw.calls('stock_keylong_trampoline')
 
 
-def test_the_ratings_albums_row_held_is_stocks(hold, recs, ui, fw, rates):
-    hold.songs_page('ratings_page', [song(recs, i) for i in range(5)], sel=2, showlist=False, cls=0)
+def test_the_ratings_menus_rows_after_albums_and_artists_are_its_last_lists(fw):
+    assert [fw.fn('ratings__rt_list_of', C.c_int, C.c_int)(row) for row in (0, 1, 4, 5)] == [0, 1, 2, 3]
+
+
+@pytest.mark.parametrize('sel', [2, 3])  # Albums, Artists
+def test_the_ratings_albums_and_artists_rows_held_are_stocks(hold, recs, ui, fw, rates, sel):
+    hold.songs_page('ratings_page', [song(recs, i) for i in range(6)], sel=sel, showlist=False, cls=0)
     rates('rt_menu', C.c_void_p).value = hold.page
     fw.mock('stock_keylong_trampoline', lambda *_: 0x77)
     assert hold.hold() == 0x77 and ui.pending() == []

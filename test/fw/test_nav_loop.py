@@ -595,14 +595,15 @@ def test_standby_unmount_retries_then_remounts_read_only_and_detaches(fw, fails,
 
 # The card's copy of the ratings (docs/internals.md#ratings).
 RC_FILE = '/mnt/mmc/.ratings.tsv'
-RC_HEADER = b'#song\thearts\tpath\tcue_start\n#album\thearts\tname\talbum_artist\tfolder\n'
+RC_HEADER = b'#song\thearts\tpath\tcue_start\n#album\thearts\tname\talbum_artist\tfolder\n#artist\thearts\tname\n'
 MOUNTED = b'/dev/mmcblk0p1 /mnt/mmc vfat rw 0 0\n'
 
 
 class Rc(C.Structure):
     _fields_ = [('db', C.c_void_p), ('song', C.c_void_p), ('album', C.c_void_p),
                 *((k, C.c_uint) for k in 'songs albums len cap at'.split()), ('out', C.c_void_p),
-                *((k, C.c_int) for k in 'table last rows oom'.split()), ('gen', C.c_uint)]
+                *((k, C.c_int) for k in 'table last rows oom'.split()), ('gen', C.c_uint), ('artist', C.c_void_p),
+                ('artists', C.c_uint)]
 
 
 def record(keep, path=None, album=None, artist=None, cue=0, rid=0):
@@ -620,7 +621,7 @@ def record(keep, path=None, album=None, artist=None, cue=0, rid=0):
 
 class Library:
     """The ratings, kept by the firmware's own rate_keep, and stock's database as the copy queries it:
-    myfav and songtable rows (id, fileurl, time, album, albumsonger), sqlite_master knowing songtable."""
+    myfav and songtable rows (id, fileurl, time, album, albumsonger, songer), sqlite_master knowing songtable."""
     ROW = C.CFUNCTYPE(C.c_int, C.c_void_p, C.c_int, C.POINTER(C.c_char_p), C.POINTER(C.c_char_p))
 
     def __init__(self, fw, files=None):
@@ -658,9 +659,9 @@ class Library:
                 return 4  # SQLITE_ABORT
         return 0
 
-    def song(self, path, album=b'', artist=b'', cue=0, table=None):
+    def song(self, path, album=b'', artist=b'', cue=0, table=None, songer=b''):
         table = self.songs if table is None else table
-        table.append((b'%d' % (len(table) + 1), path, b'%d' % cue, album, artist))
+        table.append((b'%d' % (len(table) + 1), path, b'%d' % cue, album, artist, songer))
 
     def rate(self, path, hearts, cue=0):
         assert self.keep_fn(0, self.listen_key(record(self.keep, path, cue=cue)), hearts) == 1
@@ -698,6 +699,18 @@ def test_the_card_copy_names_each_rated_song_and_album(fw, st):
     assert lib.copy() == RC_HEADER + (b'song\t5\t/mnt/mmc/Fav/f.flac\t\n'  # My Fav: 5 hearts
                                       b'album\t4\tAlbum\tArtist\t\n'        # the album, at its first song
                                       b'song\t3\t/mnt/mmc/A/2.flac\t\n')
+
+
+def test_the_card_copy_names_each_rated_artist_once_by_either_tag(fw, st):
+    lib = Library(fw)
+    lib.song(b'/mnt/mmc/A/1.flac', b'Album', b'Paul McCartney', songer=b'Wings')
+    lib.song(b'/mnt/mmc/A/2.flac', b'Album', b'Paul McCartney', songer=b'WINGS')
+    lib.song(b'/mnt/mmc/B/1.flac', b'Other', b'', songer=b'Queen')
+    artist_id = fw.fn('artist_id', C.c_uint, C.c_char_p)
+    for name, hearts in ((b'wings', 5), (b'Paul McCartney', 2), (b'Nobody', 1)):  # Nobody: not in the library
+        assert lib.keep_fn(2, artist_id(name), hearts) == 1
+    assert lib.run()
+    assert lib.copy() == RC_HEADER + b'artist\t5\tWings\nartist\t2\tPaul McCartney\n'
 
 
 def test_a_cue_track_keeps_its_start(fw, st):
@@ -800,7 +813,7 @@ def test_a_longer_copy_replaces_without_a_dot_1(fw, st):
     lib = Library(fw, {RC_FILE: RC_HEADER})
     lib.song(b'/mnt/mmc/a.flac')
     lib.rate(b'/mnt/mmc/a.flac', 3)
-    assert lib.run() and RC_FILE + '.1' not in lib.card.files and lib.copy().count(b'\n') == 3
+    assert lib.run() and RC_FILE + '.1' not in lib.card.files and lib.copy() == RC_HEADER + b'song\t3\t/mnt/mmc/a.flac\t\n'
 
 
 def test_a_copy_that_cant_be_written_leaves_the_old_one(fw, st):

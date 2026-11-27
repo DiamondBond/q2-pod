@@ -1446,7 +1446,7 @@ for kw,setup,want in (({},None,('Row 0',SONG_MENU)),
         # An artist's tabs set classinfo +0, not g_class_type: Albums first, then Songs after an album.
         ({'cls':0xff07,'page':'artistinfo_page'},lambda m:m.word(syms['g_local_classinfo_save'],0xff01),('Album',GROUP)),
         ({'cls':0xff01,'page':'artistinfo_page'},lambda m:(m.word(syms['g_local_classinfo_save'],0xff07),m.open_pages.add('artistinfo_page')),('Row 0',SONG_MENU[:5])),
-        ({'cls':0xf004,'page':'localclass_page'},None,('Artist',GROUP)),
+        ({'cls':0xf004,'page':'localclass_page'},None,('Artist',[*GROUP[:3],'Add to Favourites','Rate Artist',GROUP[3]])),
         ({'cls':0xf006,'page':'localclass_page'},lambda m:m.word(m.row(0)+0x1c,m.string('Pop')),('Pop',GROUP)),
         ({'page':'folder_page','cls':1},lambda m:m.word(m.row(0)+O['REC_TYPE'],4),('Row 0',GROUP))):
     assert menu(QueueMachine(**kw),setup)==want, (kw,want); passed()
@@ -4834,12 +4834,12 @@ for failure in ('open','PRAGMA','select'):
     m=EraMachine(SONGS); m.fail=failure; top=m.top; m.open_era()
     assert m.top==top and m.toasts[-1][3]=='Era unavailable' and m.closed_db==1; passed()
 # The ratings' copy on the card (ratings.c rc_*): the tables' hashes named again from the library, a page a poll.
-RC_FILE='/mnt/mmc/.ratings.tsv'; RC_HEAD='#song\thearts\tpath\tcue_start\n#album\thearts\tname\talbum_artist\tfolder\n'
+RC_FILE='/mnt/mmc/.ratings.tsv'; RC_HEAD='#song\thearts\tpath\tcue_start\n#album\thearts\tname\talbum_artist\tfolder\n#artist\thearts\tname\n'
 class RatingsCopyMachine(FileMocks,EraMachine):
     def __init__(self,songs,favs=()):
         super().__init__(); self.budget=2_000_000; self.file_mocks('rc:',{'/proc/mounts':b'/dev/mmcblk0p1 /mnt/mmc vfat rw 0 0\n'}); self.writes=0
         self.db.execute('drop table songtable')
-        for t in ('songtable','myfav'): self.db.execute(f'create table {t}(id integer primary key,fileurl,time,album,albumsonger)')
+        for t in ('songtable','myfav'): self.db.execute(f'create table {t}(id integer primary key,fileurl,time,album,albumsonger,songer)')
         self.db.executemany('insert into songtable(fileurl,time,album,albumsonger) values(?,?,?,?)',songs)
         self.db.executemany('insert into myfav(fileurl,time,album,albumsonger) values(?,?,?,?)',favs)
     def hook(self,u,address,size,unused):
@@ -4867,11 +4867,13 @@ aa=m.key('album_id','/mnt/mmc/m/a.flac',album='Alpha',artist='Band'); ab=m.key('
 unknown=m.rec('/x'); m.word(unknown+O['REC_ID'],0xffffffff); au=m.call(address=payload_syms['album_id'],args=(unknown,0,0,0),gap=0)&0xffffffff
 m.rate([(m.key('listen_key','/mnt/mmc/m/cue.flac',cue=30),3),(m.key('listen_key','/mnt/mmc/m/t\tab.flac'),1),
         (m.key('listen_key','/mnt/mmc/m/fav.flac'),2),(m.key('listen_key','/mnt/mmc/gone.flac'),4)],[(aa,5),(ab,2),(au,1)])
+band=m.call(address=payload_syms['artist_id'],args=(m.string('band'),0,0,0),gap=0)&0xffffffff  # an artist, by its name
+m.files['/mnt/data/ringnav-artist-ratings']=struct.pack('<I',(band&~7)|4).ljust(4*O['RATE_SLOTS'],b'\0')
 # Five seconds after boot: My Fav's as 5 whatever is kept, the songs with a CUE start, an album once, the folder only where
-# no album artist tells it apart, tabs and newlines as spaces, a song no longer in the library left out.
+# no album artist tells it apart, an artist once, tabs and newlines as spaces, a song no longer in the library left out.
 m.poll(0); assert RC_FILE not in m.files; m.poll(4999); assert RC_FILE not in m.files
 m.poll(1); text=m.copy_text()
-assert text==RC_HEAD+'album\t1\tUnknown Album\t\t\nsong\t5\t/mnt/mmc/m/fav.flac\t\nalbum\t5\tAlpha\tBand\t\nsong\t3\t/mnt/mmc/m/cue.flac\t30\n' \
+assert text==RC_HEAD+'album\t1\tUnknown Album\t\t\nsong\t5\t/mnt/mmc/m/fav.flac\t\nalbum\t5\tAlpha\tBand\t\nartist\t4\tBand\nsong\t3\t/mnt/mmc/m/cue.flac\t30\n' \
     'album\t2\tSolo\t\t/mnt/mmc\nsong\t1\t/mnt/mmc/m/t ab.flac\t\n',text
 assert m.writes==1 and m.closed_db==1 and not m.get(payload_syms['rc']+4) and '/mnt/mmc/.ratings.tsv.tmp' not in m.files; passed()
 # Nothing due, nothing read; the same copy again isn't written; a change is, 5 s after the last of a run.
@@ -4927,7 +4929,7 @@ rc_change(); assert m.copy_text()==RC_HEAD and m.files[RC_FILE+'.1'].decode()==f
 # Out of memory ends the pass with the last copy kept, not one with rows missing.
 long=[(f'/mnt/mmc/{"x"*1000}/{i}.flac',0,'','') for i in range(80)]
 m=RatingsCopyMachine(SONGS_RC,long); m.poll(0); m.files[RC_FILE]=b'kept\n'; m.fail_realloc=True; m.poll(); assert m.files[RC_FILE]==b'kept\n' and m.writes==0
-m.fail_realloc=False; m.call(address=payload_syms['ratings_copy_due'],args=(0,0,0,0),gap=0); m.poll(); assert m.copy_text().count('\n')==82; passed()
+m.fail_realloc=False; m.call(address=payload_syms['ratings_copy_due'],args=(0,0,0,0),gap=0); m.poll(); assert m.copy_text().count('\n')==83; passed()
 # No scan yet, so no songtable: My Fav's alone still get their copy.
 m=RatingsCopyMachine([],FAV_RC); m.db.execute('drop table songtable'); m.poll(0); m.poll()
 assert m.copy_text()==RC_HEAD+'song\t5\t/mnt/mmc/m/fav.flac\t\n' and m.closed_db==1; passed()
@@ -5811,8 +5813,8 @@ for label_name in ('label_del','label_rename'):
 passed()
 
 m=Machine(); style_color(m,red)
-# config_value passes its default in decimal: SHORTCUT's SETTING_N_SHORTCUT (12) is out of range, so no shortcut
-assert m.config_reads==[('/mnt/data/config.ini','IPOD',key,'0') for key in ('ACCENT','HOME','BATTERY','THEME')]+[('/mnt/data/config.ini','IPOD','SHORTCUT','12'),('/mnt/data/config.ini','IPOD','ROUNDED','1'),('/mnt/data/config.ini','IPOD','LIGHT','0'),('/mnt/data/config.ini','IPOD','KEEPLIT','0'),('/mnt/data/config.ini','IPOD','NPCENTRED','0'),('/mnt/data/config.ini','IPOD','KEYTONEHP','0'),('/mnt/data/config.ini','IPOD','SCRUBSINGLE','0'),('/mnt/data/config.ini','IPOD','TIMETITLE','1'),('/mnt/data/config.ini','IPOD','MINIMAL_ACCENT','0'),('/mnt/data/config.ini','IPOD','SHORTCUT_APP','rockbox')]+[('/mnt/data/config.ini','IPOD',key,v) for key,v in (('STATUSBAR','0'),('SHOWQ2POD','1'),('CLASSIC_LIGHT_ACCENT','9'),('HOMELIB','1'),('ROWPREVIEW','1'),('ROWART','1'))]; passed()
+# config_value passes its default in decimal: SHORTCUT's SETTING_N_SHORTCUT (13) is out of range, so no shortcut
+assert m.config_reads==[('/mnt/data/config.ini','IPOD',key,'0') for key in ('ACCENT','HOME','BATTERY','THEME')]+[('/mnt/data/config.ini','IPOD','SHORTCUT','13'),('/mnt/data/config.ini','IPOD','ROUNDED','1'),('/mnt/data/config.ini','IPOD','LIGHT','0'),('/mnt/data/config.ini','IPOD','KEEPLIT','0'),('/mnt/data/config.ini','IPOD','NPCENTRED','0'),('/mnt/data/config.ini','IPOD','KEYTONEHP','0'),('/mnt/data/config.ini','IPOD','SCRUBSINGLE','0'),('/mnt/data/config.ini','IPOD','TIMETITLE','1'),('/mnt/data/config.ini','IPOD','MINIMAL_ACCENT','0'),('/mnt/data/config.ini','IPOD','SHORTCUT_APP','rockbox')]+[('/mnt/data/config.ini','IPOD',key,v) for key,v in (('STATUSBAR','0'),('SHOWQ2POD','1'),('CLASSIC_LIGHT_ACCENT','9'),('HOMELIB','1'),('ROWPREVIEW','1'),('ROWART','1'))]; passed()
 # theme()/scheme(): the active built-in and its scheme, settings read on first use. THEME out of
 # range is Minimal; Classic's stored Ivory and an out-of-range CLASSIC_LIGHT_ACCENT are Classic Blue, on Cobalt's
 # tones; Modern's stored Ivory and an out-of-range ACCENT are Graphite's scheme; a missing MINIMAL_ACCENT is Graphite, a stored Ivory
@@ -6641,7 +6643,7 @@ m.stack.pop(); m.top=under  # the picker's page, as its press leaves it (navigat
 # A pick (shortcut_pick) saves it and Home's row names it at once; None hides the row, and the carousel's card keeps
 # the default's name.
 m.mock('navigator_back')
-for value,label in ((5,'Shuffle'),(4,'Rated Albums'),(7,'Playlists'),(1,'Artists'),(2,'Albums'),(6,'Games'),(8,'Podcasts'),
+for value,label in ((5,'Shuffle'),(4,'Rated Albums'),(12,'Rated Artists'),(7,'Playlists'),(1,'Artists'),(2,'Albums'),(6,'Games'),(8,'Podcasts'),
                     (9,'Audiobooks'),(11,'None'),(3,'Favourites')):
     m.calls=[]; m.call(address=payload_syms['shortcut_pick'],args=(value,m.event,0,0),gap=0)
     assert [(w[1],m.text(w[3])) for w in m.calls if w[0]=='write_int_config']==[(value,'SHORTCUT')] and did(m,'navigator_back')
@@ -8652,11 +8654,11 @@ m.top=m.node('window','localmusic_page'); view=m.node('scroll_view','scroll_view
 m.nodes[m.top]['children']=[view]; m.call(address=HOOKS['localmusic_page_init'][0],args=(m.top,5,0,0),gap=0)
 f,ctx=m.handler(m.nodes[m.nodes[view]['children'][7]]['children'][0],O['EVT_CLICK'])
 assert m.call(address=f,args=(ctx,m.event,0,0),gap=0)==0; menu=m.top; m.page=menu
-assert m.nodes[menu]['name']=='ratings_page' and m.texts()==['Ratings','Top Rated','Loved','Albums','All Rated','Disliked']
+assert m.nodes[menu]['name']=='ratings_page' and m.texts()==['Ratings','Top Rated','Loved','Albums','Artists','All Rated','Disliked']
 want={0:['D','C'],1:['D'],2:['D','C','E','A'],3:['A']}
 hearts={'D':'♥♥♥♥♥','C':'♥♥♥♥♡','E':'♥♥♡♡♡','A':'♥♡♡♡♡'}
 for i,names in want.items():
-    row=m.nodes[m.find('scroll_view',menu)]['children'][i+(i>=2)]; g,c=m.handler(row,O['EVT_CLICK'])  # Albums aside
+    row=m.nodes[m.find('scroll_view',menu)]['children'][i+2*(i>=2)]; g,c=m.handler(row,O['EVT_CLICK'])  # Albums and Artists aside
     assert m.call(address=g,args=(c,m.event,0,0),gap=0,count=50_000_000)==0; m.page=m.top
     assert m.nodes[m.page]['name']=='rated_page'
     assert [c for c in m.calls if c[0]=='getAllMusic'][-1][1:]==(0,0)
@@ -8675,7 +8677,7 @@ names=[f'S{i}' for i in range(1000)]; kept=[*names[500:512],*(f'K{i}' for i in r
 m=RateMachine(b''.join(struct.pack('<I',(key_of(n)&~7)|1+i%4) for i,n in enumerate(kept)).ljust(4*O['RATE_SLOTS'],b'\0'))
 m.found=[m.song(n) for n in names]; m.fav_songs=[m.song(n) for n in [*names[:12],*(f'F{i}' for i in range(238))]]
 m.call(address=payload_syms['ratings_menu'],args=(0,m.event,0,0),gap=0); menu=m.top
-g,c=m.handler(m.nodes[m.find('scroll_view',menu)]['children'][3],O['EVT_CLICK'])
+g,c=m.handler(m.nodes[m.find('scroll_view',menu)]['children'][4],O['EVT_CLICK'])
 cost=[0]; hook=m.u.hook_add(UC_HOOK_CODE,lambda *a: cost.__setitem__(0,cost[0]+1),begin=BASE,end=SCRATCH-1)
 assert m.call(address=g,args=(c,m.event,0,0),gap=0,count=50_000_000)==0; m.u.hook_del(hook); m.page=m.top
 assert m.texts()[:3]==['All Rated','S0','♥♥♥♥♥ · Artist'] and len(m.texts())==1+2*24,m.texts()

@@ -25,9 +25,10 @@ static void pick_row(widget_t *view, int on, const char *name, int ctx) {
 }
 
 void shortcut_rows(widget_t *view) {
-    /* Favourites, Shuffle, Rated Albums, Playlists, Artists, Albums, Games, Podcasts, Audiobooks,
-     * None */
-    static const unsigned char fixed[] = { 3, 5, 4, 7, 1, 2, 6, 8, 9, SHORTCUT_NONE };
+    /* Favourites, Shuffle, Rated Albums, Rated Artists, Playlists, Artists, Albums, Games,
+     * Podcasts, Audiobooks, None */
+    static const unsigned char fixed[] = { 3, 5, 4, SHORTCUT_RATED_ARTISTS, 7, 1, 2,
+                                           6, 8, 9, SHORTCUT_NONE };
     int s = shortcut(), slots[APPS_MAX];
     for (unsigned k = 0; k < sizeof fixed; ++k)
         pick_row(view, s == fixed[k], tr(shortcut_names[fixed[k]]), fixed[k]);

@@ -460,7 +460,7 @@ def test_classic_accent_takes_classic_blue_after_green_and_skips_ivory(fw):
 
 
 # The Shortcut row's picker: the fixed ones, then the card's apps by name, then its games by name.
-FIXED = ['Favourites', 'Shuffle', 'Rated Albums', 'Playlists', 'Artists', 'Albums', 'Games', 'Podcasts', 'Audiobooks', 'None']
+FIXED = ['Favourites', 'Shuffle', 'Rated Albums', 'Rated Artists', 'Playlists', 'Artists', 'Albums', 'Games', 'Podcasts', 'Audiobooks', 'None']
 
 
 def shortcut_page(fw, ui, **config):

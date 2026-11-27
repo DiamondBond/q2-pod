@@ -342,6 +342,8 @@ extern const char *const ink_state[];
 extern const unsigned standby_hours[4];
 #define COUNT "_ringnav_count"
 #define SEL "_ringnav_index"
+/* library_query's rewrite of albumsonger: an Artists row's name under Album Artist */
+#define ALBUM_ARTIST_OR_ARTIST "ifnull(nullif(albumsonger,''),songer)"
 enum { SLIDER_LIGHT, SLIDER_MAX, SLIDER_BALANCE, SLIDER_BOOT }; /* st.slider_kind */
 #define ROUND_RIGHT 2
 #define ROUND_LEFT 1
@@ -505,7 +507,8 @@ int qm_hold(void);
 void *qm_record(void);
 void *qm_collect(void *r);
 void *qm_songs(void), qm_songs_free(void); /* queue_menu.c: Add to Playlist's own songs */
-unsigned qm_album_id(void *r);
+unsigned qm_album_id(void *r), qm_artist_id(void *r);
+void artist_page(unsigned cls, void *r);
 
 /* clock.c */
 long clock_back(long long wall);
@@ -703,17 +706,18 @@ int tidal_downloads(void *ctx, event_t *event);
 int scan_quote(char *sql, unsigned cap, unsigned *n, const char *s);
 
 /* ratings.c */
+enum { RATE_SONGS, RATE_ALBUMS, RATE_ARTISTS }; /* the tables rate_keep and rate_kept take */
 const char *hearts_text(char *s, int n);
-int rate_keep(int album, unsigned key, int n);
-int rate_kept(int album, unsigned key);
+int rate_keep(int k, unsigned key, int n);
+int rate_kept(int k, unsigned key);
 int rate_key(widget_t *top, unsigned key);
 int rate_open(void);
 int rate_saved(int k);
 void rate_album_favs(void *album, int on);
 int fav_told(void *r, int on); /* ratings: a My Fav change told to the song's card app */
-int rate_show(widget_t *win, int pick, unsigned album);
+int rate_show(widget_t *win, int pick, int k, unsigned key);
 void rate_bind(widget_t *win); /* ratings: Now Playing's heart */
-int rated_albums(void *ctx, event_t *event);
+int rated_albums(void *ctx, event_t *event), rated_artists(void *ctx, event_t *event);
 int rt_closed(void *ctx, event_t *event);
 int ratings_menu(void *ctx, event_t *event), rated_hold(widget_t *top);
 void ratings_copy_due(void);
