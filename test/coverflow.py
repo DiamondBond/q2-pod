@@ -464,6 +464,7 @@ void draw_centred(void *c, const unsigned *s, unsigned n, const void *r, unsigne
     memcpy(centred_box, r, sizeof centred_box), centred_px = px;
 }
 const unsigned flat_quiet[2]; /* the flat look's pane (flat_pages): no theme here takes it */
+const unsigned flat_ink[2];
 void final_text(void *c, const char *face, const unsigned *s, const void *r, unsigned px, unsigned color) {}
 int ipod_light(void) { return light; }
 unsigned flat_page(void) { return light ? scheme()->paper : 0; }
@@ -472,6 +473,7 @@ static int square_art;
 int ipod_square_art(void) { return square_art; }
 int ipod_home_shown(void) { return 0; }
 int shortcut_is_app(void) { return 1; }
+const char *shortcut_app(void) { return "rockbox"; } /* no pane.png on this card */
 int card_home; /* card_rules.c's: no card theme here */
 void card_rules_home(void *list) {}
 unsigned card_rules_art(const char **cover, unsigned key) { return key; }
