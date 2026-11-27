@@ -16,6 +16,7 @@
   - Library: choosing Japanese in the first-start guide no longer puts the lists and folders in a different order until the next restart. Stock's sorting for that order could go wrong on long lists.
   - User guide: **Long audiobooks** says what makes an `.m4b` too long for the Q2, about how long one can be, and how to divide one into parts.
   - Cover Flow: under Classic and Classic Modern, Cover Flow opens as on an iPod classic: the screen splits down the middle, between Home's list and its art, and the two halves slide apart to show the covers. Return slides them back together. An artist's covers and the playlists' still open at once, and close the same way.
+  - Apps: in an app's list with covers, a row with no cover, such as Mixtape's **Artists**, **Re-roll** and **Save as Playlist**, is a normal row's height. It was as tall as a row with a cover. A song whose cover is missing still leaves room for one, so it lines up with the others.
 - **1.9.4**:
   - Playlists: holding Play/Pause on a Cover Flow cover offers **Add to Playlist**, which adds that album's songs. From an **Albums** row it adds only that album, not every album with the same name.
   - Apps: **Rockbox** is an app on **Library → Apps**, with Rockbox 3.24 or later from the App Store. Pick it to start Rockbox; Q2 Pod comes back when Rockbox shuts down. Installing Rockbox no longer makes the Q2 start in it: **System settings → Power → Boot to: Rockbox** does, and without that choice the Q2 starts in Q2 Pod.
