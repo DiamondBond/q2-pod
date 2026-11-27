@@ -915,3 +915,79 @@ void albums_made(int whole, unsigned gen) {
     al.n = whole && !library_scanning() ? deque_size(list) : 0;
     if (al.n) al.gen = gen, al.hash = albums_hash(list);
 }
+
+/* Search's rows as its last query left them (navigation.c ringnav_search_foreground). A tab's
+ * builder destroys the tab's rows, runs stock's search_load_results for the tab and the box's text,
+ * and makes a row for each record of p_deque_searchshowlist: a widget tree a record, about half of
+ * what a search costs, the query and the name sort the rest. Stock's foreground handler runs the
+ * builder each time the dialog comes back on top: after an album's or artist's page or Now Playing,
+ * when a toast closes over it, and when the keyboard closes inside a confirm, whose own build
+ * follows, so every search is built twice. With the tab, the text, Artists' source and songtable
+ * unchanged and no scan running, the query would leave the same list and the builder the same rows,
+ * so they stay. The list's size and albums_hash's hash catch another list in the deque, and the
+ * tab's row count rows that are not this list's (a new dialog has none): a row's click reads its
+ * record from the list by the row's number. With no text there is nothing to ask for: stock's
+ * like '%%' is every song, which that handler builds when a window closes over an empty box (the
+ * keyword toast does). Rows that are still their query's are then left, as stock's own tab click
+ * leaves them, but as no text's rows: a text that comes back without a query (Tidal's search shares
+ * the buffer) builds. Rows that are no longer their query's go with their list, since nothing can
+ * be asked in their place. A query during a scan, or one a failed read touched, is not noted, and a
+ * writer's step of library_gen retires the note. The note is one dialog's, the one that opened
+ * last (search_opened): stock's opener makes a second dialog over a first, on the same list and
+ * text. */
+static struct {
+    int type, made;
+    unsigned artists, gen, n, hash;
+    widget_t *win;
+    char text[256]; /* g_historical_record's size */
+} sr __attribute__((section(".scratch")));
+void search_opened(widget_t *win) { sr.win = win; }
+void search_made(int type, int whole, unsigned gen) {
+    void *list = P(p_deque_searchshowlist, 0);
+    const char *text = (const char *)g_historical_record;
+    unsigned len = strlen(text);
+    sr.made = whole && !library_scanning() && len < sizeof sr.text && (unsigned)(type - 0xff15) < 4;
+    if (!sr.made) return;
+    sr.type = type, sr.artists = (unsigned)I(artist_type, 0), sr.gen = gen;
+    sr.n = deque_size(list), sr.hash = albums_hash(list);
+    memcpy(sr.text, text, len + 1);
+}
+/* by type, 0xff15 on: Songs, Albums, Artists, Genres */
+static const char *const search_views[] = { "scroll_view_track", "scroll_view_album",
+                                            "scroll_view_artist", "scroll_view_genre" };
+int search_kept(widget_t *win) {
+    void *list = P(p_deque_searchshowlist, 0);
+    const char *text = (const char *)g_historical_record;
+    widget_t *view = 0;
+    int same = sr.made && sr.win == win && sr.artists == (unsigned)I(artist_type, 0) &&
+               sr.gen == library_gen && !library_scanning() && deque_size(list) == sr.n &&
+               albums_hash(list) == sr.hash &&
+               (view = widget_lookup(win, search_views[sr.type - 0xff15], 1)) &&
+               (unsigned)widget_count_children(view) == sr.n;
+    if (*text && (!same || strcmp(sr.text, text))) return 0;
+    if (!same) { /* no text to ask for, and rows that are no longer their query's: they go */
+        for (unsigned i = 0; i < 4; ++i)
+            if ((view = widget_lookup(win, search_views[i], 1)) && widget_count_children(view))
+                widget_destroy_children(view);
+        deque_clear(list);
+        albumcoverinfo_init(list); /* as stock's builder leaves the cover list for no results */
+        return 2;
+    }
+    if (!*text) *sr.text = 0;
+    /* The art of the Songs and Albums rows comes through one cover list for whichever page is on
+     * show: stock's builder sets it up for the search list (albumcoverinfo_init) and asks for the
+     * first rows' covers, and a page opened over Search has since set it up for its own rows. As
+     * the builder, for the rows on show: 78 px a row, stock's own division at its scroll end
+     * (search_scroll_on_scroll_end, 0x49e4ac). */
+    if (sr.n && sr.type <= 0xff16) {
+        int y = widget_get_prop_int(view, "yoffset", 0), first = y > 0 ? y / 78 : 0;
+        albumcoverinfo_init(list);
+        if (first < get_albumcover_listsize()) {
+            if (sr.type == 0xff15)
+                local_songercover_task(first, 9);
+            else
+                local_albumsmallcover_task(first, 9);
+        }
+    }
+    return sr.type == 0xff15 ? 1 : 2;
+}

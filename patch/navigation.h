@@ -694,6 +694,13 @@ void album_view_toggle(void);
  * load from library_gen gen, whole when no read failed */
 int albums_again(int cls);
 void albums_made(int whole, unsigned gen);
+/* Search's kept rows (library_lists.c): a dialog opened (ringnav_search_init); after a query for
+ * the tab type from library_gen gen, whole when no read failed (ringnav_search_query); and whether
+ * the dialog win's rows are still what a new query would list (ringnav_search_foreground: 0 no,
+ * 1 the Songs tab's, 2 another tab's or no text to ask for) */
+void search_opened(widget_t *win);
+void search_made(int type, int whole, unsigned gen);
+int search_kept(widget_t *win);
 int era_menu(void *ctx, event_t *event);
 int era_sql(const char *sql, int (*row)(void *, int, char **, char **), void *ctx);
 int long_songs(void *ctx, event_t *event);

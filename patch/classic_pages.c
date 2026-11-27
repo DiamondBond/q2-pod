@@ -379,6 +379,7 @@ int ringnav_search_init(widget_t *win, void *ctx) {
     static const char *const names[] = { N_("Songs"), N_("Artists"), N_("Albums"), N_("Genres") };
     int result = stock_search_init_trampoline(win, ctx);
     unsigned name[32];
+    search_opened(win); /* rows kept are this dialog's alone (library_lists.c) */
     if (win == st.search_win)
         for (unsigned i = 0, n = widget_count_children(st.search_tabs); i < n && i < 4; ++i) {
             wide_text(name, 32, tr(names[i]));

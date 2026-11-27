@@ -7750,6 +7750,41 @@ int ringnav_localclass(int cls) {
     return n;
 }
 
+/* Search. A tab's query (stock's search_load_results, 0x49c924) is noted with what it was asked and
+ * left; here for library_failed, as ringnav_localclass. The dialog's foreground handler
+ * (search_dialog_on_foreground, 0x49f924) builds the tab on show again each time the dialog comes
+ * back on top; while that would list the same records the rows stay (library_lists.c search_kept),
+ * and stock's two steps after a build run as they do: the playing song's row marked, on the Songs
+ * tab alone as in stock, and the dialog's refresh timer, which its background handler stops,
+ * started again. Stock's confirm (search_run_query, 0x49fc68, the keyboard's OK) closes the
+ * keyboard and then builds the tab and marks the playing row; the close brings the dialog to the
+ * foreground first, so that handler built the same tab a moment earlier. While the confirm runs the
+ * build and the mark are left to it; the timer is started here, which the confirm itself never
+ * does. */
+extern int stock_search_query_trampoline(int type),
+    stock_search_foreground_trampoline(widget_t *win, event_t *event),
+    stock_search_confirm_trampoline(void *ctx, event_t *event);
+static int search_confirming __attribute__((section(".scratch")));
+int ringnav_search_confirm(void *ctx, event_t *event) {
+    search_confirming = 1;
+    int result = stock_search_confirm_trampoline(ctx, event);
+    search_confirming = 0;
+    return result;
+}
+int ringnav_search_query(int type) {
+    unsigned gen = library_gen, failed = library_failed;
+    int n = stock_search_query_trampoline(type);
+    search_made(type, failed == library_failed, gen);
+    return n;
+}
+int ringnav_search_foreground(widget_t *win, event_t *event) {
+    int kept = search_confirming ? 2 : search_kept(win);
+    if (!kept) return stock_search_foreground_trampoline(win, event);
+    if (kept == 1) search_track_highlight_playing(win);
+    search_timer_start(win);
+    return 0;
+}
+
 /***************************************************************************************************
  * Toast and page closers
  **************************************************************************************************/

@@ -139,6 +139,12 @@ HOOKS = {
     'playermore_page_init': (0x539f60, 'ringnav_playermore', 'playermore'),
     # Classic's Search: its tabs' words, after stock's init writes them (navigation.c)
     'dialog_search_dialog_init': (0x49ff6c, 'ringnav_search_init', 'search_init'),
+    # Search (stock_map.tsv's names): what a tab's query was asked and left; the dialog coming back on top, which
+    # leaves the tab's rows alone while a new query would list the same records (library_lists.c search_kept);
+    # and stock's confirm, whose own build is then the only one
+    'search_load_results': (0x49c924, 'ringnav_search_query', 'search_query'),
+    'search_dialog_on_foreground': (0x49f924, 'ringnav_search_foreground', 'search_foreground'),
+    'search_run_query': (0x49fc68, 'ringnav_search_confirm', 'search_confirm'),
     # The sleep timer's switch as a row, under a set that hides its toolbar (navigation.c)
     'systemset_sleepshutdown_page_init': (0x4d1224, 'ringnav_sleeptimer', 'sleeptimer'),
     # Classic's Set Date and Set Time: the title and the selectors' changes, after stock's init (clock.c)
@@ -1444,6 +1450,11 @@ FUNCTIONS = {
  'label_create': ('widget_t *', 'widget_t *, int, int, int, int'),
  'label_resize_to_content': ('int', 'widget_t *, unsigned, unsigned, unsigned, unsigned'),  # Classic's toast (navigation.c toast_paint)
  'stock_search': ('int', 'void *, event_t *'),
+ 'search_track_highlight_playing': ('int', 'widget_t *'),
+ 'get_albumcover_listsize': ('int', 'void'),  # the cover list's rows
+ 'local_songercover_task': ('int', 'int, int'),  # covers asked for the cover list's rows from a row on, a count
+ 'local_albumsmallcover_task': ('int', 'int, int'),
+ 'search_timer_start': ('int', 'widget_t *'),
  'widget_set_children_layout': ('int', 'widget_t *, const char *'),
  'widget_get_canvas': ('canvas_t *', 'widget_t *'),  # the lyrics page measures its lines (lyrics.c)
  'widget_resize': ('int', 'widget_t *, int, int'),
@@ -1777,6 +1788,11 @@ PRIVATE_FUNCTIONS = {
     'quick_lock': HOOKS['quick_lock'][0],
     "playlist_rebuild": HOOKS['playlist_rebuild'][0],  # picker init and re-entry rebuild all rows
     "stock_search": 0x5350d4,
+    'search_load_results': HOOKS['search_load_results'][0],
+    'search_dialog_on_foreground': HOOKS['search_dialog_on_foreground'][0],
+    'search_run_query': HOOKS['search_run_query'][0],
+    'search_track_highlight_playing': 0x49c6b8,  # the Songs tab's rows restyled, the playing song's as playing (widget_foreach)
+    'search_timer_start': 0x49dd94,  # the dialog's 500 ms refresh timer, started if none is stored
     "slide_menu_item_width": 0x605ed0,
     "slide_menu_on_scroll_done": 0x6064e4,
     "mcl_preload": HOOKS['mcl_preload'][0],
@@ -1841,6 +1857,7 @@ CONTEXT_DATA = {'bt_showcoding': 4, 'g_memory_info': 3476, 'g_folder_path': 1024
                 'g_local_classinfo_save': 912, 'g_artist_type': 4, 'album_modetype': 4, 'g_sort_flag': 4,
                 'g_playlistsort_flag': 4,  # a playlist's Sort (PLAYLISTSORT): 0 by name, else Time added
                 'p_deque_playlist': 4, 'p_deque_showlist': 4, 'tools_pdeq_directory': 4, 'mcl_pdeqplaylist': 4,
+                'p_deque_searchshowlist': 4, 'g_historical_record': 256,  # Search's list and the text it was asked for
                 'parse_cover_mutex': 24, 'g_playcover_mutex': 24, 'system_bar': 4, 'g_lastcover_url': 1024,
                 'g_dacoff_time': 4, 'p_vector_select_record': 4,
                 'g_play_id3_info': 2716,
