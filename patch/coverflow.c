@@ -733,12 +733,18 @@ static void stop(void) {
 
 static void fx_close(void);
 
+/* A playlist's rows whose file is gone (a moved or renamed file's row, which stock's playlist table
+ * keeps), one flag a row of cf.tracks, read once as its songs load (to_tracks): marked Missing and
+ * left out of the queue a row plays. 0 for an album's tracks, or with no memory for it. */
+static unsigned char *gone __attribute__((section(".scratch")));
+
 static void drop(void) {
     land_drop(); /* its shelf is fx.frame */
     stop();
     fx_close();
     if (cf.tracks) deque_destroy(cf.tracks);
     cf.tracks = 0;
+    free(gone), gone = 0;
 }
 
 /* The Year sort's years, 0 undated, album by album as years_of (the library's sorted() list) has
@@ -3437,10 +3443,18 @@ static unsigned cover_load __attribute__((section(".scratch"))); /* playback_loa
 /* A track row plays its queue (cf.tracks) from there: a playlist's songs as a song list
  * (0xf001), as 0xff10 would resume the first song's album and its own list's 0xff13 needs stock's
  * playlist set (docs/internals.md, Cover Flow scope), its load marked for Now Playing's More
- * (coverflow_playlist_queue). */
+ * (coverflow_playlist_queue). A playlist's gone rows stay out of it, the row itself aside (its file
+ * was there at the press); play_folder's copy is made before the filtered deque goes. */
 void coverflow_play(int row) {
-    int cls = cf.scoped == PLAYLISTS ? 0xf001 : 0xff10;
-    play_folder(cf.tracks, row, cls);
+    int cls = cf.scoped == PLAYLISTS ? 0xf001 : 0xff10, at = row;
+    void *q = gone ? song_list() : cf.tracks;
+    for (int i = 0, n = gone ? (int)deque_size(cf.tracks) : 0; i < n; ++i)
+        if (gone[i] && i != row)
+            at -= i < row;
+        else
+            _deque_push_back(q, deque_at(cf.tracks, (unsigned)i));
+    play_folder(q, at, cls);
+    if (q != cf.tracks) deque_destroy(q);
     if (cls == 0xf001) cover_load = playback_loads; /* its load, play_folder's */
     back_arm();
 }
@@ -3490,8 +3504,10 @@ static int play(void *ctx, event_t *event) {
     if (coverflow_landing()) return 0; /* picked already: its press runs */
     int i = (int)(long)ctx;
     void *t = deque_at(cf.tracks, (unsigned)i);
-    if (!t || access(P(t, REC_PATH), 0)) {
-        page_retitle(cf.page, cf.title, tr("Storage unavailable"));
+    if (!t || access(P(t, REC_PATH), 0)) { /* a gone file, or the card */
+        page_retitle(cf.page, cf.title,
+                     t && !access("/tmp/mmc_add", 0) ? tr("File not found")
+                                                     : tr("Storage unavailable"));
         title_rules();
         return 0;
     }
@@ -3686,6 +3702,13 @@ static void flip_shelf(int on) {
     widget_set_visible(cf.artist, on, 0);
 }
 
+/* Row i's length, as duration_text has it, or Missing for a gone row. */
+static const char *row_time(char *buf, unsigned size, int i) {
+    if (!gone || !gone[i]) return duration_text(buf, size, deque_at(cf.tracks, (unsigned)i));
+    tk_snprintf(buf, size, "%s", tr("Missing"));
+    return buf;
+}
+
 /* The album's panel and its first turn, or 0: not this theme or page, or no room, so the text list.
  * Nothing starts until the panel is built and painted: a slow album waits at the cover. Stock's
  * hit test skips insensitive widgets, and the wheel a hidden slide_menu. A playlist's: its name
@@ -3708,13 +3731,15 @@ static int flip_open(void *r, int n) {
         widget_t *item = list_item_create(view, 0, i * row, BACK_W, row);
         widget_use_style(item, "s_listitem_black");
         char duration[24];
-        duration_text(duration, sizeof duration, t);
+        row_time(duration, sizeof duration, i);
         int sec =
             *duration ? duration_seconds(t) : 0; /* empty: switch off, unmeasured or unreadable */
         timed &= sec > 0, total += sec;
         int time_w = strlen(duration) > 5 ? 88 : 66; /* h:mm:ss */
         widget_t *title = panel_label(item, 12, 0, *duration ? 260 - time_w : 270, pl ? 26 : row,
                                       track_name(name, sizeof name, t), 25, 1);
+        if (gone && gone[i])
+            widget_set_prop_int(title, "style:normal:text_color", (int)PANEL_MUTED);
         if (*duration) {
             widget_t *label =
                 panel_label(item, BACK_W - 12 - time_w, 0, time_w, pl ? 26 : row, duration, 20, 0);
@@ -3729,7 +3754,7 @@ static int flip_open(void *r, int n) {
         }
         widget_on(item, EVT_CLICK, play, (void *)(long)i);
     }
-    /* cf.title: where a row's "Storage unavailable" goes */
+    /* cf.title: where a row's "File not found" or "Storage unavailable" goes */
     char songs[64], sub[300];
     const char *by = pl ? songs_text(songs, sizeof songs, (unsigned)n) : cover_artist(r);
     if (timed && by) { /* ponytail: a long artist's ellipsis hides the total; a separate label would
@@ -3793,6 +3818,7 @@ static int to_tracks(const void *unused) {
     void *r = deque_at(cf.albums, (unsigned)cf.album);
     widget_t *under;
     if (cf.tracks) deque_destroy(cf.tracks), cf.tracks = 0;
+    free(gone), gone = 0;
     if (cf.scoped == PLAYLISTS) {
         /* Classic's turn: the songs as the playlist's own list shows them, spoken ones left out.
          * Minimal's and Modern's Centre, or a longer playlist (by its count, or, not read yet, by
@@ -3807,6 +3833,9 @@ static int to_tracks(const void *unused) {
             if ((under = page_under())) playlist_open(under, I(r, REC_DISC));
             return 0;
         }
+        if ((gone = calloc((unsigned)n + 1, 1))) /* an access() a row, here alone */
+            for (int i = 0; i < n; ++i)
+                gone[i] = !!access(P(deque_at(cf.tracks, (unsigned)i), REC_PATH), 0);
     } else {
         if (!cf.scoped) {
             cf.saved_album = album_key(r);
@@ -3831,7 +3860,7 @@ static int to_tracks(const void *unused) {
     int tall = 0;
     for (int i = 0; i < n && !tall; ++i)
         /* NOLINTNEXTLINE(bugprone-signed-char-misuse): only tested for 0, an empty text */
-        tall = *duration_text(name, sizeof name, deque_at(cf.tracks, (unsigned)i));
+        tall = *row_time(name, sizeof name, i);
     const char *title = P(r, cf.scoped == PLAYLISTS ? REC_TITLE : REC_ALBUM);
     widget_t *view = tall ? page_list(cf.page, cf.body, &cf.title, title, n, 64) : list(title, n);
     if (centred) widget_set_prop_int(cf.title, "style:normal:font_size", cfs.name_px);
@@ -3846,7 +3875,7 @@ static int to_tracks(const void *unused) {
          * own; "" for none, and under a theme's own rows (centred 0). */
         const char *by = *aa || !centred ? aa : P(song, REC_ARTIST), *line = duration;
         by = by ? by : "";
-        duration_text(duration, sizeof duration, song);
+        row_time(duration, sizeof duration, i);
         if (*by && tall) {
             tk_snprintf(detail, sizeof detail, "%s%s%s", by, *duration ? " · " : "", duration);
             line = detail;
