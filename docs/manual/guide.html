@@ -892,11 +892,9 @@ http://stream.radioparadise.com/mp3-128</pre>
   <div class="sub">
   <h3>Last.fm</h3>
   <pre>[LASTFM]
-USER=q2listener
-PASSWORD=ExamplePassword123
 API_KEY=0123456789abcdef0123456789abcdef
 API_SECRET=fedcba9876543210fedcba9876543210</pre>
-  <p>Your Last.fm username and password, and your own API key and secret from last.fm/api/account/create (with an application name of your selection).</p>
+  <p>Use your own Last.fm API key and secret. From December 1, 2026, creating a new key at last.fm/api/account/create requires Pro. Existing keys can still scrobble for free. If your file already has a working <code>SESSION_KEY</code>, keep it. Otherwise, follow <a href="#lastfm-link">Link your Last.fm account</a> before uploading.</p>
   </div>
   <div class="sub">
   <h3>ListenBrainz</h3>
@@ -906,7 +904,7 @@ TOKEN=12345678-1234-1234-1234-123456789abc</pre>
   </div>
   <p class="task">To upload your listens:</p>
   <ol class="steps">
-    <li>Put the card in the Q2 and open <b>Library</b>. <b>Upload Scrobbles</b> shows if the file has a ListenBrainz token or all four Last.fm fields. If not, examine the file.</li>
+    <li>Put the card in the Q2 and open <b>Library</b>. <b>Upload Scrobbles</b> appears when the file has a ListenBrainz token or your Last.fm API key, secret and session key.</li>
     <li>Set the Q2’s date, time and time zone. An incorrect clock can stop uploads.</li>
     <li>Connect to Wi-Fi, then select <b>Upload Scrobbles</b>.</li>
   </ol>
@@ -928,10 +926,10 @@ TOKEN=12345678-1234-1234-1234-123456789abc</pre>
   </table>
   </div>
   <div class="sub">
-  <h3>Keep your password off the card</h3>
-  <p>Put the card in a computer with Python 3.9 or newer. Download <code>lastfm_key.py</code> from github.com/DiamondBond/q2-pod/raw/main/tools/lastfm_key.py and use this command:</p>
+  <h3 id="lastfm-link">Link your Last.fm account</h3>
+  <p>Put the card in a computer with Python 3.9 or newer. Download <a href="https://github.com/DiamondBond/q2-pod/raw/main/tools/lastfm_key.py">lastfm_key.py</a> and run it with the path to the file on your card. On Windows, use <code>py</code>.</p>
   <pre>python3 lastfm_key.py /path/to/card/.scrobble.ini</pre>
-  <p>(On Windows, use <code>py</code>, not <code>python3</code>.) It signs in one time and replaces <code>PASSWORD</code> with a <code>SESSION_KEY</code>. Without a <code>PASSWORD</code> line, it shows a password prompt. The key cannot sign in or change your password, but it can scrobble and edit your profile. If somebody gets your card, revoke the application in <b>Settings → Applications</b> on last.fm. Somebody can possibly read a password that was on the card before, thus change it if this is important.</p>
+  <p>Approve access in your browser, then press Enter in the terminal. If the browser does not open, use the printed link. The helper saves <code>SESSION_KEY</code> and removes any old Last.fm password from the file. If you lose the card, revoke the app in <b>Settings → Applications</b> on Last.fm. A password previously stored on the card may still be recoverable.</p>
   </div>
   <div class="note important"><p><span class="label">Caution:</span> Keep the card safe. <code>.scrobble.ini</code> contains your credentials in plain text.</p></div>
   </div>

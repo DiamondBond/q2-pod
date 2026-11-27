@@ -3,10 +3,9 @@
 
     python3 lastfm_key.py /path/to/card/.scrobble.ini
 
-Reads [LASTFM]'s USER, API_KEY and API_SECRET, signs in to Last.fm once from this computer (auth.getMobileSession
-over HTTPS, the call the Q2 otherwise makes with the password at every upload) and writes the SESSION_KEY Last.fm
-returns where the PASSWORD line was. Without a PASSWORD line it asks for the password, which then never reaches the
-card. Run it again for a new key.
+Reads [LASTFM]'s API_KEY and API_SECRET and opens Last.fm in your browser. Approve access for the account you
+scrobble to, then press Enter here. The helper saves SESSION_KEY and removes any PASSWORD lines from [LASTFM].
+Run it again to link a different account or replace a revoked key.
 
 The key lets whoever holds the card scrobble to the account, but not sign in to last.fm or change the account. It
 doesn't expire; Last.fm's Settings > Applications withdraws it. Neither the password nor the key is shown, and the
@@ -14,7 +13,6 @@ file is replaced whole or left as it was. A password the card has held is not wi
 where recovery tools may still find it: change it on last.fm if that matters. Python's standard library only.
 (docs/internals.md#scrobbling)"""
 import contextlib
-import getpass
 import hashlib
 import http.client
 import json
@@ -25,6 +23,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+import webbrowser
 
 URL = 'https://ws.audioscrobbler.com/2.0/'
 ENC, ERR = 'utf-8', 'surrogateescape'  # a byte that isn't UTF-8 goes back as it came
@@ -56,9 +55,11 @@ def form(params, secret):
     return urllib.parse.urlencode(body, encoding=ENC, errors=ERR).encode()
 
 
-def session_key(user, password, key, secret, urlopen=urllib.request.urlopen):
-    """The account's session key. SystemExit says why there is none: Last.fm's reason, or the network's."""
-    call = {'method': 'auth.getMobileSession', 'username': user, 'password': password, 'api_key': key}
+def auth_key(key, secret, urlopen, token=None):
+    """Fetch a request token, or exchange an approved token for a session key."""
+    call = {'method': 'auth.getToken', 'api_key': key}
+    if token is not None:
+        call.update(method='auth.getSession', token=token)
     answer = None
     try:
         try:
@@ -70,15 +71,16 @@ def session_key(user, password, key, secret, urlopen=urllib.request.urlopen):
         raise SystemExit(f"Couldn't reach Last.fm: {getattr(e, 'reason', e)}")
     try:
         answer = json.loads(raw)
-        session = answer['session']['key']
+        value = answer['token'] if token is None else answer['session']['key']
     except (ValueError, KeyError, TypeError):
-        session = None
-    if not isinstance(session, str) or not KEY.fullmatch(session):
+        value = None
+    if not isinstance(value, str) or not KEY.fullmatch(value):
         reason = answer.get('message') if isinstance(answer, dict) else None
         if not isinstance(reason, str) or not reason.isprintable():
             reason = 'its answer was not the one expected'
-        raise SystemExit(f'Last.fm gave no session key: {reason[:200]}')
-    return session
+        field = 'request token' if token is None else 'session key'
+        raise SystemExit(f'Last.fm gave no {field}: {reason[:200]}')
+    return value
 
 
 def swap(text, key):
@@ -94,7 +96,7 @@ def swap(text, key):
     return ''.join(lines)
 
 
-def main(argv, urlopen=urllib.request.urlopen, ask=getpass.getpass):
+def main(argv, urlopen=urllib.request.urlopen, ask=input):
     if len(argv) != 2:
         raise SystemExit(__doc__)
     path = os.path.realpath(argv[1])  # the file itself, when the name given is a link to it
@@ -107,11 +109,21 @@ def main(argv, urlopen=urllib.request.urlopen, ask=getpass.getpass):
     value = {}
     for _, k, v in fields(text.splitlines(keepends=True))[1]:
         value.setdefault(k, v)  # a key's first line counts
-    missing = [k for k in ('USER', 'API_KEY', 'API_SECRET') if not value.get(k)]
+    missing = [k for k in ('API_KEY', 'API_SECRET') if not value.get(k)]
     if missing:
         raise SystemExit(f"{path}: [LASTFM] needs {', '.join(missing)}")
-    password = value.get('PASSWORD') or ask(f"Last.fm password for {value['USER']} (not shown, not saved): ")
-    key = session_key(value['USER'], password, value['API_KEY'], value['API_SECRET'], urlopen)
+    api_key, secret = value['API_KEY'], value['API_SECRET']
+    token = auth_key(api_key, secret, urlopen)
+    query = urllib.parse.urlencode({'api_key': api_key, 'token': token}, encoding=ENC, errors=ERR)
+    url = 'https://www.last.fm/api/auth/?' + query
+    print(f'Approve access for your Last.fm account at this link.\n{url}', flush=True)
+    with contextlib.suppress(webbrowser.Error, OSError):
+        webbrowser.open(url)
+    try:
+        ask('Press Enter after approving access on Last.fm. ')
+    except (EOFError, KeyboardInterrupt):
+        raise SystemExit('Authorization cancelled.')
+    key = auth_key(api_key, secret, urlopen, token)
     tmp = path + '.tmp'
     try:  # the new file: its owner's alone while it is written, whole and on the disk before it takes the old one's place
         with contextlib.suppress(FileNotFoundError):
