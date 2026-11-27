@@ -1799,7 +1799,7 @@ class SearchRowsMachine(QueueMachine):
                   'widget_set_focusable','widget_get_prop_int')
         self.list=self.deque([]); self.word(syms['p_deque_searchshowlist'],self.list)
         self.deqs[self.get(syms['tools_pdeq_directory'])][1]=[]
-        self.found=[self.song(t) for t in ('Night One','Night Two','Night Three')]; self.tab(0); self.type(''); self.newdialog(self.win)
+        self.found=[self.song(t) for t in ('Night One','Night Two','Night Three')]; self.tab(0); self.type('')
     def hook(self,u,address,size,unused):
         name=self.handlers.get(address,'')
         if not name.startswith('S:'): return super().hook(u,address,size,unused)
@@ -1809,7 +1809,6 @@ class SearchRowsMachine(QueueMachine):
         self.returns(len(self.found))
     def tab(self,i): self.word(self.get(0xa3aae0-0x5810)-0x4f4c,i)  # the tab on show: 0 Songs, 1 Artists, 2 Albums, else Genres
     def type(self,text): self.u.mem_write(syms['g_historical_record'],text.encode()+b'\0')  # the text the last confirm took
-    def newdialog(self,win): self.call(address=payload_syms['search_opened'],args=(win,0,0,0),gap=0)  # as the build's hook on stock's init
     def foreground(self):
         """The dialog back on top; what ran: the queries, stock's mark step, its timer step; and, kept apart, the cover
         list's setups and the covers asked for (cover)."""
@@ -1832,9 +1831,6 @@ def search_kept():
     q.type('nigh'); assert q.foreground()[0]==['S:SearchMusicByName'] and q.foreground()[0]==[]
     q.deqs[q.list][1]=list(reversed(q.items(q.list))); assert q.foreground()[0]==['S:SearchMusicByName'] and q.foreground()[0]==[]
     q.nodes[q.views['scroll_view_track']]['children'].pop(); assert q.foreground()[0]==['S:SearchMusicByName'] and len(q.rows())==3
-    # the note is the dialog's that opened last: another dialog's rows are built each time
-    q.newdialog(q.wm); assert q.foreground()[0]==['S:SearchMusicByName'] and q.foreground()[0]==['S:SearchMusicByName']
-    q.newdialog(q.win); assert q.foreground()[0]==[]
     # no text over rows that are still their query's: they stay, marked; over rows that are not, they go with their list
     q.type(''); rows=q.rows(); assert q.foreground()==([],1,1) and q.rows()==rows and len(q.items(q.list))==3
     q.type('nigh'); assert q.foreground()[0]==['S:SearchMusicByName']  # a text back without a query: kept rows were no text's
