@@ -5,7 +5,7 @@ import ctypes as C
 
 import pytest
 
-from conftest import O, Files, Rows
+from conftest import O, Files, Rows, st  # noqa: F401  st: navigation.c's state by field
 from test_addon import ap, card, scan
 from test_onlinematch import records  # noqa: F401  the queue's songs
 
@@ -95,6 +95,10 @@ class Player:
         return '%x' % self.fw.fn('queue_hash', C.c_uint, C.c_void_p)(self.queue)
 
 
+def accent(fw):
+    return '%06x' % (fw.fn('accent_tone', C.c_uint, C.c_int)(0) & 0xffffff)
+
+
 @pytest.fixture
 def player(fw, mcl, records):
     return Player(fw, mcl, records)
@@ -104,7 +108,16 @@ def test_the_state_says_what_plays(player):
     assert player.poll() == ('status=playing\nowner=player\nkind=f001\npath=/mnt/mmc/A/01 One.flac\ntitle=Title 0\n'
                              'artist=Artist\nalbum=Album\nalbumartist=AA\ngenre=Rock\ntrack=1\ndisc=1\ncuestart=0\ncueend=0\n'
                              'sec=12\nlen=200\nvolume=40\nmaxvolume=100\noutput=jack\nshuffle=0\nrepeat=2\ngroup=0\nheart=0\n'
-                             f'pos=0\ncount=3\nqueue={player.hash()}\nupnext=\n').encode()
+                             f'pos=0\ncount=3\nqueue={player.hash()}\naccent={accent(player.fw)}\nupnext=\n').encode()
+
+
+def test_the_accent_is_the_theme_s_and_a_change_rewrites(fw, player, st):
+    player.poll()
+    was = player.state()['accent']
+    player.tmp.files[STATE] = b'kept'
+    st('minimal_accent').value = st('accent').value = 2  # Tidal's, from Minimal's Graphite
+    assert accent(fw) != was
+    assert b'accent=%s\n' % accent(fw).encode() in player.poll()
 
 
 @pytest.mark.parametrize('status, word', [(PLAYING, 'playing'), (PAUSED, 'paused'), (STOPPED, 'stopped')])

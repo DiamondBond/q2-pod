@@ -7,17 +7,17 @@
  * (now_tag, as Now Playing shows them), track, disc, its CUE range in ms, sec and len
  * (player_playtime_and_length), volume and maxvolume, output, shuffle, repeat and group
  * (playback_option), heart (checkFavExist, asked again only for a new track or after a heart
- * command), pos and count, the queue's queue_hash in hex and upnext, up to UPNEXT indices of
- * playback_upcoming, empty when they are the queue's own from pos on. PLAYER_QUEUE is written whole
- * whenever that hash changes: the hash, then a line a record, up to QUEUE_LINES, "more\t<count>"
- * after them for a longer queue. With no such app running both files are removed.
- * A running app's /tmp/q2-<id>.player holds a seq (1 to SEQ - 1 bytes of [0-9A-Za-z]) on its first
- * line and up to REQ_LINES commands after it; addon_player_ask reads its first SEQ bytes every UI
- * pass, at most every ASK_MS for an app, and the whole file once when those are new for the app's
- * slot, as addon_eq_poll reads an .eq. The commands run in order and the answer goes to
- * .player.done, written whole: "<seq> ok", or "<seq> error <N>: <why>" for line N, the lines
- * before it done and none after it run. A seq .player.done already answers is taken as done, and a
- * first line that isn't a seq is never answered. */
+ * command), pos and count, the queue's queue_hash in hex, accent (accent_tone(0), rrggbb) and
+ * upnext, up to UPNEXT indices of playback_upcoming, empty when they are the queue's own from pos
+ * on. PLAYER_QUEUE is written whole whenever that hash changes: the hash, then a line a record, up
+ * to QUEUE_LINES, "more\t<count>" after them for a longer queue. With no such app running both
+ * files are removed. A running app's /tmp/q2-<id>.player holds a seq (1 to SEQ - 1 bytes of
+ * [0-9A-Za-z]) on its first line and up to REQ_LINES commands after it; addon_player_ask reads its
+ * first SEQ bytes every UI pass, at most every ASK_MS for an app, and the whole file once when
+ * those are new for the app's slot, as addon_eq_poll reads an .eq. The commands run in order and
+ * the answer goes to .player.done, written whole: "<seq> ok", or "<seq> error <N>: <why>" for line
+ * N, the lines before it done and none after it run. A seq .player.done already answers is taken as
+ * done, and a first line that isn't a seq is never answered. */
 #include "navigation.h"
 
 #define PLAYER_FILE "/tmp/q2-player"
@@ -132,6 +132,7 @@ static unsigned state_text(char *out, unsigned size) {
     num(&t, "pos", "%d", (int)pos);
     num(&t, "count", "%d", (int)n);
     num(&t, "queue", "%x", (int)pr.qhash);
+    num(&t, "accent", "%06x", (int)(accent_tone(0) & 0xffffff)); /* as the theme draws it */
     unsigned k = playback_upcoming(up, UPNEXT), own = 1;
     for (unsigned i = 0; i < k; ++i) own &= up[i] == pos + 1 + i;
     add(&t, "upnext=", 0);
