@@ -1,6 +1,7 @@
 # Changelog
 
 - **1.9.5**:
+  - Ratings: artists take 0 to 5 hearts, as albums do. Hold Play/Pause on an artist in **Artists** and choose **Rate Artist**, or **Add to Favourites** for five; the artist's songs stay as they are. **Library → Ratings → Artists** lists the rated artists, most hearts first, and opens one. **Rated Artists** joins the **Shortcut** list in **Display → Appearance**, and `.ratings.tsv` on the card lists the rated artists too.
   - Display: **Show Sample Rate** is gone from the status bar; Now Playing's info pane shows the rate.
   - Cover Flow: under Classic and Classic Modern, a playlist's song whose file was moved or renamed since it was added is greyed out in the playlist's songs, with **Missing** where its length goes, and is left out when a song there is played, so playback no longer stops at it. Pressing it says **File not found**, not **Storage unavailable**, unless the card is out.
   - Playlists: holding Play/Pause on a Cover Flow cover and choosing **Add to Playlist** no longer crashes Q2 Pod. It crashed when no list row had been held and no folder had been opened since the Q2 started.

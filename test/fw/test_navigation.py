@@ -386,7 +386,7 @@ def test_display_settings(fw, clock, st, values, theme, home, light):
     (dict(SHORTCUT=b'4'), b'Rated Albums'), (dict(SHORTCUT=b'5'), b'Shuffle'), (dict(SHORTCUT=b'6'), b'Games'),
     (dict(SHORTCUT=b'7'), b'Playlists'), (dict(SHORTCUT=b'8'), b'Podcasts'), (dict(SHORTCUT=b'9'), b'Audiobooks'),
     (dict(SHORTCUT=b'11'), b'Favourites'),  # None: the carousel's card takes the default
-    (dict(SHORTCUT=b'12'), b'Favourites'), (dict(SHORTCUT=b'1x'), b'Favourites'),
+    (dict(SHORTCUT=b'12'), b'Rated Artists'), (dict(SHORTCUT=b'13'), b'Favourites'), (dict(SHORTCUT=b'1x'), b'Favourites'),
 ])
 def test_shortcut(fw, clock, values, name):
     """A card app not on the card is named by its id (no slot has its name)."""
@@ -396,7 +396,7 @@ def test_shortcut(fw, clock, values, name):
 
 
 @pytest.mark.parametrize('value, there, shown', [
-    (b'0', 1, 1), (b'0', 0, 0), (b'3', 0, 1), (b'11', 1, 0), (b'12', 0, 1),  # None hides it, an unknown value is the default
+    (b'0', 1, 1), (b'0', 0, 0), (b'3', 0, 1), (b'11', 1, 0), (b'13', 0, 1),  # None hides it, an unknown value is the default
 ])
 def test_the_shortcut_row_hides_without_its_app(fw, clock, st, value, there, shown):
     Config(fw, SHORTCUT=value, SHORTCUT_APP=b'mixtape')

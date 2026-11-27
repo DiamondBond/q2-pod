@@ -713,11 +713,12 @@ def ratings(*kept):
     return data + b'\0' * (RATE_SLOTS * 4 - len(data))
 
 
-def test_ratings_menu_lists_its_five_lists(fw, ui):
+def test_ratings_menu_lists_its_six_lists(fw, ui):
     call(fw, 'ratings_menu')
     page = ui.top()
-    assert ui.name[page] == 'ratings_page' and ui.captions(page) == ['Top Rated', 'Loved', 'Albums', 'All Rated', 'Disliked']
-    assert [ui.image[w] for w in ui.subtree(ui.view(page)) if w in ui.image] == ['list_into'] * 5  # each opens a list
+    assert ui.name[page] == 'ratings_page'
+    assert ui.captions(page) == ['Top Rated', 'Loved', 'Albums', 'Artists', 'All Rated', 'Disliked']
+    assert [ui.image[w] for w in ui.subtree(ui.view(page)) if w in ui.image] == ['list_into'] * 6  # each opens a list
     call(fw, 'ratings_menu')
     assert ui.windows == [page]
 
@@ -738,9 +739,9 @@ class Rated:
 @pytest.mark.parametrize('row, title, want', [
     (0, 'Top Rated', [('Fav', f'{HEART * 5} {DOT} F'), ('Four', HEART * 4 + NO_HEART)]),
     (1, 'Loved', [('Fav', f'{HEART * 5} {DOT} F')]),
-    (3, 'All Rated', [('Fav', f'{HEART * 5} {DOT} F'), ('Four', HEART * 4 + NO_HEART),
+    (4, 'All Rated', [('Fav', f'{HEART * 5} {DOT} F'), ('Four', HEART * 4 + NO_HEART),
                       ('Three', f'{HEART * 3 + NO_HEART * 2} {DOT} T'), ('One', f'{HEART + NO_HEART * 4} {DOT} O')]),
-    (4, 'Disliked', [('One', f'{HEART + NO_HEART * 4} {DOT} O')]),
+    (5, 'Disliked', [('One', f'{HEART + NO_HEART * 4} {DOT} O')]),
 ])
 def test_a_ratings_list_is_its_hearts_most_first(fw, ui, song, row, title, want):
     Rated(fw, ui, song)
@@ -752,7 +753,7 @@ def test_a_ratings_list_is_its_hearts_most_first(fw, ui, song, row, title, want)
 
 def test_a_ratings_list_plays_from_its_row(fw, ui, song):
     rated = Rated(fw, ui, song)
-    call(fw, 'rated_open', 3)
+    call(fw, 'rated_open', 4)
     ui.click(ui.top(), 2)
     assert ui.played == [([rated.fav, rated.four, rated.three, rated.one], 2, LIBRARY)]
 
@@ -765,7 +766,7 @@ def test_a_favourite_outranks_its_kept_hearts(fw, ui, song):
     Files(fw, {RATINGS: ratings((listen_key(b'/m/a.flac'), 2), (listen_key(b'/m/b.flac'), 3))})
     stock_fav = song(b'/m/a.flac')
     fw.mock('getAllFav', lambda *_: library.deques[library.directory()].append(stock_fav) or 1)
-    call(fw, 'rated_open', 3)
+    call(fw, 'rated_open', 4)
     assert ui.rows(ui.top()) == [('A', HEART * 5), ('B', HEART * 3 + NO_HEART * 2)]
 
 
@@ -774,7 +775,7 @@ def test_a_ratings_list_in_library_order_among_equal_hearts(fw, ui, song):
     Library(fw, ui, [c, a, b])
     Files(fw, {RATINGS: ratings(*((listen_key(b'/m/%c.flac' % x), 2) for x in b'abc'))})
     fw.mock('getAllFav', lambda *_: 0)
-    call(fw, 'rated_open', 3)
+    call(fw, 'rated_open', 4)
     assert ui.captions(ui.top()) == ['c', 'a', 'b']
 
 
@@ -844,6 +845,92 @@ def test_no_rated_albums_says_so(fw, ui, song):
     call(fw, 'ratings_menu')
     ui.click(ui.top(), 2)
     assert ui.toasts == ['No rated albums yet']
+
+
+# Rated artists.
+ARTIST_RATINGS = '/mnt/data/ringnav-artist-ratings'
+
+
+class ArtistDb:
+    """The library database behind sqlite3_open and _exec, a real songtable: an artist under another's album artist,
+    one spelled in two cases, a spoken track's artist and an untagged song; the statements asked."""
+    def __init__(self, fw):
+        self.lib, self.asked = sqlite3.connect(':memory:'), []
+        self.lib.execute(SONGTABLE)
+        self.lib.executemany('insert into songtable(id, fileurl, songer, albumsonger) values (?, ?, ?, ?)', [
+            (1, '/m/1.flac', 'Wings', 'Paul McCartney'), (2, '/m/2.flac', 'ABBA', ''), (3, '/m/3.flac', 'abba', ''),
+            (4, '/m/4.flac', 'Queen', 'Queen'), (5, '/m/5.flac', '', ''), (6, '/m/book.m4b', 'Reader', '')])
+        fw.mock('sqlite3_open', lambda path, db, *_: C.c_void_p.from_address(db).__setattr__('value', 0xdb) or 0)
+        fw.mock('sqlite3_exec', self.run)
+
+    def run(self, db, sql, callback, ctx, *_):
+        self.asked.append(C.string_at(sql).decode())
+        if self.asked[-1].startswith('PRAGMA'):  # the connection's own (lib_db_open)
+            return 0
+        for values in self.lib.execute(self.asked[-1]).fetchall():
+            argv = (C.c_char_p * len(values))(*[None if v is None else str(v).encode() for v in values])
+            if ROW(callback)(ctx, len(values), argv, None):
+                return 4  # SQLITE_ABORT
+        return 0
+
+
+def rate_artists(fw, *hearts):
+    keep = fw.fn('rate_keep', C.c_int, C.c_int, C.c_uint, C.c_int)
+    for name, n in hearts:
+        assert keep(2, fw.fn('artist_id', C.c_uint, C.c_char_p)(name), n) == 1
+
+
+def test_no_rated_artists_says_so(fw, ui):
+    Files(fw)
+    ArtistDb(fw)
+    call(fw, 'ratings_menu')
+    ui.click(ui.top(), 3)
+    assert ui.toasts == ['No rated artists yet'] and len(ui.windows) == 1
+
+
+@pytest.mark.parametrize('artist_type, want', [
+    (0, [('Wings', HEART * 5), ('abba', HEART * 3 + NO_HEART * 2), ('Queen', HEART * 3 + NO_HEART * 2)]),
+    (1, [('abba', HEART * 3 + NO_HEART * 2), ('Queen', HEART * 3 + NO_HEART * 2)]),  # Wings is under Paul McCartney
+])
+def test_rated_artists_list_most_hearts_first_by_the_artists_lists_name(fw, ui, artist_type, want):
+    """An artist is rated by its name, ASCII case aside; a spoken track's artist, untagged, unrated or not in the
+    list under this setting is left out."""
+    Files(fw)
+    db = ArtistDb(fw)
+    fw.var('fw_ctx_artist_type', C.c_int).value = artist_type
+    rate_artists(fw, (b'Queen', 3), (b'Wings', 5), (b'Abba', 3), (b'Reader', 4), (b'Nobody', 2))
+    call(fw, 'rated_artists')
+    page = ui.top()
+    rows = [(name.lower() if name.lower() == 'abba' else name, hearts) for name, hearts in ui.rows(page)]  # either
+    assert ui.name[page] == 'rated_page' and 'Artists' in ui.shown(page) and rows == want
+    assert 'm4b' in db.asked[-1]  # music only, as the Artists list
+
+
+def test_a_rated_artists_row_opens_its_artist_page(fw, ui):
+    Files(fw)
+    ArtistDb(fw)
+    rate_artists(fw, (b'Queen', 4))
+    call(fw, 'rated_artists')
+    seen = []
+    fw.mock('navigator_to_with_context', lambda name, ctx, *_: seen.append(
+        (C.string_at(name), C.c_int.from_address(ctx).value, field(C.c_void_p.from_address(ctx + 8).value, 'artist'))))
+    ui.click(ui.top(), 0)
+    assert seen == [(b'localmusic/artistinfo_page', 0xf004, b'Queen')]
+
+
+def test_rated_artists_close_with_their_page(fw, ui, library):
+    Files(fw)
+    ArtistDb(fw)
+    rate_artists(fw, (b'Queen', 4))
+    call(fw, 'rated_artists')
+    call(fw, 'rated_artists')  # pressed again while it is open: the same page
+    assert len(ui.windows) == 1
+    ui.close(ui.top())
+    fields = host.offsets(library.parent/'ratings.o', 'ra')
+    base = C.addressof(fw.var('ratings__ra', C.c_char))
+    assert not C.c_void_p.from_address(base + fields['ar_names']).value
+    call(fw, 'rated_artists')  # and opens again
+    assert ui.captions(ui.top()) == ['Queen']
 
 
 # Long Songs.
@@ -1588,8 +1675,8 @@ def album_menu(fw, ui, song, st, qm, album_id=0xa1b0):
 def test_an_album_s_rating_is_kept_apart_from_its_songs(fw, ui, song, st, qm):
     files = Files(fw)
     win, ids = album_menu(fw, ui, song, st, qm)
-    show = fw.fn('rate_show', C.c_int, C.c_void_p, C.c_int, C.c_uint)
-    assert show(win, 4, 0xa1b0) == 1 and show(win, 2, 0xa1b0) == 0  # one picker at a time
+    show = fw.fn('rate_show', C.c_int, C.c_void_p, C.c_int, C.c_int, C.c_uint)
+    assert show(win, 4, 1, 0xa1b0) == 1 and show(win, 2, 1, 0xa1b0) == 0  # one picker at a time
     key = fw.fn('rate_key', C.c_int, C.c_void_p, C.c_uint)
     key(win, KEY_NEXT)
     key(win, KEY_CENTER)
@@ -1598,7 +1685,7 @@ def test_an_album_s_rating_is_kept_apart_from_its_songs(fw, ui, song, st, qm):
     assert ALBUM_RATINGS in files.files
 
 
-@pytest.mark.parametrize('album, table', [(0, RATINGS), (1, ALBUM_RATINGS)])
+@pytest.mark.parametrize('album, table', [(0, RATINGS), (1, ALBUM_RATINGS), (2, '/mnt/data/ringnav-artist-ratings')])
 def test_a_rating_is_written_beside_its_table_then_renamed_over_it(fw, album, table):
     """Hearts can't be made again from the music, so their table is never the file opened for writing: a power cut
     in the write leaves the last table whole."""
@@ -1618,7 +1705,7 @@ def test_an_album_s_fifth_heart_is_its_songs_my_fav(fw, ui, song, st, qm, was, k
     tracks = [song(b'/m/y/1.flac', album=b'Y'), song(b'/m/y/2.flac', album=b'Y')]
     fw.mock('getMusicByAlbumAndSonger', lambda *_: ui.deques[fw.var('fw_ctx_tools_pdeq_directory', C.c_uint).value]
             .extend(tracks) or 0)
-    assert fw.fn('rate_show', C.c_int, C.c_void_p, C.c_int, C.c_uint)(win, was, 0xa1b0) == 1
+    assert fw.fn('rate_show', C.c_int, C.c_void_p, C.c_int, C.c_int, C.c_uint)(win, was, 1, 0xa1b0) == 1
     key = fw.fn('rate_key', C.c_int, C.c_void_p, C.c_uint)
     key(win, key_)
     key(win, KEY_CENTER)
@@ -1629,7 +1716,7 @@ def test_an_album_s_fifth_heart_is_its_songs_my_fav(fw, ui, song, st, qm, was, k
 def test_an_album_no_longer_under_the_picker_is_not_rated(fw, ui, song, st, qm):
     files = Files(fw)
     win, ids = album_menu(fw, ui, song, st, qm)
-    fw.fn('rate_show', C.c_int, C.c_void_p, C.c_int, C.c_uint)(win, 4, 0xa1b0)
+    fw.fn('rate_show', C.c_int, C.c_void_p, C.c_int, C.c_int, C.c_uint)(win, 4, 1, 0xa1b0)
     ui.new('window_create', 0, 0, 0, 0, 0)  # another page over it
     fw.fn('rate_key', C.c_int, C.c_void_p, C.c_uint)(win, KEY_CENTER)
     assert ui.toasts == ['Album changed'] and not files.files
@@ -1638,7 +1725,7 @@ def test_an_album_no_longer_under_the_picker_is_not_rated(fw, ui, song, st, qm):
 def test_an_album_whose_row_changed_is_not_rated(fw, ui, song, st, qm):
     files = Files(fw)
     win, ids = album_menu(fw, ui, song, st, qm, album_id=0xb2c0)  # the row now holds another album
-    fw.fn('rate_show', C.c_int, C.c_void_p, C.c_int, C.c_uint)(win, 4, 0xa1b0)
+    fw.fn('rate_show', C.c_int, C.c_void_p, C.c_int, C.c_int, C.c_uint)(win, 4, 1, 0xa1b0)
     fw.fn('rate_key', C.c_int, C.c_void_p, C.c_uint)(win, KEY_CENTER)
     assert ui.toasts == ['Album changed'] and not files.files
 

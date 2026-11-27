@@ -1,11 +1,12 @@
-/* Ratings: a song's or album's hearts, Now Playing's heart and its picker, the Library's Ratings
- * lists, and the card's copy of the ratings. */
+/* Ratings: a song's, album's or artist's hearts, Now Playing's heart and its picker, the Library's
+ * Ratings lists, and the card's copy of the ratings. */
 #include "navigation.h"
 
-/* Ratings: the songs' 1-4 and albums' 1-5 heart tables (calloc'd on first use); Now Playing's
- * heart and the heart's stock click context, the 1-4 fill, the hearts picked, the heart's hold
- * timer (rate_held once it fired), and the album rated (album_id, 0 for the playing track); the
- * Ratings menu. navigation.h's st has the windows and the list page. */
+/* Ratings: the songs' 1-4 and albums' and artists' 1-5 heart tables (calloc'd on first use); Now
+ * Playing's heart and the heart's stock click context, the 1-4 fill, the hearts picked, the heart's
+ * hold timer (rate_held once it fired), and the album or artist rated (its table and key, 0 for the
+ * playing track); the Ratings menu, and Artists' page with its names. navigation.h's st has the
+ * windows and the list page. */
 static struct {
     unsigned *rates, *album_rates;
     widget_t *rate_fav;
@@ -16,9 +17,14 @@ static struct {
     int rate_armed;                     /* a press came down on the picker: its release is a tap */
     unsigned rate_at;                   /* when a hold opened the picker (never 0), else 0 */
     unsigned rate_hold, rate_tick, rate_album;
-    unsigned rate_fails[2]; /* the songs' and albums' saves' failed reads (blob_load) */
+    unsigned rate_fails[3]; /* the songs', albums' and artists' saves' failed reads (blob_load) */
     widget_t *rt_menu;
     int rt_held; /* the list a Play/Pause hold on the menu shuffles */
+    unsigned *artist_rates;
+    int rate_table; /* rate_album's table: RATE_ALBUMS or RATE_ARTISTS */
+    widget_t *ar_page;
+    char **ar_names; /* Ratings → Artists' rows, each name after its hearts' digit */
+    unsigned ar_n;
 } ra __attribute__((section(".scratch")));
 
 /* Ratings (docs/internals.md#ratings): 0 to 5 hearts a song. 5 is stock's My Fav, so Now Playing's
@@ -28,6 +34,14 @@ static struct {
 /* Albums keep 1 to 5 hearts apart from their songs, by coverflow.c's album_id: 5 is the album's
  * favourite, there being no stock one, and puts its songs in My Fav (rate_album_favs). */
 #define ALBUM_RATINGS_FILE "/mnt/data/ringnav-album-ratings"
+/* Artists keep 1 to 5 hearts by artist_id, the name an Artists row shows: 5 is the artist's
+ * favourite and leaves its songs as they are. */
+#define ARTIST_RATINGS_FILE "/mnt/data/ringnav-artist-ratings"
+static const char *const rate_files[][2] = {
+    { RATINGS_FILE, RATINGS_FILE ".tmp" },
+    { ALBUM_RATINGS_FILE, ALBUM_RATINGS_FILE ".tmp" },
+    { ARTIST_RATINGS_FILE, ARTIST_RATINGS_FILE ".tmp" },
+};
 /* Now Playing's heart click (playing_page_init binds it to img_fav with the window): stock's My
  * Fav toggled for the playing track (manage_myfav), and the heart's image with it. */
 #define FAV_CLICK ((int (*)(void *, event_t *))0x53c968)
@@ -38,29 +52,32 @@ static struct {
 #define FAV_HEART_ROWS 21
 #define FLAT_HEART_TOP 6
 
-/* The songs' table, or with album the albums', written. */
-static int rate_io(int album) {
-    const char *f = album ? ALBUM_RATINGS_FILE : RATINGS_FILE;
-    const char *tmp = album ? ALBUM_RATINGS_FILE ".tmp" : RATINGS_FILE ".tmp";
-    return blob_io(f, tmp, album ? ra.album_rates : ra.rates, RATE_SLOTS * sizeof *ra.rates, 1);
+/* Table k's words: RATE_SONGS', RATE_ALBUMS' or RATE_ARTISTS'. */
+static unsigned **rate_table(int k) {
+    return k == RATE_ARTISTS ? &ra.artist_rates : k ? &ra.album_rates : &ra.rates;
+}
+/* Table k written. */
+static int rate_io(int k) {
+    return blob_io(rate_files[k][0], rate_files[k][1], *rate_table(k),
+                   RATE_SLOTS * sizeof *ra.rates, 1);
 }
 /* The table read in (blob_load), NULL while it can't be (or no memory); fails counts a save's
  * failed reads.
  * ponytail: while the file can't be read every lookup reads again (calloc, open, free): a sort by
  * hearts over thousands of albums costs a fraction of a second on the UI thread; a retry at most
  * once a second would lift it. */
-static unsigned *rates_load(int album, unsigned *fails) {
-    unsigned **t = album ? &ra.album_rates : &ra.rates;
+static unsigned *rates_load(int k, unsigned *fails) {
+    unsigned **t = rate_table(k);
     if (!*t && (*t = calloc(RATE_SLOTS, sizeof **t)) &&
-        !blob_load(album ? ALBUM_RATINGS_FILE : RATINGS_FILE, *t, RATE_SLOTS * sizeof **t, fails))
+        !blob_load(rate_files[k][0], *t, RATE_SLOTS * sizeof **t, fails))
         free(*t), *t = 0;
     return *t;
 }
-static unsigned *rates(int album) { return rates_load(album, 0); }
+static unsigned *rates(int k) { return rates_load(k, 0); }
 
 /* key's slot; with free, the first free one when it has none; -1 when neither. */
-static int rate_slot(int album, unsigned key, int free) {
-    unsigned *t = rates(album);
+static int rate_slot(int k, unsigned key, int free) {
+    unsigned *t = rates(k);
     int empty = -1;
     for (int i = 0; t && i < RATE_SLOTS; i++) {
         if (t[i] && (t[i] ^ key) < 8) return i;
@@ -69,22 +86,23 @@ static int rate_slot(int album, unsigned key, int free) {
     return free ? empty : -1;
 }
 
-/* The hearts kept for key, 1 to 4 for a song or 5 for an album, else 0 (a malformed slot too). */
-int rate_kept(int album, unsigned key) {
-    int i = rate_slot(album, key, 0), n = i < 0 ? 0 : (int)(rates(album)[i] & 7);
-    return n <= 4 + album ? n : 0;
+/* The hearts kept in table k for key, 1 to 4 for a song or 5 for an album or artist, else 0 (a
+ * malformed slot too). */
+int rate_kept(int k, unsigned key) {
+    int i = rate_slot(k, key, 0), n = i < 0 ? 0 : (int)(rates(k)[i] & 7);
+    return n <= 4 + (k != RATE_SONGS) ? n : 0;
 }
 
-/* Keeps n hearts for key: a song's 1 to 4, none for 0 and 5 (My Fav's); an album's 1 to 5. 1 when
- * saved, 0 when the table is full, -1 when the file was not written (the slot then as it was). */
-int rate_keep(int album, unsigned key, int n) {
-    if (!rates_load(album, &ra.rate_fails[album]))
-        return -1; /* never written over a table not read */
-    int some = n > 0 && n < 5 + album, i = rate_slot(album, key, some);
+/* Keeps n hearts for key: a song's 1 to 4, none for 0 and 5 (My Fav's); an album's or artist's 1
+ * to 5. 1 when saved, 0 when the table is full, -1 when the file was not written (the slot then as
+ * it was). */
+int rate_keep(int k, unsigned key, int n) {
+    if (!rates_load(k, &ra.rate_fails[k])) return -1; /* never written over a table not read */
+    int some = n > 0 && n < 5 + (k != RATE_SONGS), i = rate_slot(k, key, some);
     if (i < 0) return !some;
-    unsigned *t = rates(album), old = t[i];
+    unsigned *t = rates(k), old = t[i];
     t[i] = some ? (key & ~7u) | (unsigned)n : 0;
-    if (rate_io(album)) {
+    if (rate_io(k)) {
         ratings_copy_due();
         return 1;
     }
@@ -289,9 +307,9 @@ static void rate_outside(widget_t *win, int on) {
     widget_set_sensitive(out, on);
 }
 
-/* Closes the picker, and with save rates rate_pick: an album (rate_album) if still Coverflow's
- * centre card, else the playing track, My Fav in or out through the heart's own click and the
- * rest kept here. */
+/* Closes the picker, and with save rates rate_pick: an album or artist (rate_album) if still the
+ * queue menu's row or Coverflow's centre card, else the playing track, My Fav in or out through the
+ * heart's own click and the rest kept here. */
 static void rate_close(int save) {
     widget_t *win = st.rate_on;
     if (!win) return;
@@ -301,13 +319,15 @@ static void rate_close(int save) {
     widget_set_sensitive(panel, 0); /* stock's hit test skips only the insensitive, hidden or not */
     rate_outside(win, 0);
     int n = ra.rate_pick;
-    if (save && ra.rate_album) { /* the menu's album, still on its page */
+    if (save && ra.rate_album) { /* the menu's album or artist, still on its page */
         void *a = window_manager_get_top_window(window_manager()) == win ? qm_record() : (void *)0;
-        if (!a || qm_album_id(a) != ra.rate_album) {
-            toast(tr("Album changed"));
+        int artist = ra.rate_table == RATE_ARTISTS;
+        if (!a || (artist ? qm_artist_id(a) : qm_album_id(a)) != ra.rate_album) {
+            toast(artist ? tr("Artist changed") : tr("Album changed"));
             return;
         }
-        if (rate_saved(rate_keep(1, ra.rate_album, n)) && (n == 5 || ra.rate_was == 5))
+        if (rate_saved(rate_keep(ra.rate_table, ra.rate_album, n)) && !artist &&
+            (n == 5 || ra.rate_was == 5))
             rate_album_favs(a, n == 5);
         return;
     }
@@ -348,14 +368,14 @@ static int rate_out(void *ctx, event_t *event) {
     return STOP;
 }
 
-/* The picker over win on pick hearts, for the queue menu's album album or, with 0, the playing
- * track: the wheel moves the rating, Centre saves it and Return leaves it as it was; a tap on a
- * heart saves that many, or none on the one it opened on. */
-int rate_show(widget_t *win, int pick, unsigned album) {
+/* The picker over win on pick hearts, for the queue menu's album or artist key in table k or, with
+ * key 0, the playing track: the wheel moves the rating, Centre saves it and Return leaves it as it
+ * was; a tap on a heart saves that many, or none on the one it opened on. */
+int rate_show(widget_t *win, int pick, int k, unsigned key) {
     if (!win || st.rate_on) return 0;
     st.rate_on = win;
     ra.rate_pick = ra.rate_was = pick;
-    ra.rate_album = album;
+    ra.rate_table = k, ra.rate_album = key;
     ra.rate_armed = 0, ra.rate_at = 0;
     rate_paint();
     widget_t *panel = rate_panel(win);
@@ -367,7 +387,7 @@ int rate_show(widget_t *win, int pick, unsigned album) {
 /* Now Playing's, on the playing track's rating. */
 int rate_open(void) {
     void *r = rate_track();
-    return r && rate_show(st.rate_win, checkFavExist(r) ? 5 : rate_kept(0, listen_key(r)), 0);
+    return r && rate_show(st.rate_win, checkFavExist(r) ? 5 : rate_kept(0, listen_key(r)), 0, 0);
 }
 
 /* The wheel, Centre and Return while the picker is up. */
@@ -505,7 +525,11 @@ static void rate_all(void *songs, unsigned char *h) {
  * the library's title order, each row's hearts under its title. */
 static const char *const rt_names[] = { N_("Top Rated"), N_("Loved"), N_("All Rated"),
                                         N_("Disliked") };
-#define RT_ALBUMS 2 /* the Ratings menu's Albums row, after Loved */
+#define RT_ALBUMS 2  /* the Ratings menu's Albums row, after Loved */
+#define RT_ARTISTS 3 /* and its Artists row, after Albums */
+#define RT_ROWS 6
+/* The Ratings menu's row's song list, rt_names' index; the Albums and Artists rows aside. */
+static int rt_list_of(int row) { return row - (row > RT_ALBUMS) - (row > RT_ARTISTS); }
 /* List k's songs, each one's hearts in *of (calloc'd, the caller's to free). */
 static void *rated_songs(int k, unsigned char **of) {
     static const unsigned char lo[] = { 4, 5, 1, 1 }, hi[] = { 5, 5, 5, 1 };
@@ -531,7 +555,7 @@ static void *rated_songs(int k, unsigned char **of) {
     return list;
 }
 static int rated_open(void *ctx, event_t *event) {
-    int k = (int)(long)ctx - ((int)(long)ctx > RT_ALBUMS);
+    int k = rt_list_of((int)(long)ctx);
     if (st.rt_page || !(st.rt_page = page_open("rated_page", rt_closed, page_keyup))) return 0;
     unsigned char *of;
     void *list = st.rt_list = rated_songs(k, &of);
@@ -553,10 +577,10 @@ static int rated_open(void *ctx, event_t *event) {
     return 0;
 }
 
-/* ringnav_keylong: Play/Pause held on one of the Ratings menu's song lists (Albums aside), the row
- * a centre press would open (qm_hold's), plays its songs shuffled, as Shuffle Songs does the
- * library's, out of the hold's dispatch as Up Next's hold; 1 when taken. A hold on a list's own
- * song is that song's queue menu. */
+/* ringnav_keylong: Play/Pause held on one of the Ratings menu's song lists (Albums and Artists
+ * aside), the row a centre press would open (qm_hold's), plays its songs shuffled, as Shuffle Songs
+ * does the library's, out of the hold's dispatch as Up Next's hold; 1 when taken. A hold on a
+ * list's own song is that song's queue menu. */
 static int rt_shuffle(const void *unused) {
     unsigned char *of;
     if (!ra.rt_menu) return 0; /* the menu closed */
@@ -572,8 +596,10 @@ int rated_hold(widget_t *top) {
         w = surface_under(top, (void *)0, (void *)0, 0);
     int cur = w && load(&g_menu, w, 1) ? reconcile(&g_menu, !moving(&g_menu)) : -1;
     int row = cur >= 0 ? g_menu.id[cur] : -1;
-    if (row < 0 || row > 4 || row == RT_ALBUMS || !timer_add(rt_shuffle, (void *)0, 0)) return 0;
-    ra.rt_held = row - (row > RT_ALBUMS);
+    if (row < 0 || row >= RT_ROWS || row == RT_ALBUMS || row == RT_ARTISTS ||
+        !timer_add(rt_shuffle, (void *)0, 0))
+        return 0;
+    ra.rt_held = rt_list_of(row);
     return 1;
 }
 
@@ -584,14 +610,93 @@ int rated_albums(void *ctx, event_t *event) {
     return 0;
 }
 
-/* The songs' best first, then the albums, then the songs' lists to tidy. */
+/* Artists: the Artists list's names (artist_type, music only) with hearts, each after its hearts'
+ * digit, most hearts first, then by name; a row opens that artist's page, as Artist info does. A
+ * name finds its word in the table's rated ones, sorted (ctx: their count, then the words), as
+ * rate_all finds a song's. */
+static int ar_row(void *ctx, int n, char **v, char **c) {
+    unsigned *rated = (unsigned *)ctx + 1, kept = *(unsigned *)ctx, key, j, at = ra.ar_n;
+    if (n != 1 || !v[0] || !(key = artist_id(v[0]))) return 0;
+    j = key_at(rated, kept, key & ~7u);
+    int h = j < kept && (rated[j] | 7) == (key | 7) ? (int)(rated[j] & 7) : 0;
+    if (!h || h > 5) return 0;
+    if (!(at & 63)) {
+        char **names = realloc(ra.ar_names, (at + 64) * sizeof *names);
+        if (!names) return 1;
+        ra.ar_names = names;
+    }
+    unsigned size = strlen(v[0]) + 2;
+    if (!(ra.ar_names[at] = calloc(size, 1))) return 1;
+    tk_snprintf(ra.ar_names[at], size, "%d%s", h, v[0]);
+    ra.ar_n++;
+    return 0;
+}
+static int ar_cmp(const void *a, const void *b) {
+    const char *x = *(char *const *)a, *y = *(char *const *)b;
+    return *y - *x ? *y - *x : strcasecmp(x + 1, y + 1);
+}
+static int ar_closed(void *ctx, event_t *event) {
+    for (unsigned i = 0; i < ra.ar_n; i++) free(ra.ar_names[i]);
+    free(ra.ar_names);
+    ra.ar_names = 0, ra.ar_n = 0, ra.ar_page = 0;
+    return 0;
+}
+static int ar_open(void *ctx, event_t *event) {
+    unsigned i = (unsigned)(long)ctx;
+    int r[REC_CUE_END / 4 + 1] = { 0 };
+    /* one artist page at a time: a second's close frees the first's record (MORE_ARTIST_CLOSE) */
+    if (i >= ra.ar_n || navigator_window_is_exist("artistinfo_page")) return 0;
+    P(r, REC_ARTIST) = P(r, REC_ALBUM_ARTIST) = ra.ar_names[i] + 1;
+    artist_page(0xf004, r); /* as the Artists list's row */
+    return 0;
+}
+/* The Artists list's names under Artist and under Album Artist, ASCII case aside as artist_id. */
+#define AR_SQL(name)                                                                               \
+    "select " name " a from songtable where " MUSIC_WHERE " and ifnull(" name ",'')<>'' "          \
+    "group by a collate nocase"
+int rated_artists(void *ctx, event_t *event) {
+    static const char *const by[2] = { AR_SQL("songer"), AR_SQL(ALBUM_ARTIST_OR_ARTIST) };
+    unsigned *t = rates(RATE_ARTISTS), *words = calloc(RATE_SLOTS + 1, sizeof *words);
+    if (ra.ar_page || !words) {
+        free(words);
+        return 0;
+    }
+    for (int i = 0; t && i < RATE_SLOTS; i++)
+        if (t[i]) words[1 + words[0]++] = t[i];
+    qsort(words + 1, words[0], sizeof *words, key_cmp);
+    int read = words[0] && era_sql(by[I(artist_type, 0) == 1], ar_row, words);
+    free(words);
+    if (!read || !ra.ar_n) {
+        ar_closed(0, 0);
+        toast(tr("No rated artists yet"));
+        return 0;
+    }
+    qsort(ra.ar_names, ra.ar_n, sizeof *ra.ar_names, ar_cmp);
+    if (!(ra.ar_page = page_open("rated_page", ar_closed, page_keyup))) {
+        ar_closed(0, 0);
+        return 0;
+    }
+    widget_t *view = page_list(ra.ar_page, ra.ar_page, 0, tr("Artists"), (int)ra.ar_n, 64);
+    char hs[16];
+    for (unsigned i = 0; i < ra.ar_n; i++)
+        page_row_detail(view, (int)i, ra.ar_names[i] + 1, hearts_text(hs, ra.ar_names[i][0] - '0'),
+                        ar_open);
+    return 0;
+}
+
+/* The songs' best first, then the albums and artists, then the songs' lists to tidy. */
 int ratings_menu(void *ctx, event_t *event) {
     if (ra.rt_menu || !(ra.rt_menu = page_open("ratings_page", rt_menu_closed, page_keyup)))
         return 0;
-    widget_t *view = page_list(ra.rt_menu, ra.rt_menu, 0, tr("Ratings"), 5, 48);
-    for (int i = 0; i < 5; i++)
-        page_row_into(view, i, i == RT_ALBUMS ? tr("Albums") : tr(rt_names[i - (i > RT_ALBUMS)]),
-                      i == RT_ALBUMS ? rated_albums : rated_open);
+    widget_t *view = page_list(ra.rt_menu, ra.rt_menu, 0, tr("Ratings"), RT_ROWS, 48);
+    for (int i = 0; i < RT_ROWS; i++)
+        page_row_into(view, i,
+                      i == RT_ALBUMS    ? tr("Albums")
+                      : i == RT_ARTISTS ? tr("Artists")
+                                        : tr(rt_names[rt_list_of(i)]),
+                      i == RT_ALBUMS    ? rated_albums
+                      : i == RT_ARTISTS ? rated_artists
+                                        : rated_open);
     return 0;
 }
 
@@ -600,10 +705,12 @@ int ratings_menu(void *ctx, event_t *event) {
  * thread (stock's shared connection waits only 500 ms for a reader, so a worker's longer read lock
  * could still make stock's own My Fav writes fail), and writes the card once at the end, only if
  * the file would change; the longest copy so far is kept as .1, the one way back from a lost table.
- * ponytail: every row against every rated one still to find; a rating whose song or album has left
- * the library has no name to write, and stays out until it is back. */
+ * ponytail: every row against every rated one still to find; a rating whose song, album or artist
+ * has left the library has no name to write, and stays out until it is back. */
 #define RC_FILE "/mnt/mmc/.ratings.tsv"
-#define RC_HEADER "#song\thearts\tpath\tcue_start\n#album\thearts\tname\talbum_artist\tfolder\n"
+#define RC_HEADER                                                                                  \
+    "#song\thearts\tpath\tcue_start\n#album\thearts\tname\talbum_artist\tfolder\n"                 \
+    "#artist\thearts\tname\n"
 #define RC_PAGE 64
 #define RC_WAIT_MS 5000 /* after a change, so a run of them writes once; between checks */
 #define RC_LINE 3200    /* the fields' limits below, and room */
@@ -616,6 +723,7 @@ static struct {
     char *out;
     int table, last, rows, oom;
     unsigned gen;
+    unsigned *artist, artists;
 } rc __attribute__((section(".scratch")));
 static int rc_due __attribute__((section(".scratch")));
 
@@ -667,6 +775,16 @@ static void rc_album(const char *name, const char *artist, const char *path, int
     o[-1] = '\n';
     rc.len = (unsigned)(o - rc.out);
 }
+/* An artist rated under name, a song's artist or album artist (either Artists setting's), once. */
+static void rc_artist(const char *name) {
+    unsigned key = rc.artists ? artist_id(name) : 0;
+    int hearts = key ? rc_take(rc.artist, &rc.artists, key) : 0;
+    char *o = hearts ? rc_line("artist", hearts) : (char *)0;
+    if (!o) return;
+    o = scrobble_tag(o, o + 600, name);
+    o[-1] = '\n';
+    rc.len = (unsigned)(o - rc.out);
+}
 
 /* A row as a record, for the keys its song and album are rated under. */
 static int rc_row(void *ctx, int n, char **v, char **c) {
@@ -684,13 +802,14 @@ static int rc_row(void *ctx, int n, char **v, char **c) {
         rc_song(v[1], hearts, cue);
     if (rc.albums && (hearts = rc_take(rc.album, &rc.albums, album_id(rec))))
         rc_album(v[3], v[4], v[1], hearts);
+    rc_artist(v[5]), rc_artist(v[4]);
     return rc.oom;
 }
 
 static void rc_end(void) {
     if (rc.db) sqlite3_close(rc.db);
-    free(rc.song), free(rc.album), free(rc.out);
-    rc.db = 0, rc.song = rc.album = 0, rc.out = 0;
+    free(rc.song), free(rc.album), free(rc.artist), free(rc.out);
+    rc.db = 0, rc.song = rc.album = rc.artist = 0, rc.out = 0;
     rc.len = rc.cap = rc.oom = 0;
 }
 
@@ -726,20 +845,22 @@ static void rc_write(void) {
     if (rename(RC_FILE ".tmp", RC_FILE)) unlink(RC_FILE ".tmp");
 }
 
-/* The rated of table album, valid hearts only, for rc_take. */
-static unsigned *rc_rated(int album, unsigned *n) {
-    unsigned *t = rates(album), *c = t ? calloc(RATE_SLOTS, sizeof *c) : (unsigned *)0;
+/* The rated of table k, valid hearts only, for rc_take. */
+static unsigned *rc_rated(int k, unsigned *n) {
+    unsigned *t = rates(k), *c = t ? calloc(RATE_SLOTS, sizeof *c) : (unsigned *)0;
     for (unsigned i = 0; c && i < RATE_SLOTS; i++)
-        if ((t[i] & 7) && (t[i] & 7) <= 4u + (unsigned)album) c[(*n)++] = t[i];
+        if ((t[i] & 7) && (t[i] & 7) <= 4u + (k != RATE_SONGS)) c[(*n)++] = t[i];
     return c;
 }
 
 static void rc_start(void) {
     int unknown[REC_CUE_END / 4 + 1] = { 0 }, hearts;
-    rc.songs = rc.albums = 0, rc.table = rc.last = 0;
+    rc.songs = rc.albums = rc.artists = 0, rc.table = rc.last = 0;
     rc.song = rc_rated(0, &rc.songs), rc.album = rc_rated(1, &rc.albums);
+    rc.artist = rc_rated(RATE_ARTISTS, &rc.artists);
     rc.out = calloc(rc.cap = RC_GROW, 1);
-    if (!rc.song || !rc.album || !rc.out || lib_db_open(&rc.db, "PRAGMA cache_size=64")) {
+    if (!rc.song || !rc.album || !rc.artist || !rc.out ||
+        lib_db_open(&rc.db, "PRAGMA cache_size=64")) {
         rc_end();
         return;
     }
@@ -763,15 +884,16 @@ static void rc_page(void) {
         return;
     }
     if (time_now_ms() - st.last_input < RC_QUIET_MS) return;
-    tk_snprintf(sql, sizeof sql,
-                "select id,fileurl,time,album,albumsonger from %s where id>%d order by id limit %d",
-                rc.table ? "songtable" : "myfav", rc.last, RC_PAGE);
+    tk_snprintf(
+        sql, sizeof sql,
+        "select id,fileurl,time,album,albumsonger,songer from %s where id>%d order by id limit %d",
+        rc.table ? "songtable" : "myfav", rc.last, RC_PAGE);
     rc.rows = 0;
     if (sqlite3_exec(rc.db, sql, rc_row, 0, 0)) {
         rc_end();
         return;
     }
-    if (rc.rows == RC_PAGE && (!rc.table || rc.songs || rc.albums)) return;
+    if (rc.rows == RC_PAGE && (!rc.table || rc.songs || rc.albums || rc.artists)) return;
     if (!rc.table++) {
         rc.last = rc.rows = 0;
         /* no songtable before the first scan: My Fav's alone, still worth a copy */

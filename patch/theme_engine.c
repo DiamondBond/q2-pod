@@ -347,9 +347,10 @@ const char *const shortcut_names[SETTING_N_SHORTCUT] = {
     N_("Favourites"),    N_("Rated Albums"),
     N_("Shuffle"),       N_("Games"),
     N_("Playlists"),     N_("Podcasts"),
-    N_("Audiobooks"),    [SHORTCUT_NONE] = N_("None")
+    N_("Audiobooks"),    [SHORTCUT_NONE] = N_("None"),
+    N_("Rated Artists")
 };
-_Static_assert(SHORTCUT_NONE + 1 == SETTING_N_SHORTCUT, "None is the last");
+_Static_assert(SHORTCUT_RATED_ARTISTS + 1 == SETTING_N_SHORTCUT, "Rated Artists is the last");
 /* The Shortcut's name: coverflow.c's pane compares it, and tr() shows it. */
 const char *ipod_home_shortcut(void) {
     int s = shortcut_target();
@@ -359,7 +360,7 @@ const char *ipod_home_shortcut(void) {
  * folders of these names, case aside, browsed in folder_page from there; Photos opens photos.c.
  * The Library's rows (home.c) show them translated. */
 const char *const MEDIA[] = { N_("Podcasts"), N_("Audiobooks"), N_("Photos") };
-int rated_albums(void *, event_t *);
+int rated_albums(void *, event_t *), rated_artists(void *, event_t *);
 int home_shortcut_open(void *ctx, event_t *event) {
     int s = shortcut_target();
     if (s == SHORTCUT_APP) { /* the app's row pressed, wherever it is */
@@ -370,6 +371,7 @@ int home_shortcut_open(void *ctx, event_t *event) {
         return 0;
     }
     if (s == 4) return rated_albums(ctx, event);
+    if (s == SHORTCUT_RATED_ARTISTS) return rated_artists(ctx, event);
     if (s == 5) return shuffle_menu(ctx, event);
     if (s == 6) return games_open(ctx, event);
     if (s == 8 || s == 9) return media_click((void *)(long)(s == 8 ? PODCASTS : AUDIOBOOKS), event);

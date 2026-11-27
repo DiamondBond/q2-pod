@@ -79,7 +79,6 @@ void child_oom_first(void) {
  * Coverflow's grouping (ifnull(albumsonger,'')) keeps the tag. Then restrict the Library's category
  * queries, including Unknown and split albums, before grouping. Coverflow and folder queries keep
  * their own scope. */
-#define ALBUM_ARTIST_OR_ARTIST "ifnull(nullif(albumsonger,''),songer)"
 /* toolsQueryDbTable, or (content) toolsQueryContentDbTable, which an artist's albums tab
  * (getAlbumByAlbumArtist) runs with its row's arg and the name sort on the stack. */
 static int library_query(int content, const char *db, const char *sql, void *row, void *arg,

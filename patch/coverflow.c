@@ -850,6 +850,11 @@ unsigned album_id(void *r) {
     if (I(r, REC_ID) == -1) return unknown | !unknown;
     return album_ident(P(r, REC_ALBUM), P(r, REC_ALBUM_ARTIST), P(r, REC_PATH));
 }
+/* An artist's name, ASCII case aside, hashed for ratings.c's artist ratings; 0 for no name. */
+unsigned artist_id(const char *name) {
+    unsigned h = fnv_lower(FNV_SEED, name);
+    return name && *name ? h | !h : 0;
+}
 
 /* Sort, Cover Flow settings' Sort and the rated albums' card
  * (docs/internals.md#coverflow-sort): Album is the stock order;

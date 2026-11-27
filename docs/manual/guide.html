@@ -177,7 +177,7 @@ p:has(+ ul), p:has(+ ol), p:has(+ table), p:has(+ pre), .task, h2, h3, .lead { b
     <li><a class="t" href="#lyrics">Lyrics and the visualizer</a><span class="n">{{p:lyrics}}</span></li>
 
     <li class="chap" data-n="4"><a class="t" href="#c4">Ratings, Playlists and Shuffle</a><span class="n">{{p:c4}}</span></li>
-    <li><a class="t" href="#ratings">Rate songs and albums</a><span class="n">{{p:ratings}}</span></li>
+    <li><a class="t" href="#ratings">Rate songs, albums and artists</a><span class="n">{{p:ratings}}</span></li>
     <li><a class="t" href="#playlists">Playlists</a><span class="n">{{p:playlists}}</span></li>
     <li><a class="t" href="#import">Import playlists</a><span class="n">{{p:import}}</span></li>
     <li><a class="t" href="#shuffle">Shuffle the library</a><span class="n">{{p:shuffle}}</span></li>
@@ -370,7 +370,7 @@ p:has(+ ul), p:has(+ ol), p:has(+ table), p:has(+ pre), .task, h2, h3, .lead { b
     <li>Scroll with a wheel that follows your finger, in menus that keep your position</li>
     <li>Change the sound with three tone sliders, or with a maximum of 30 EQ bands, a live curve and AutoEQ presets</li>
     <li>Stream Spotify (Premium), AirPlay and Internet Radio, and install apps and updates through Wi-Fi</li>
-    <li>Rate songs and albums, edit playlists, shuffle by song, album or folder, and crossfade between albums</li>
+    <li>Rate songs, albums and artists, edit playlists, shuffle by song, album or folder, and crossfade between albums</li>
     <li>Read synced lyrics, download lyrics and covers, and send your listens to Last.fm or ListenBrainz</li>
     <li>Continue podcasts and audiobooks from where you stopped, and keep photos and games on the card</li>
     <li>Use AirPods stem controls, ear detection and two-way volume</li>
@@ -584,19 +584,21 @@ p:has(+ ul), p:has(+ ol), p:has(+ table), p:has(+ pre), .task, h2, h3, .lead { b
   <p class="lead">Rate your songs, put songs into playlists, and select how your music plays.</p>
 
   <div class="sec">
-  <h2 id="ratings">Rate songs and albums</h2>
-  <p>Each song and album can have 0 to 5 hearts. Five hearts is a favourite: <b>Add to Favourites</b> gives five hearts, and a rating of five adds a favourite.</p>
+  <h2 id="ratings">Rate songs, albums and artists</h2>
+  <p>Each song, album and artist can have 0 to 5 hearts. Five hearts is a favourite: <b>Add to Favourites</b> gives five hearts, and a rating of five adds a favourite.</p>
   <table>
     <thead><tr><th>To</th><th>Do this</th></tr></thead>
     <tbody>
       <tr><td>Rate a song</td><td>On Now Playing, hold the heart, or hold Play/Pause and select <b>Rate</b>. Turn the wheel, then push Centre to save or Return to cancel. Or tap a heart. Tap the current one to clear it.</td></tr>
       <tr><td>Add a song to favourites, or remove it</td><td>Tap the heart on Now Playing. A song with a rating of 1 to 4 fills the bottom of the empty heart: one fifth of it for each heart.</td></tr>
       <tr><td>Rate an album</td><td>Hold Play/Pause on it in Cover Flow, Albums or an artist’s albums, then select <b>Rate Album</b>. <b>Add to Favourites</b> gives it five hearts and adds all its songs to favourites. <b>Remove from Favourites</b> cancels the two.</td></tr>
+      <tr><td>Rate an artist</td><td>Hold Play/Pause on it in Artists, then select <b>Rate Artist</b>. <b>Add to Favourites</b> gives it five hearts; its songs stay as they are. <b>Unknown Artist</b> can’t be rated.</td></tr>
     </tbody>
   </table>
   <ul>
     <li><b>Library → Ratings</b> shows <b>Top Rated</b> (4 and 5 hearts), <b>Loved</b> (5), <b>All Rated</b> and <b>Disliked</b> (1). A row plays the list from that song. To shuffle a list, hold Play/Pause on it. The <b>Favourites</b> shortcut on Home shows the Loved songs.</li>
     <li><b>Library → Ratings → Albums</b> shows your rated albums in Cover Flow. Its <b>Sort</b> card changes between Rating, Album, Artist, Year and Most Played.</li>
+    <li><b>Library → Ratings → Artists</b> lists your rated artists, most hearts first. Select one to open it.</li>
     <li>Update Library keeps ratings. A move, rename or retag of the file or album does not.</li>
     <li>The card keeps a copy as <code>.ratings.tsv</code>, to read on a computer. Edits to it do not change the Q2.</li>
     <li>In a card app such as Jellyfin, the heart also adds the song to the app’s favourites.</li>
@@ -1101,7 +1103,7 @@ ffmpeg -ss HH:MM:SS -i book.m4b -map 0:a -c copy "book part 2.m4b"</pre>
       <tr><td>Status Bar</td><td>Theme (default) agrees with your theme. Or Minimal, Modern or Classic: that bar in all themes.</td></tr>
       <tr><td>Rounded Corners</td><td>Minimal and Modern. On: pill-shaped bars and rounded tiles. Off: full-width bars and square tiles.</td></tr>
       <tr><td>Home</td><td>Split (default): the menu adjacent to the cover. Full: only the menu. Carousel: the Shanling home carousel of eight cards. The wheel moves between them, and Centre opens one.</td></tr>
-      <tr><td>Shortcut</td><td>The shortcut row on Home. Push it to see a list: Favourites, Shuffle, Rated Albums, Playlists, Artists, Albums, Games, Podcasts, Audiobooks and None, then the card apps, then the card games. Select one.</td></tr>
+      <tr><td>Shortcut</td><td>The shortcut row on Home. Push it to see a list: Favourites, Shuffle, Rated Albums, Rated Artists, Playlists, Artists, Albums, Games, Podcasts, Audiobooks and None, then the card apps, then the card games. Select one.</td></tr>
       <tr><td>Battery</td><td>Icon (default), Percent, Icon + Percent (not in Classic) or Percent Inside.</td></tr>
       <tr><td>Time in Title</td><td>On: the title bar shows the time. Off: it shows the page name, and Home shows Q2 Pod. In Classic, it always shows the page name, and On adds the time.</td></tr>
       <tr><td>Show Wordmark</td><td>On (default): the Home title shows Q2 Pod, where an iPod shows iPod. Off: it stays empty.</td></tr>
