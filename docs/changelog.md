@@ -14,6 +14,7 @@
   - Bluetooth: a car or other receiver that shows what is playing shows the song's title, artist and album.
   - Cover Flow: under Minimal and Modern too, Cover Flow opens as on an iPod classic: the screen splits between Home's list and its art, and the two halves slide apart to show the covers. Return slides them back together.
   - Power: **Boot to** lists every app on the card that takes over the Q2, by name, not only Rockbox, and the Q2 starts the one picked at power-on. Tap or Centre goes from **Q2 Pod** to each app, then back to **Q2 Pod**. A Boot to: Rockbox saved before still starts Rockbox 3.24 or later; with Rockbox 3.23 or earlier, the Q2 starts Q2 Pod until Rockbox is updated in the App Store.
+  - Apps: a card app can name apps it needs: Q2 Pod starts them first and the App Store installs them with it.
 - **1.9.5**:
   - Ratings: artists take 0 to 5 hearts, as albums do. Hold Play/Pause on an artist in **Artists** and choose **Rate Artist**, or **Add to Favourites** for five; the artist's songs stay as they are. **Library → Ratings → Artists** lists the rated artists, most hearts first, and opens one. **Rated Artists** joins the **Shortcut** list in **Display → Appearance**, and `.ratings.tsv` on the card lists the rated artists too.
   - Display: **Show Sample Rate** is gone from the status bar; Now Playing's info pane shows the rate.

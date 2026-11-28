@@ -13,7 +13,7 @@ import host
 from conftest import O, SPOT_FAIL, SPOT_NOSOCK, SPOT_OK, Config, Deques, Dirent, Game, block, card_fread, claim, fake_lists, high_halves, libc, text
 from fuzz import hostile
 from test_coverflow import png  # an icon's header
-from test_netupdate import JOB_INSTALL, JOB_REMOVE, SH_CANCELLED, SH_CARD, SH_NET, SH_OK, Sh  # test_netupdate.py keeps netupdate.c's App Store mirror
+from test_netupdate import JOB_INSTALL, JOB_REMOVE, SH_CANCELLED, SH_CARD, SH_NET, SH_OK, Sh, Store, needing  # test_netupdate.py keeps netupdate.c's App Store mirror
 from test_radio import Rd, execl, mixer  # noqa: F401  the mirror; the child's execl calls; USB_MIXER, for a USB DAC's volume
 from test_tidal import Au, Queue, free_stubbed  # test_tidal.py keeps tidal.c's au mirror
 from test_nav_loop import toasts
@@ -43,7 +43,8 @@ class App(C.Structure):
                 *((n, C.c_int) for n in ('qr', 'game', 'audio', 'view', 'hidden', 'present', 'launched', 'hold', 'relaunch', 'restart', 'nostop',
                                          'nowifi', 'row', 'wifi', 'wifi_off')),
                 *((n, C.c_uint) for n in ('polled', 'launch_at', 'restart_at', 'play')), ('baricon', C.c_char * 56),
-                ('barword', C.c_char * 12), ('barw', C.c_int), ('root', C.c_int), ('takeover', C.c_int), ('player', C.c_int), ('lang', C.c_int)]
+                ('barword', C.c_char * 12), ('barw', C.c_int), ('root', C.c_int), ('takeover', C.c_int), ('player', C.c_int), ('lang', C.c_int),
+                ('needs', (C.c_char * 16) * 4), ('nneeds', C.c_int)]
 
 
 class Ap(C.Structure):
@@ -371,6 +372,181 @@ def test_a_drop_that_doesn_t_take_ends_the_child_before_anything_runs(fw, fails)
     assert os.waitpid(child, 0)[1] == 126 << 8  # the next drop (97) and the exec (99) never came
 
 
+def wake_with_needs(fw, apps, wake=b'a', files=(), replacing=None):
+    """The runs (their /bin/sh lines) addon_wake(wake) starts on a card of apps (all root=1, so system() records them)."""
+    world = card(fw, **apps)
+    world.files.update({k: b'1' for k in files})
+    scan(fw)
+    if replacing:  # the App Store installing it
+        table = C.addressof(C.c_char.in_dll(fw.lib, 'shelf_apps'))
+        fw.var('shelf_n', C.c_int).value = fw.fn('shelf_sources', C.c_int, C.c_char_p, C.c_void_p, C.c_int)(b'me/' + replacing, table, 1)
+        sh = fw.var('netupdate__sh', Sh)
+        sh.running, sh.job, sh.app = 1, JOB_INSTALL, 0
+    assert fw.fn('addon_wake', C.c_int, C.c_char_p)(wake) == 1
+    return [r[0].split(b'/')[-2].lstrip(b'.') for r in world.of('system')]
+
+
+def test_a_needed_app_starts_first(fw):
+    assert wake_with_needs(fw, {'a': b'root=1\nneeds=v\n', 'v': b'root=1\n'}) == [b'v', b'a']
+
+
+def test_a_running_needed_app_isn_t_started_again(fw):
+    assert wake_with_needs(fw, {'a': b'root=1\nneeds=v\n', 'v': b'root=1\n'}, files=[b'/tmp/q2-v']) == [b'a']
+
+
+def test_a_needed_app_not_on_the_card_is_skipped(fw):
+    assert wake_with_needs(fw, {'a': b'root=1\nneeds=v\n'}) == [b'a']
+
+
+def test_needs_are_followed_one_level(fw):
+    apps = {'a': b'root=1\nneeds=v\n', 'v': b'root=1\nneeds=w\n', 'w': b'root=1\n'}
+    assert wake_with_needs(fw, apps) == [b'v', b'a']
+
+
+def test_an_app_needing_itself_starts_once(fw):
+    assert wake_with_needs(fw, {'a': b'root=1\nneeds=a\n'}) == [b'a']
+
+
+def test_a_needed_app_the_user_stopped_still_starts(fw):
+    world = card(fw, a=b'root=1\nneeds=v\n', v=b'root=1\nwifi=1\n')
+    scan(fw)
+    ap(fw).a[1].wifi_off = 1
+    assert fw.fn('addon_wake', C.c_int, C.c_char_p)(b'a') == 1
+    assert [r[0] for r in world.of('system')] == [b'/bin/sh /mnt/mmc/.v/run', b'/bin/sh /mnt/mmc/.a/run']
+    assert ap(fw).a[1].launched == 1
+
+
+def test_a_needed_app_named_twice_starts_once(fw):
+    assert wake_with_needs(fw, {'a': b'root=1\nneeds=v,v\n', 'v': b'root=1\n'}) == [b'v', b'a']
+
+
+def test_a_needed_app_starts_when_its_app_is_relaunched_after_usb_storage(fw):
+    world = card(fw, a=b'root=1\nneeds=v\n', v=b'root=1\n')
+    scan(fw)
+    a = ap(fw).a[0]
+    a.relaunch = 1
+    fw.mock('navigator_window_is_exist', lambda *_: 0)
+    world.ms = 2000
+    fw.fn('addon__poll_one', None, C.POINTER(App))(C.pointer(a))
+    assert [r[0] for r in world.of('system')] == [b'/bin/sh /mnt/mmc/.v/run', b'/bin/sh /mnt/mmc/.a/run']
+
+
+def test_a_needed_app_whose_binary_has_gone_since_the_scan_is_skipped(fw):
+    world = card(fw, a=b'root=1\nneeds=v\n', v=b'root=1\n')
+    scan(fw)
+    del world.files[b'/mnt/mmc/.v/q2-v']
+    assert fw.fn('addon_wake', C.c_int, C.c_char_p)(b'a') == 1
+    assert [r[0] for r in world.of('system')] == [b'/bin/sh /mnt/mmc/.a/run']
+
+
+def test_a_needed_app_being_replaced_isn_t_started_but_the_app_is(fw):
+    assert wake_with_needs(fw, {'a': b'root=1\nneeds=v\n', 'v': b'root=1\n'}, replacing=b'v') == [b'a']
+
+
+def test_after_usb_storage_a_needed_app_starts_once(fw):
+    """Both marked to start again with the card (addon_card_away), the app's slot first: launch() leaves the needed
+    app to its own poll_one, which starts it once."""
+    world = card(fw, a=b'root=1\nneeds=v\n', v=b'root=1\n')
+    scan(fw)
+    a, v = ap(fw).a[0], ap(fw).a[1]
+    a.relaunch = v.relaunch = 1
+    fw.mock('navigator_window_is_exist', lambda *_: 0)
+    world.ms = 2000
+    poll = fw.fn('addon__poll_one', None, C.POINTER(App))
+    poll(C.pointer(a))
+    poll(C.pointer(v))
+    runs = [r[0] for r in world.of('system')]
+    assert runs.count(b'/bin/sh /mnt/mmc/.v/run') == 1 and runs.count(b'/bin/sh /mnt/mmc/.a/run') == 1
+
+
+def test_an_app_being_replaced_starts_nothing_it_needs(fw):
+    """A wifi=1 app the App Store is updating isn't started, and neither is what it needs, at every Wi-Fi pass."""
+    world = card(fw, a=b'root=1\nneeds=v\n', v=b'root=1\n')
+    scan(fw)
+    table = C.addressof(C.c_char.in_dll(fw.lib, 'shelf_apps'))
+    fw.var('shelf_n', C.c_int).value = fw.fn('shelf_sources', C.c_int, C.c_char_p, C.c_void_p, C.c_int)(b'me/a', table, 1)
+    sh = fw.var('netupdate__sh', Sh)
+    sh.running, sh.job, sh.app = 1, JOB_INSTALL, 0
+    fw.fn('addon_wake', C.c_int, C.c_char_p)(b'a')
+    assert world.of('system') == []
+
+
+def running_needer(fw, **needing_args):
+    """The App Store over Plex (needs=vault) and Vault, Plex installed and its chained install of Vault under way, Plex
+    running (launched, its pid file there) when Vault's install is to end. Returns the Store, the card."""
+    s, card = needing(fw, **needing_args)
+    s.run()
+    s.click(1)
+    s.run()
+    assert s.sh.app == 1 and s.sh.chained == 1
+    scan(fw)
+    ap(fw).a[0].launched = 1
+    card.files[b'/tmp/q2-plex'] = b'1'
+    return s, card
+
+
+def vault_runs(card):
+    return [c[0] for c in card.of('system') if b'/.vault/run' in c[0]]
+
+
+def test_a_needed_app_installed_after_its_app_started_starts_when_its_install_ends(fw):
+    s, card = running_needer(fw)
+    assert s.run() == 0 and s.sh.job == 0 and s.toasts[-1] == 'Vault is ready in Streaming'
+    assert len(vault_runs(card)) == 1 and [a.id for a in list(ap(fw).a)[:ap(fw).n] if a.launched] == [b'plex', b'vault']
+
+
+def test_a_chained_install_nothing_running_needs_isn_t_started(fw):
+    s, card = running_needer(fw)
+    del card.files[b'/tmp/q2-plex']  # Plex ended meanwhile
+    assert s.run() == 0 and s.sh.job == 0 and vault_runs(card) == []
+
+
+def test_a_chained_install_no_running_app_needs_isn_t_started(fw):
+    s, card = running_needer(fw)
+    ap(fw).a[0].nneeds = 0  # what Plex is running with does not name Vault
+    assert s.run() == 0 and s.sh.job == 0 and vault_runs(card) == []
+
+
+def user_installs_a_needed_app(fw, installed):
+    """Plex (needs=vault) installed and running, the user's own install of Vault from its row (an update when
+    `installed` has it): Vault's runs after the install ends."""
+    from test_netupdate import Disk, NEEDS_LIST, SOURCES, app_zip, github, one_app, store_net
+    tags = {b'/mnt/mmc/.q2/apps/%s.tag' % n: b'1.0' for n in installed}
+    bins = {b'/mnt/mmc/.q2/apps/%s.files' % n: b'.%s/q2-%s\n' % (n, n) for n in installed}
+    bins.update({b'/mnt/mmc/.%s/q2-%s' % (n, n): b'ELF' for n in installed})
+    card = Disk(fw, {SOURCES: NEEDS_LIST, **tags, **bins, b'/mnt/mmc/.plex/q2app': b'name=Plex\nneeds=vault\n'})
+    z = app_zip(one_app('vault', b''))  # 2.0: an update over an installed 1.0
+    s = Store(fw, card)
+    s.net = store_net(fw, listed=NEEDS_LIST, api=[(0, 200, None, github('2.0', ('app.zip', len(z))))] * 3,
+                      zip=[(0, 200, None, z)])
+    s.run()
+    scan(fw)
+    ap(fw).a[0].launched = 1
+    card.files[b'/tmp/q2-plex'] = b'1'
+    s.click(2)  # Vault's row: the user's own install or update
+    assert s.sh.chained == 0
+    assert s.run() == 0 and s.sh.job == 0
+    return vault_runs(card)
+
+
+def test_a_user_s_install_of_a_needed_app_starts_it_for_the_app_that_runs(fw):
+    assert len(user_installs_a_needed_app(fw, [b'plex'])) == 1
+
+
+def test_an_update_of_a_needed_app_starts_it_again_for_the_app_that_runs(fw):
+    """Stage 3 stops the old one (addon_quit); with no wake after, it stayed stopped while Plex ran."""
+    assert len(user_installs_a_needed_app(fw, [b'plex', b'vault'])) == 1
+
+
+def test_with_the_card_away_nothing_needed_starts(fw):
+    world = card(fw, a=b'root=1\nneeds=v\n', v=b'root=1\n')
+    scan(fw)
+    for k in [k for k in world.files if k.startswith(b'/mnt/mmc/')]:
+        del world.files[k]
+    assert fw.fn('addon_wake', C.c_int, C.c_char_p)(b'a') == 0
+    assert world.of('system') == []
+
+
 def test_an_app_the_card_doesn_t_hold_isn_t_woken(fw):
     slots(fw, b'a')
     assert fw.fn('addon_wake', C.c_int, C.c_char_p)(b'b') == 0
@@ -536,6 +712,26 @@ def test_caps_has_wifi_and_network(fw):
     scan(fw)
     words = world.files[b'/tmp/q2-addon.caps'].split()
     assert b'wifi' in words and b'network' in words
+
+
+def test_caps_has_needs(fw):
+    world = card(fw, one=b'name=N\n')
+    scan(fw)
+    words = world.files[b'/tmp/q2-addon.caps'].split()
+    assert b'needs' in words
+
+
+@pytest.mark.parametrize('manifest,ids', [
+    (b'needs=vault\n', [b'vault']), (b'needs=vault,b\r\n', [b'vault', b'b']), (b'needs= vault , b \n', [b'vault', b'b']),
+    (b'name=A\n', []), (b'needs=\n', []), (b'needs=Bad!,x y,,c-d,,UPPER,\n', [b'c-d']),
+    (b'needs=,,,a b,c-d,UPPER,x/../y,aaaaaaaaaaaaaaaaaaaaa\n', [b'c-d']),
+    (b'needs=a,b,c,d,e\n', [b'a', b'b', b'c', b'd'])])
+def test_needs_lists_the_ids(fw, manifest, ids):
+    card(fw, foo=manifest)
+    scan(fw)
+    a = ap(fw).a[0]
+    assert a.id == b'foo'
+    assert [a.needs[i].value for i in range(a.nneeds)] == ids
 
 
 def test_a_wifi_app_does_not_hold_the_radio(fw):
@@ -794,7 +990,7 @@ def test_more_apps_than_slots(fw):
 def test_the_features_are_published_at_every_scan(fw):
     world = card(fw)
     scan(fw)
-    assert world.written[b'/tmp/q2-addon.caps.tmp'] == b'playlist progress pages library goto sleep game audio sections art window urls sort field more fav now fieldtext wake audio2 dim gameview eq screen volume wifi network bar switch playkept playing takeover player input\n'
+    assert world.written[b'/tmp/q2-addon.caps.tmp'] == b'playlist progress pages library goto sleep game audio sections art window urls sort field more fav now fieldtext wake audio2 dim gameview eq screen volume wifi network bar switch playkept playing takeover player input needs\n'
     assert world.of('rename') == [(b'/tmp/q2-addon.caps.tmp', b'/tmp/q2-addon.caps')]
 
 

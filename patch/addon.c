@@ -105,7 +105,7 @@
 #define ADDON_CAPS                                                                                 \
     "playlist progress pages library goto sleep game audio sections art window urls sort field "   \
     "more fav now fieldtext wake audio2 dim gameview eq screen volume wifi network bar switch "    \
-    "playkept playing takeover player input"
+    "playkept playing takeover player input needs"
 #define ADDON_SECTIONS 8  /* sections an app's first page may have */
 #define SWIPE_CLAIM_PX 24 /* a sideways move this far, twice as far as up or down, is a swipe's */
 #define SWIPE_PX 60       /* and this far at the lift, more than up or down, changes section */
@@ -140,6 +140,8 @@ typedef struct {
     int takeover; /* q2app's takeover=1: it runs in demo's place (takeover) */
     int player;   /* q2app's player=1: the player's state and requests (addon_player.c) */
     int lang;     /* q2app's lang=1: a language pack, picked in System settings' Language row */
+    char needs[NEEDS_MAX][APP_ID]; /* q2app's needs: the ids of the apps it needs (needs_read) */
+    int nneeds;
 } app_t;
 enum { ROW_STREAMING, ROW_GAMES, ROW_LIBRARY, ROW_NETWORK }; /* as addon_scan's rows[] names them */
 
@@ -160,6 +162,27 @@ int valid_id(const char *s) {
     return k > 0;
 }
 
+/* raw's needs= into ids: comma-separated, spaces trimmed, a bad id skipped, NEEDS_MAX kept; how
+ * many. */
+int needs_ids(const char *raw, char ids[][APP_ID]) {
+    char list[96];
+    int n = 0;
+    field(raw, "needs", list, sizeof list);
+    for (char *p = list; *p && n < NEEDS_MAX;) {
+        char *e = p;
+        while (*e && *e != ',') ++e;
+        char *next = *e ? e + 1 : e;
+        *e = 0;
+        while (*p == ' ') ++p;
+        while (e > p && (e[-1] == ' ' || e[-1] == '\r')) *--e = 0;
+        if (valid_id(p)) tk_snprintf(ids[n++], APP_ID, "%s", p);
+        p = next;
+    }
+    return n;
+}
+
+static void needs_read(app_t *a, const char *raw) { a->nneeds = needs_ids(raw, a->needs); }
+
 #define PLAY_RAW 192 /* an app's .play as far as it is read */
 /* An app's .play into raw, PLAY_RAW bytes: the bytes read, and *h their hash | 1 (0: none). */
 static unsigned play_read(const char *id, char *raw, unsigned *h) {
@@ -170,9 +193,16 @@ static unsigned play_read(const char *id, char *raw, unsigned *h) {
     return got;
 }
 
-static app_t *slot(const char *id) {
+/* The slot of app id, if it has one. */
+static app_t *found(const char *id) {
     for (int i = 0; i < ap.n; ++i)
         if (!strcmp(ap.a[i].id, id)) return &ap.a[i];
+    return 0;
+}
+
+static app_t *slot(const char *id) {
+    app_t *had = found(id);
+    if (had) return had;
     if (ap.n == APPS_MAX) return 0;
     app_t *a = &ap.a[ap.n++];
     tk_snprintf(a->id, sizeof a->id, "%s", id);
@@ -216,6 +246,7 @@ static void slots_read(void) {
         a->takeover = number(raw, "takeover") == 1;
         a->player = number(raw, "player") == 1;
         a->lang = number(raw, "lang") == 1;
+        needs_read(a, raw);
         /* its row where row says, else as firmware without the key lists it: Games for a game,
          * Streaming for any other */
         static const char *const rows[] = { "streaming", "games", "library", "network" };
@@ -365,7 +396,7 @@ static void stop_cmd(const char *pid, char *cmd, unsigned n) {
         snprintf(cmd, n, "rm -f %s", pid);
 }
 
-static void launch(app_t *a) {
+static void launch_one(app_t *a) {
     const char *busy = shelf_busy();
     if (busy && !strcmp(busy + 1, a->id)) return; /* the Apps page is replacing its files */
     a->launched = 1;
@@ -374,6 +405,39 @@ static void launch(app_t *a) {
         system(a->run);
     else
         app_system(a->run);
+}
+
+/* No pid file, and not started in the last ADDON_START_MS (its pid file is not written yet): not
+ * running, as addon_wake and launch take it. */
+static int idle(const app_t *a) {
+    return access(a->pid, 0) && (!a->launched || time_now_ms() - a->launch_at >= ADDON_START_MS);
+}
+
+/* The apps a's q2app needs start first, those on the card and not running (one level: a needed
+ * app's own needs are not followed), then a. */
+static void launch(app_t *a) {
+    const char *busy = shelf_busy();
+    if (busy && !strcmp(busy + 1, a->id)) return; /* being replaced: neither it nor what it needs */
+    for (int i = 0; i < a->nneeds; ++i) {
+        if (!strcmp(a->needs[i], a->id)) continue;
+        app_t *n = found(a->needs[i]);
+        /* one marked to start again (USB storage's relaunch, Retry's restart) is its own
+         * poll_one's: started here as well, it would start twice before its pid file is there */
+        if (n && !n->relaunch && !n->restart && !access(n->bin, 0) && idle(n)) launch_one(n);
+    }
+    launch_one(a);
+}
+
+/* Whether an app that was started and still runs (its pid file) lists id in its needs: one that
+ * came after it (the App Store's chained install) is for addon_wake to start. */
+int addon_needed(const char *id) {
+    for (int i = 0; i < ap.n; ++i) {
+        const app_t *a = &ap.a[i];
+        if (!a->launched || access(a->pid, 0) || !strcmp(a->id, id)) continue;
+        for (int k = 0; k < a->nneeds; ++k)
+            if (!strcmp(a->needs[k], id)) return 1;
+    }
+    return 0;
 }
 
 /* On the card and not running: its page starts it (page_at), and once more when it ended itself
@@ -394,15 +458,11 @@ static int startable(const app_t *a) {
  * browse socket, the first keeps the relay port, and the pid file names only one. page_at taking
  * the same window, or a lock in the app's run, would close both. */
 int addon_wake(const char *id) {
-    app_t *a = 0;
-    for (int i = 0; i < ap.n && !a; ++i)
-        if (!strcmp(ap.a[i].id, id)) a = &ap.a[i];
+    app_t *a = found(id);
     if (!a) return 0;
     /* a Retry's restart or USB storage's relaunch pending: poll_one starts it, the song waits */
     int pending = (a->restart || a->relaunch) && !access(a->bin, 0);
-    if (!pending && access(a->pid, 0) && !access(a->bin, 0) &&
-        (!a->launched || time_now_ms() - a->launch_at >= ADDON_START_MS))
-        launch(a);
+    if (!pending && !access(a->bin, 0) && idle(a)) launch(a);
     return pending || (a->launched && time_now_ms() - a->launch_at < ADDON_START_MS);
 }
 

@@ -625,6 +625,8 @@ int addon_fav_path(const char *path, int on);
 /* addon.c: a URL queue's app started, if it isn't running, before the player asks it for a song
  * (tidal.c app_track): whether it started lately; and whether its socket takes a connection yet */
 int addon_wake(const char *id), addon_answers(const char *id);
+/* addon.c: whether an app that is running lists id in its q2app's needs= */
+int addon_needed(const char *id);
 extern unsigned auto_nexts;    /* playback.c ringnav_next: tracks that ended by themselves */
 int stream_cache(int spotify); /* navigation.c: Streaming's Configuration, a cap of 512 << it MB */
 void album_memory(void *r);
@@ -851,6 +853,9 @@ void language_removing(const char *dir);
 /* stock's T9 as it loads: a Chinese pack's starts in pinyin */
 void language_keyboard(widget_t *kb);
 int valid_id(const char *s); /* addon.c: a card app's id */
+#define NEEDS_MAX 4          /* the most apps a card app's q2app needs= may name */
+/* addon.c: raw's needs= ids, how many (16: its APP_ID) */
+int needs_ids(const char *raw, char ids[][16]);
 /* smart_wifi.c: its radio woken, 1 while its link comes up; its radio off; an action
  * held for that link (fn(ctx, 0) once it is up, if page, or any page when 0, is still in use) */
 int smart_wifi_wait(void), smart_wifi_off(void);

@@ -795,9 +795,12 @@ static struct {
     unsigned long long checked;                           /* boot_ms of the last whole check */
     shelf_app next[SH_MAX]; /* the check's list (n apps), the page's once the check ends */
     widget_t *page, *row[SH_MAX + 1];
-    int tab;         /* the open tab: 0 Apps, 1 Games; kept while the Q2 is on */
-    widget_t *strip; /* the tabs (app_store.c store_tabs) */
-    int clicks;      /* sh_click's running, which a job's end waits for (sh_wait) */
+    int tab;                      /* the open tab: 0 Apps, 1 Games; kept while the Q2 is on */
+    widget_t *strip;              /* the tabs (app_store.c store_tabs) */
+    int clicks;                   /* sh_click's running, which a job's end waits for (sh_wait) */
+    int queue[NEEDS_MAX], queued; /* the apps a finished install needs, not yet installed */
+    int chained;                  /* the job running is one of those, not the user's */
+    char needer[32];              /* the app that needs them */
 } sh __attribute__((section(".scratch")));
 
 static int is(int i, const char *id) { return i >= 0 && i < shelf_n && !strcmp(apps[i].id, id); }
@@ -1115,6 +1118,23 @@ static void sh_told(int manual, const char *failed) {
         toast(tr("All apps are up to date"));
 }
 
+static void sh_start(int job, int i);
+
+/* The shelf indexes into out of app i's needed apps (its q2app's needs=) that are listed and not
+ * installed, each once; how many, NEEDS_MAX at most. */
+static int needs_missing(int i, int *out) {
+    char path[96], raw[512], ids[NEEDS_MAX][16]; /* 16: addon.c's APP_ID */
+    int n = 0;
+    snprintf(path, sizeof path, CARD "/%s/q2app", apps[i].dir);
+    if (!state_read(path, raw, sizeof raw)) return 0;
+    for (int k = 0, found = needs_ids(raw, ids); k < found; ++k) {
+        int j = sh_find(ids[k]), seen = 0;
+        for (int m = 0; m < n; ++m) seen |= out[m] == j;
+        if (j >= 0 && j != i && !seen && sh_shown(j) && sh_state(j) == ST_INSTALL) out[n++] = j;
+    }
+    return n;
+}
+
 static int sh_wait(const void *unused) {
     static const char *const said[] = {
         [SH_NET] = N_("Can't reach GitHub"),
@@ -1137,6 +1157,15 @@ static int sh_wait(const void *unused) {
     pthread_join(sh.thread, 0);
     int job = sh.job, r = sh.result, i = sh.app, manual = sh.manual;
     sh.job = 0;
+    /* a user's install that ended well queues the apps it needs, before the toasts below that a
+     * press can run inside and clear it */
+    if (job == JOB_INSTALL && r == SH_OK && !sh.chained) {
+        sh.queued = needs_missing(i, sh.queue);
+        snprintf(sh.needer, sizeof sh.needer, "%s", apps[i].name);
+    }
+    if (job == JOB_INSTALL && (r == SH_NET || r == SH_CANCELLED))
+        sh.queued = 0; /* no Wi-Fi, or stopped: not a failure toast for each app left */
+    sh.chained = 0;
     /* its files replaced or gone: an update that failed or was cancelled before it stopped its app
      * leaves it running, still tracked, and a remove cut off by USB storage leaves it marked to
      * start again with the card */
@@ -1148,6 +1177,11 @@ static int sh_wait(const void *unused) {
     sh_rows();
     if (r == SH_OK && (job == JOB_REMOVE || job == JOB_INSTALL))
         addon_apps_sync(0, 0); /* Library's Apps row or page, if on top */
+    /* an app that is running needs this one, installed after it started (a chained install, or the
+     * user's install or update, whose stage 3 stopped the old one): the card is read again for its
+     * slot, then it starts */
+    if (job == JOB_INSTALL && r == SH_OK && addon_needed(apps[i].id))
+        addon_scan(), addon_wake(apps[i].id);
     if (job == JOB_CHECK && !sh.cancel && sh.page &&
         window_manager_get_top_window(window_manager()) == sh.page) /* not left or covered */
         sh_told(manual, r ? tr(said[r]) : 0);
@@ -1164,10 +1198,25 @@ static int sh_wait(const void *unused) {
         snprintf(s, sizeof s, tr("%s removed"), apps[i].name), toast(s);
     else if (job == JOB_ERASE) /* rows first: toast blocks */
         stream_erased(), toast(tr("Spotify's login and cache erased"));
+    /* the next needed app, one at a time and whatever the last one's result (but SH_NET and
+     * SH_CANCELLED, above); not if a press during a toast started a job (which also cleared the
+     * queue, sh_start) */
+    while (job == JOB_INSTALL && sh.queued > 0 && !sh.job) {
+        int j = sh.queue[0];
+        memmove(sh.queue, sh.queue + 1, --sh.queued * sizeof *sh.queue);
+        if (sh_state(j) != ST_INSTALL) continue; /* installed by now */
+        snprintf(s, sizeof s, tr("Also installing %s, which %s needs"), apps[j].name, sh.needer);
+        toast(s);
+        if (sh.job) break;
+        sh.chained = 1;
+        sh_start(JOB_INSTALL, j);
+        if (!sh.job) sh.chained = 0; /* none started */
+    }
     return 0;
 }
 
 static void sh_start(int job, int i) {
+    if (!sh.chained) sh.queued = 0; /* a job of its own, not the chain's: nothing is waiting */
     if (job == JOB_ERASE || (is(i, "spotify") && job != JOB_CHECK))
         spot_stop(); /* on this thread: spotify.c's state too */
     sh.job = job, sh.app = i, sh.cancel = sh.percent = sh.result = sh.manual = 0, sh.running = 1;
@@ -1196,6 +1245,7 @@ static int sh_click(void *ctx, event_t *event) {
     int r = (int)(long)ctx, i = sh.map[r], armed = sh.armed == r + 1;
     ++sh.clicks; /* a count: a held press (sh_held) can run inside another's toast */
     sh.armed = 0;
+    if (!sh.job) sh.queued = 0; /* a press of its own: the apps still to install are not wanted */
     if (i == ROW_CHECK && sh.job == JOB_CHECK) {
         sh.manual = 1; /* checking already, the opening check maybe: its end answers the press */
     } else if (sh.job == JOB_CHECK) { /* needs no answer: stopped, so the next press acts */
@@ -1203,7 +1253,7 @@ static int sh_click(void *ctx, event_t *event) {
         toast(tr("Stopped checking for updates"));
     } else if (sh.job) {
         if (sh.job == JOB_INSTALL && sh.app == i && sh.stage < 3)
-            sh.cancel = 1; /* not once moving */
+            sh.cancel = 1, sh.queued = 0; /* not once moving */
         else if (sh.job != JOB_INSTALL || sh.app != i)
             toast(tr("Wait for the one in progress"));
     } else if (i != ROW_CHECK && sh_state(i) == ST_INSTALLED) {
