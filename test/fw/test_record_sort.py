@@ -1,4 +1,4 @@
-"""record_sort.c: stock's three name-sorting calls of libcstl's algo_sort_if (tools/build.py RECORD_SORTS) sort with
+"""record_sort.c: stock's three library-query calls of libcstl's algo_sort_if (tools/build.py RECORD_SORTS) sort with
 libcstl 2.2.0's own algorithm, each row moved by its 88 bytes. record_sort_cases.py's lists were sorted by stock's own
 algo_sort_if on the Q2's libcstl: this sort must ask the comparator the same questions in the same order, with the answer
 word as stock's left it, and leave the rows in stock's order, each row's bytes its own; and hand a list it does not

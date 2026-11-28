@@ -1,4 +1,4 @@
-"""Lists stock's own algo_sort_if sorted on the Q2's libcstl 2.2.0 (the 2026-11-27 investigation's harness: the real
+"""Lists stock's own algo_sort_if sorted on the Q2's libcstl 2.2.0 (recorded with the real
 demo and libcstl under qemu-mipsel), for record_sort.c's tests. Row i is the list's i-th row, its serial i. Each case:
 the comparator, the number of questions, the FNV-1a digest of every question as four little-endian words (the first
 row's serial, the second's, the answer word as the comparator found it, the answer it left), how many times stock

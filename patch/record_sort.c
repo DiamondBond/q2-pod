@@ -1,7 +1,7 @@
-/* The name sorts' moves (tools/build.py RECORD_SORTS): stock's three library queries hand their
- * list to libcstl's algo_sort_if, which moves every stSongInfo by the type's copy: each move frees
- * the strings it lands on and duplicates the ones it takes, and each swap allocates and frees a
- * spare row. A row owns its strings and nothing points into it (REC_SIZE), so its 88 bytes moved
+/* The library list sorts' moves (tools/build.py RECORD_SORTS): stock's three library queries hand
+ * their list to libcstl's algo_sort_if, which moves every stSongInfo by the type's copy: each move
+ * frees the strings it lands on and duplicates the ones it takes, and each swap allocates and frees
+ * a spare row. A row owns its strings and nothing points into it (REC_SIZE), so its 88 bytes moved
  * whole are the same row. This is libcstl 2.2.0's algo_sort_if step for step: the same questions of
  * the same rows in the same order, the same moves, each a copy of the bytes, and nothing allocated
  * or freed. Stock's scans and its insertion sort's walk stop only on the comparator's answers (a
@@ -123,7 +123,7 @@ static unsigned lg(unsigned n) { /* _algo_lg: floor(log2 n) */
     return k;
 }
 
-/* Called as stock's algo_sort_if, at its three name-sorting calls. */
+/* Called as stock's algo_sort_if, at its three library-query calls. */
 void ringnav_record_sort(row_it first, row_it last, row_less less) {
     struct rows s; /* its two rows are written before they are read */
     _Static_assert(sizeof s.spare == REC_SIZE && sizeof s.swap == REC_SIZE, "a whole row each");

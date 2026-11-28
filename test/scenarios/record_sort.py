@@ -1,4 +1,4 @@
-"""The name sorts' moves (patch/record_sort.c, tools/build.py RECORD_SORTS): stock's three name-sorting calls of
+"""The library list sorts' moves (patch/record_sort.c, tools/build.py RECORD_SORTS): stock's three library-query calls of
 libcstl's algo_sort_if go to ringnav_record_sort, libcstl 2.2.0's sort with each row moved by its 88 bytes. Here the MIPS
 build runs it over rows in emulated memory with stock's own album order (0x5063f0: disc, then track) on
 test/fw/record_sort_cases.py's ALBUM_ORDER lists, which stock's algo_sort_if sorted on the Q2's libcstl: the same number
