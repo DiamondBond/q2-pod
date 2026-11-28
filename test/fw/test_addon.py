@@ -2987,8 +2987,8 @@ def test_an_apps_seen_file_touched_in_the_last_two_minutes_counts_as_input(fw):
     g.world.mtime[SEEN_FILE] = g.world.now - 30  # a controller another app reads, used 30 s ago
     g.poll(120000)
     assert g.kills() == []
-    g.world.now += 120  # the app stopped touching it: idle from the last look
-    g.poll(119999)
+    g.world.now += 90  # the app stopped touching it: idle from the touch, 90 s after the look
+    g.poll(89999)
     assert g.kills() == []
     g.poll(1)
     assert g.kills() == [(4242, 15)]

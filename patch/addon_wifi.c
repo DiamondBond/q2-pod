@@ -43,7 +43,8 @@ static void follow(int bt, int up, unsigned down_ms) {
         /* a new link (the first after boot, or after a drop that stopped the apps): the card read
          * again, the user's stops forgotten; a blip under ADDON_WIFI_DOWN_MS is the same link */
         if (!f->up && (f->stopped || !f->down_at)) {
-            f->read = f->looked_at = 0;
+            f->read &= bt; /* Bluetooth reads the card once a boot; Wi-Fi at each new link */
+            f->looked_at = 0;
             addon_follow_release(bt);
         }
         if (!f->read && (!f->looked_at || now - f->looked_at >= 1000)) {

@@ -1501,13 +1501,14 @@ static void game_poll(void) {
     if (gm.native || time_now_ms() - gm.seen < GAME_IDLE_MS) return;
     /* an app's input demo can't see (a controller it reads): SEEN_FILE touched under
      * GAME_IDLE_MS ago, by the clock (o32 stat, st_mtime word 16), counts as input; one stat each
-     * GAME_IDLE_MS. ponytail: so the quit comes up to twice GAME_IDLE_MS after the last such
-     * input, a stamp ahead of a clock set back counts for none, and a clock stepped on over
-     * GAME_IDLE_MS since the touch reads it as old. */
+     * GAME_IDLE_MS. The count restarts from the touch, so the quit comes GAME_IDLE_MS after
+     * the last such input. ponytail: a stamp ahead of a clock set back counts for none, and a clock
+     * stepped on over GAME_IDLE_MS since the touch reads it as old. */
     unsigned st[36];
     if (!__xstat(3, SEEN_FILE, st) &&
         (unsigned long)(time((void *)0) - (long)st[16]) < GAME_IDLE_MS / 1000) {
-        gm.seen = time_now_ms();
+        gm.seen =
+            time_now_ms() - (unsigned)(time((void *)0) - (long)st[16]) * 1000; /* from the touch */
         return;
     }
     if (!ringnav_smart_awake()) game_end();
@@ -1610,7 +1611,7 @@ static int loop_alive(const app_t *a) {
  * for: each on the card started that isn't running, held off or about to start again (a hidden one
  * only for Bluetooth), each running one (or one waiting to start again after USB storage) stopped,
  * and the user's stops forgotten for a new link or Bluetooth on. */
-static int follows(const app_t *a, int bt) { return bt ? a->bt : a->wifi; }
+static int follows(const app_t *a, int bt) { return bt ? a->bt : a->wifi && !a->bt; } /* bt wins */
 void addon_follow_start(int bt) {
     for (int i = 0; i < ap.n; ++i) {
         app_t *a = &ap.a[i];
