@@ -990,7 +990,7 @@ def test_more_apps_than_slots(fw):
 def test_the_features_are_published_at_every_scan(fw):
     world = card(fw)
     scan(fw)
-    assert world.written[b'/tmp/q2-addon.caps.tmp'] == b'playlist progress pages library goto sleep game audio sections art window urls sort field more fav now fieldtext wake audio2 dim gameview eq screen volume wifi network bar switch playkept playing takeover player input needs bt\n'
+    assert world.written[b'/tmp/q2-addon.caps.tmp'] == b'playlist progress pages library goto sleep game audio sections art window urls sort field more fav now fieldtext wake audio2 dim gameview eq screen volume wifi network bar switch playkept playing takeover player input needs bt seen\n'
     assert world.of('rename') == [(b'/tmp/q2-addon.caps.tmp', b'/tmp/q2-addon.caps')]
 
 
@@ -2974,6 +2974,33 @@ def test_a_game_left_idle_two_minutes_is_ended(fw):
     g.poll(119999)
     assert g.kills() == []
     g.poll(1)
+    assert g.kills() == [(4242, 15)]
+
+
+SEEN_FILE = b'/tmp/q2-addon.seen'
+
+
+def test_an_apps_seen_file_touched_in_the_last_two_minutes_counts_as_input(fw):
+    g = CardGame(fw)
+    g.start()
+    g.world.files[SEEN_FILE] = b''
+    g.world.mtime[SEEN_FILE] = g.world.now - 30  # a controller another app reads, used 30 s ago
+    g.poll(120000)
+    assert g.kills() == []
+    g.world.now += 120  # the app stopped touching it: idle from the last look
+    g.poll(119999)
+    assert g.kills() == []
+    g.poll(1)
+    assert g.kills() == [(4242, 15)]
+
+
+@pytest.mark.parametrize('ago', [120, 200, -5])  # as old as the idle time, older, ahead of the clock
+def test_a_seen_file_not_touched_lately_is_no_input(fw, ago):
+    g = CardGame(fw)
+    g.start()
+    g.world.files[SEEN_FILE] = b''
+    g.world.mtime[SEEN_FILE] = g.world.now - ago
+    g.poll(120000)
     assert g.kills() == [(4242, 15)]
 
 

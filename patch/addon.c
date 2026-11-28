@@ -102,11 +102,12 @@
 #define QR_RAW 1536      /* an app's status file as far as it is read (poll_one, qr_refresh) */
 #define CARD "/mnt/mmc"
 #define CAPS_FILE "/tmp/q2-addon.caps"
+#define SEEN_FILE "/tmp/q2-addon.seen" /* any app's: the user is using it (game_poll) */
 /* This firmware's card-app features, space-separated; a feature adds its word. */
 #define ADDON_CAPS                                                                                 \
     "playlist progress pages library goto sleep game audio sections art window urls sort field "   \
     "more fav now fieldtext wake audio2 dim gameview eq screen volume wifi network bar switch "    \
-    "playkept playing takeover player input needs bt"
+    "playkept playing takeover player input needs bt seen"
 #define ADDON_SECTIONS 8  /* sections an app's first page may have */
 #define SWIPE_CLAIM_PX 24 /* a sideways move this far, twice as far as up or down, is a swipe's */
 #define SWIPE_PX 60       /* and this far at the lift, more than up or down, changes section */
@@ -1068,7 +1069,8 @@ static void poll_one(app_t *a) {
  * (headset.c media_key, media_set_playing), and the idle quit below is left to the game, which
  * alone knows whether it is playing. Music stays stopped when it ends. The game
  * ends itself (from its Return menu); Return held GAME_HOLD_MS ends it (TERM, and its release is
- * dropped so stock's Games stays), as does GAME_IDLE_MS without input unless Smart Awake is on;
+ * dropped so stock's Games stays), as does GAME_IDLE_MS without input unless Smart Awake is on
+ * (any app's SEEN_FILE touched counts as input, caps word seen);
  * one still there GAME_KILL_MS after a TERM is KILLed. demo repaints when it has gone. Stock makes
  * a held key's long press after this hook, so the hold is timed here, from the game's key-down.
  * ponytail: the screen stays on while it is in front, and the idle quit is what
@@ -1497,6 +1499,17 @@ static void game_poll(void) {
         return;
     }
     if (gm.native || time_now_ms() - gm.seen < GAME_IDLE_MS) return;
+    /* an app's input demo can't see (a controller it reads): SEEN_FILE touched under
+     * GAME_IDLE_MS ago, by the clock (o32 stat, st_mtime word 16), counts as input; one stat each
+     * GAME_IDLE_MS. ponytail: so the quit comes up to twice GAME_IDLE_MS after the last such
+     * input, a stamp ahead of a clock set back counts for none, and a clock stepped on over
+     * GAME_IDLE_MS since the touch reads it as old. */
+    unsigned st[36];
+    if (!__xstat(3, SEEN_FILE, st) &&
+        (unsigned long)(time((void *)0) - (long)st[16]) < GAME_IDLE_MS / 1000) {
+        gm.seen = time_now_ms();
+        return;
+    }
     if (!ringnav_smart_awake()) game_end();
     gm.seen = time_now_ms(); /* Smart Awake: asked again GAME_IDLE_MS on */
 }
