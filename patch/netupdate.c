@@ -1164,7 +1164,8 @@ static int sh_wait(const void *unused) {
         snprintf(sh.needer, sizeof sh.needer, "%s", apps[i].name);
     }
     if (job == JOB_INSTALL && (r == SH_NET || r == SH_CANCELLED))
-        sh.queued = 0; /* no Wi-Fi, or stopped: not a failure toast for each app left */
+        sh.queued = 0; /* no Wi-Fi, or stopped: not a failure toast for each app left. ponytail:
+                        * the apps left are installed from their rows */
     sh.chained = 0;
     /* its files replaced or gone: an update that failed or was cancelled before it stopped its app
      * leaves it running, still tracked, and a remove cut off by USB storage leaves it marked to
@@ -1179,7 +1180,9 @@ static int sh_wait(const void *unused) {
         addon_apps_sync(0, 0); /* Library's Apps row or page, if on top */
     /* an app that is running needs this one, installed after it started (a chained install, or the
      * user's install or update, whose stage 3 stopped the old one): the card is read again for its
-     * slot, then it starts */
+     * slot, then it starts. ponytail: an app started less than ADDON_START_MS ago has no pid file
+     * yet (addon_needed), so what it needs waits for its next start; the scan can shift the rows
+     * of an open Network or Streaming page. */
     if (job == JOB_INSTALL && r == SH_OK && addon_needed(apps[i].id))
         addon_scan(), addon_wake(apps[i].id);
     if (job == JOB_CHECK && !sh.cancel && sh.page &&

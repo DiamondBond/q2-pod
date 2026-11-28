@@ -2977,6 +2977,34 @@ def test_a_chained_install_without_wifi_doesn_t_start_the_next(fw):
     assert s.toasts[-1] == "Can't reach GitHub"
 
 
+def test_a_press_with_no_job_running_clears_the_queue(fw):
+    s, card = needing(fw, installed=[b'plex'])
+    s.run()
+    s.sh.queued = 2
+    s.click(1)  # Plex's row: arms Remove, starts no job
+    assert s.sh.queued == 0 and s.sh.job == 0
+
+
+def test_a_failed_chained_install_is_followed_by_the_next(fw):
+    s, card = needing(fw, plex=b'needs=vault,x\n')
+    s.run()
+    s.click(1)
+    s.run()
+    assert s.sh.app == 1 and s.sh.queued == 1
+    card.unpack_fails = 1
+    unzip = card.unzip
+
+    def once(args):  # Vault's unpack fails, X's doesn't
+        r = unzip(args)
+        card.unpack_fails = card.unpack_fails and '-l' in args
+        return r
+
+    card.unzip = once
+    assert s.run() == 0 and s.sh.job == JOB_INSTALL and s.sh.app == 2 and s.sh.chained == 1
+    assert s.toasts[-1] == 'Also installing X, which Plex needs'
+    assert s.run() == 0 and s.sh.job == 0 and b'/mnt/mmc/.x/q2-x' in card.files
+
+
 # A remove leaves no login behind, even from an app that saves it on its TERM, after 3 s too.
 @pytest.mark.parametrize('save_ms', [1000, 3500])
 def test_a_remove_leaves_nothing_an_app_saves_on_its_way_out(fw, save_ms):

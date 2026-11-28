@@ -422,7 +422,8 @@ static void launch(app_t *a) {
         if (!strcmp(a->needs[i], a->id)) continue;
         app_t *n = found(a->needs[i]);
         /* one marked to start again (USB storage's relaunch, Retry's restart) is its own
-         * poll_one's: started here as well, it would start twice before its pid file is there */
+         * poll_one's: started here as well, it would start twice before its pid file is there.
+         * ponytail: a wifi=1 one started with Wi-Fi down runs until its next stop event */
         if (n && !n->relaunch && !n->restart && !access(n->bin, 0) && idle(n)) launch_one(n);
     }
     launch_one(a);
