@@ -136,6 +136,11 @@ LIBC = {
     'deque_assign': ('void', 'void *, const void *'), 'deque_clear': ('void', 'void *'),
     'deque_pop_back': ('void', 'void *'),
     'deque_destroy': ('void', 'void *'), 'send': ('int', 'int, const void *, unsigned, int'),
+    # record_sort.c: a deque's two iterators, seven words each and returned through the first argument, and the sort
+    # that takes both by value, then its comparator
+    'deque_begin': ('void', 'void *, const void *'), 'deque_end': ('void', 'void *, const void *'),
+    'algo_sort_if': ('void', 'void *, void *, void *, void *, void *, void *, void *, void *, void *, void *, void *, '
+                     'void *, void *, void *, void (*)(const void *, const void *, unsigned *)'),
     # Coverflow's art thread (coverflow.c)
     'pthread_create': ('int', 'unsigned long *, const void *, void *(*)(void *), void *'),
     'pthread_join': ('int', 'unsigned long, void **'), 'pthread_self': ('unsigned long', 'void'), 'pthread_detach': ('int', 'unsigned long'), 'pthread_mutex_lock': ('int', 'void *'),

@@ -12876,4 +12876,5 @@ import scenarios.flat_pages  # last: its cases follow every other's
 import scenarios.classic_modern  # after flat_pages: its cases follow
 import scenarios.rotate  # after classic_modern: its cases follow
 import scenarios.name_sort  # after rotate: its cases follow
+import scenarios.record_sort  # after name_sort: its cases follow
 print(f'{q2emu.checks} MIPS execution scenarios passed; toolkit services mocked, stock lock filter executed.')
