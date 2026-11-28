@@ -2790,7 +2790,8 @@ def test_an_install_cancelled_while_it_asks_for_the_list_installs_nothing(fw):
 
 
 @pytest.mark.parametrize('q2app, where', [(b'name=Foo\n', 'Streaming'), (b'name=Foo\ngame=1\n', "Library's Games"),
-                                          (b'name=Foo\nrow=library\n', "Library's Apps")])
+                                          (b'name=Foo\nrow=library\n', "Library's Apps"),
+                                          (b'name=Foo\nhidden=1\nlang=1\n', 'System settings')])  # its Language row
 def test_an_app_installs_into_place_and_removes_without_a_trace(fw, q2app, where):
     card = Disk(fw)
     store_net(fw, {**FOO, '.foo/q2app': q2app})

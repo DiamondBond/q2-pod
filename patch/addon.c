@@ -139,6 +139,7 @@ typedef struct {
     int root;     /* q2app's root=1: it runs as root, not as APP_UID (app_user.c) */
     int takeover; /* q2app's takeover=1: it runs in demo's place (takeover) */
     int player;   /* q2app's player=1: the player's state and requests (addon_player.c) */
+    int lang;     /* q2app's lang=1: a language pack, picked in System settings' Language row */
 } app_t;
 enum { ROW_STREAMING, ROW_GAMES, ROW_LIBRARY, ROW_NETWORK }; /* as addon_scan's rows[] names them */
 
@@ -213,6 +214,7 @@ static void slots_read(void) {
         a->root = number(raw, "root") == 1;
         a->takeover = number(raw, "takeover") == 1;
         a->player = number(raw, "player") == 1;
+        a->lang = number(raw, "lang") == 1;
         /* its row where row says, else as firmware without the key lists it: Games for a game,
          * Streaming for any other */
         static const char *const rows[] = { "streaming", "games", "library", "network" };
@@ -1045,7 +1047,8 @@ static void game_end(void) {
     chapter_kill(gm.pid, 15);
 }
 
-/* netupdate.c's toast once app id is installed: where its row is, as the screen names it. The
+/* netupdate.c's toast once app id is installed: where its row is, as the screen names it (a
+ * language pack's place System settings, whose Language row lists it). The
  * slots are read again, not the lists' order: the toast comes over whatever page is open, and the
  * Apps page's and Games' rows hold their places by name, so a new app sorted in would move each
  * after it on a row. */
@@ -1054,7 +1057,8 @@ const char *addon_where(const char *id) {
                                          N_("Library's Apps"), N_("Network settings") };
     slots_read();
     for (int i = 0; i < ap.n; ++i)
-        if (ap.a[i].present && !strcmp(ap.a[i].id, id)) return tr(where[ap.a[i].row]);
+        if (ap.a[i].present && !strcmp(ap.a[i].id, id))
+            return ap.a[i].lang ? tr("System settings") : tr(where[ap.a[i].row]);
     return tr(where[ROW_STREAMING]);
 }
 
