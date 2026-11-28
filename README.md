@@ -127,7 +127,7 @@ The [user guide][guide] covers every control, EQ, Cover Flow and more tips.
   <tr valign="top">
     <td><b><a href="https://github.com/DiamondBond/q2-rockbox-themes">Rockbox Themes</a></b></td>
     <td>Rockbox themes ported to the Q2's screen.</td>
-    <td></td>
+    <td><a href="https://diamondbond.github.io/q2-rockbox-themes/">Gallery</a></td>
   </tr>
   <tr valign="top">
     <td><b><a href="https://github.com/DiamondBond/q2-librespot">Spotify</a></b></td>
@@ -231,7 +231,7 @@ The [user guide][guide] covers every control, EQ, Cover Flow and more tips.
   </tr>
   <tr valign="top">
     <td><b><a href="https://github.com/DiamondBond/q2-devices">Devices</a></b></td>
-    <td>An Xbox controller turns the wheel and presses the Q2's buttons, a Bluetooth remote plays, pauses and skips, and card games can read the whole controller. Pair it in <b>System settings → Bluetooth</b>; it runs while Bluetooth is on.</td>
+    <td>An Xbox controller turns the wheel and presses the Q2's buttons, a Bluetooth remote plays, pauses and skips, and card games can read the whole controller. Pair it in <b>System settings → Bluetooth</b>; it runs while Bluetooth is on. Needs Q2 Pod 1.9.6.</td>
     <td></td>
   </tr>
   <tr valign="top">
@@ -345,6 +345,8 @@ On the App Store's **Games** tab. Each plays in **Library → Games**.
     <td></td>
   </tr>
 </table>
+
+**Controllers:** with [Devices](https://github.com/DiamondBond/q2-devices) from the Apps tab (Q2 Pod 1.9.6 and later), an Xbox controller over Bluetooth turns the wheel and presses the buttons, in games too.
 
 </details>
 
