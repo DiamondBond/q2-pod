@@ -819,7 +819,7 @@ All are among the [settings icons](#settings-icons) the build pre-sizes. A value
 in the label (260 pixels wide, to where the chevron ends) and no chevron, since Centre or a tap
 changes it in place. Theme opens a picker of the themes instead; choosing Classic, or leaving it,
 restarts the Q2 ([Theme](#theme)).
-The build also appends **Boot to: Rockbox / Q2 Pod** to Power when Rockbox is present; see [Boot](boot.md#rockbox).
+The build also appends **Boot to** to Power when the card has an app that takes over the device, such as Rockbox; see [Boot](boot.md#rockbox).
 The page is `CTX_FIXED`, so the wheel walks onto them like the stock rows.
 
 A change is saved at once with the stock `write_int_config(value, "IPOD", key)` (`0x4fe67c`):

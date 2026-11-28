@@ -252,12 +252,12 @@ GLYPH_FALLBACK_MACRO = '#define GLYPH_FALLBACK_RANGES {' + ','.join(f'0x{u:x}' f
 # rootfs's own libraries, with display_logo's inode metadata.
 HELPER, HELPER_LIKE = 'usr/bin/q2video', 'usr/bin/display_logo'
 HELPER_LIBS = ['lib/libc-2.28.so', 'lib/libpthread-2.28.so', 'usr/lib/libasound.so.2.0.0']
-# Rockbox dual boot (docs/boot.md#rockbox): S90play starts Rockbox when boot-target says rockbox (Power's Boot to)
-# and the card has it. Play/Pause held at power-on (patch/boot.c reads the key) or Rockbox's
-# exit 0x51 (Boot stock OS) starts Q2 Pod for that session only. ponytail: the card's mount is awaited (up to 3 s
-# without a card) once Rockbox was asked for, as the card probe can't tell "no card" from "not yet". Rockbox runs
-# with the launcher contract in its tools/shanlingq2/README; demo starts when it exits, or when the
-# card has none. demo keeps its argv[0], which checkappprocess.sh pgreps for. A takeover card app's row
+# Dual boot (docs/boot.md#rockbox): S90play starts the takeover app whose id boot-target holds (Power's Boot to)
+# when the card has it, its q2app still saying takeover=1, as the row lists them. Play/Pause held at power-on
+# (patch/boot.c reads the key) or the app's exit (Rockbox's Boot stock OS) starts Q2 Pod for that session only.
+# ponytail: the card's mount is awaited (up to 3 s without a card) once an app was asked for, as the card probe can't
+# tell "no card" from "not yet". The app runs as a takeover does, its .<id>/q2-<id>; demo starts when it exits, or
+# when the card has none. demo keeps its argv[0], which checkappprocess.sh pgreps for. A takeover card app's row
 # (addon.c takeover, docs/boot.md#apps-that-take-over-the-device) leaves its id in TAKEOVER_FLAG and kills demo:
 # app() runs its .<id>/q2-<id>, the watchdog stopped in case demo's kill was not reached, then demo once more. Any
 # other end of demo ends the loop, so the watchdog reboots as stock's would. Wi-Fi is off while an app runs (WIFI_OFF).
@@ -324,12 +324,16 @@ BOOT_HOOK = (b'    /release/bin/demo &\n', f'''    (
             rm -f /tmp/rtk_init_success /tmp/bt_startup
             /usr/bin/cmd_gpio set_func PD20 output0
         }}
-        if [ "$(cat /mnt/data/boot-target 2>/dev/null)" = rockbox ] && ! /usr/bin/q2boot; then
+        # Boot to's app: an id as valid_id passes it (addon.c), as it goes in a path; q2pod or else, Q2 Pod
+        t=$(cat /mnt/data/boot-target 2>/dev/null)
+        case $t in q2pod|*[!a-z0-9-]*|'') t= ;; esac
+        if [ "$t" ] && ! /usr/bin/q2boot; then
             for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
                 [ -e /tmp/mmc_add ] && break
                 usleep 200000
             done
-            app rockbox rockbox
+            # a takeover app's, as addon.c's number() reads takeover=1 and the row lists it
+            grep -qE '^takeover=0*1([^0-9]|$)' /mnt/mmc/.$t/q2app 2>/dev/null && app $t q2-$t
         fi
         mkdir -m 700 -p /tmp/q2-bt  # btmeta.c's record for q2mpris (MPRIS)
         # Every register in the kernel log when a signal ends demo or a helper (show_regs), where a fault otherwise

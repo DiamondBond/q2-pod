@@ -877,24 +877,21 @@ def test_controls_opens_display_as_its_own_page(fw, keytone):
     assert opened == ['systemset/keylock_page']
 
 
-# Power's Boot to row: /mnt/data/boot-target, which the boot script reads with $(cat ...).
-BOOT = '/mnt/data/boot-target'
-
-
-def rockbox(fw, on):
-    """The card's /mnt/mmc/.rockbox/rockbox: a regular file, or none."""
-    def stat(version, path, info, *_):
-        struct.pack_into('<I', (C.c_char * 144).from_address(info), 20, 0o100755)
-        return 0 if on['card'] else -1
-    fw.mock('fw___xstat', stat)
+# Power's Boot to row: /mnt/data/boot-target, which the boot script reads with $(cat ...): Q2 Pod or a
+# takeover app's id.
+BOOT = b'/mnt/data/boot-target'
+BEAT = b'name=Beat\ntakeover=1\n'
 
 
 class Power:
-    """Settings' Power page: stock's rows, then ringnav_powermanager's, Boot to last."""
-    def __init__(self, fw, ui, files, card=True):
-        self.card = {'card': card}
-        rockbox(fw, self.card)
-        self.files = Files(fw, files)
+    """Settings' Power page: stock's rows, then ringnav_powermanager's, Boot to last; a card of apps (test_addon.card),
+    those in bare without their binary."""
+    def __init__(self, fw, ui, saved=None, bare=(), **apps):
+        self.card = card(fw, **apps)
+        if saved is not None:
+            self.card.files[BOOT] = saved
+        for a in bare:
+            self.card.files.pop(f'/mnt/mmc/.{a}/q2-{a}'.encode())
         Config(fw)
         self.prompts = Prompts(fw)
         self.win = ui.window('powermanager_page')
@@ -908,56 +905,64 @@ class Power:
 
 @pytest.mark.parametrize('saved, shown', [
     (None, 'Q2 Pod'),  # no choice saved: the boot script's own default
-    (b'rockbox', 'Rockbox'), (b'rockbox\n', 'Rockbox'), (b'rockbox' + b'\n' * 40, 'Rockbox'),  # $(cat) drops trailing newlines
-    (b'q2pod', 'Q2 Pod'), (b'rockbo', 'Q2 Pod'), (b'rockboxx', 'Q2 Pod'), (b'rockbox\nx', 'Q2 Pod'), (b'\nrockbox', 'Q2 Pod'),
+    (b'beat', 'Beat'), (b'beat\n', 'Beat'), (b'beat' + b'\n' * 40, 'Beat'),  # $(cat) drops trailing newlines
+    (b'q2pod', 'Q2 Pod'), (b'bea', 'Q2 Pod'), (b'beatx', 'Q2 Pod'), (b'beat\nx', 'Q2 Pod'), (b'\nbeat', 'Q2 Pod'),
+    (b'beat\0', 'Q2 Pod'), (b'Beat', 'Q2 Pod'), (b'a' * 16, 'Q2 Pod'),
+    (b'gone', 'Q2 Pod'), (b'plain', 'Q2 Pod'),  # an id, but no app of it on the card, or one that doesn't take over
 ])
 def test_boot_to_reads_what_the_boot_script_would(fw, saved, shown):
-    ui = Ui(fw)
-    page = Power(fw, ui, {} if saved is None else {BOOT: saved})
+    page = Power(fw, Ui(fw), saved, beat=BEAT, plain=b'name=Plain\n')
     assert page.boot().text == f'Boot to: {shown}'
 
 
 def test_boot_to_a_file_that_fails_to_read_is_q2_pod(fw):
     ui = Ui(fw)
     fw.mock('fw_ferror', lambda *_: 1)
-    assert Power(fw, ui, {BOOT: b'rockbox'}).boot().text == 'Boot to: Q2 Pod'
+    assert Power(fw, ui, b'beat', beat=BEAT).boot().text == 'Boot to: Q2 Pod'
 
 
-def test_no_rockbox_no_boot_row(fw):
+def test_no_takeover_app_no_boot_row(fw):
     ui = Ui(fw)
-    assert Power(fw, ui, {BOOT: b'q2pod'}, card=False).boot() is None
+    page = Power(fw, ui, b'q2pod', plain=b'name=Plain\n', zero=b'name=Zero\ntakeover=0\n', ten=b'name=Ten\ntakeover=10\n')
+    assert page.boot() is None
 
 
-def test_boot_to_flips_and_saves_through_a_temporary_file(fw):
+def test_boot_to_without_its_binary_no_boot_row(fw):
+    assert Power(fw, Ui(fw), b'beat', bare=('beat',), beat=BEAT).boot() is None
+
+
+def test_boot_to_steps_through_the_apps_by_name_and_saves_through_a_temporary_file(fw):
     ui = Ui(fw)
-    page = Power(fw, ui, {})
+    page = Power(fw, ui, None, zeta=b'name=Zeta\ntakeover=1\n', alpha=b'name=alpha\ntakeover=1\r\n', plain=b'name=Plain\n')
     label = page.boot()
-    ui.click(label.parent)
-    assert label.text == 'Boot to: Rockbox' and page.files.files == {BOOT: b'rockbox'}
-    ui.click(label.parent)
-    assert label.text == 'Boot to: Q2 Pod' and page.files.files == {BOOT: b'q2pod'}
-    assert {C.string_at(a[0]) for _, a in fw.calls('fw_fopen')} >= {(BOOT + '.tmp').encode()}
+    seen = []
+    for _ in range(3):
+        ui.click(label.parent)
+        seen.append((label.text, page.card.files[BOOT]))
+    assert seen == [('Boot to: alpha', b'alpha'), ('Boot to: Zeta', b'zeta'), ('Boot to: Q2 Pod', b'q2pod')]
+    assert ('rename', BOOT + b'.tmp', BOOT) in page.card.log
 
 
 def test_boot_to_not_saved_says_so_and_stays(fw):
     ui = Ui(fw)
-    page = Power(fw, ui, {BOOT: b'rockbox'})
-    page.files.fail_rename = True
+    page = Power(fw, ui, b'beat', beat=BEAT)
+    rename = page.card.rename
+    fw.mock('fw_rename', lambda a, b, *_: -1 if C.string_at(a) == BOOT + b'.tmp' else rename(a, b))
     label = page.boot()
     ui.click(label.parent)
-    assert label.text == 'Boot to: Rockbox' and page.files.files[BOOT] == b'rockbox'
+    assert label.text == 'Boot to: Beat' and page.card.files[BOOT] == b'beat'
     assert [p[3] for p in page.prompts.seen] == ['Could not save boot choice']
-    assert [C.string_at(a[0]).decode() for _, a in fw.calls('fw_unlink')] == [BOOT + '.tmp']
+    assert (BOOT + b'.tmp',) in page.card.of('unlink')
 
 
-def test_boot_to_after_rockbox_left_the_card(fw):
+def test_boot_to_after_the_app_left_the_card(fw):
     ui = Ui(fw)
-    page = Power(fw, ui, {})
-    page.card['card'] = False
+    page = Power(fw, ui, b'beat', beat=BEAT)
     label = page.boot()
+    assert label.text == 'Boot to: Beat'
+    page.card.files.pop(b'/mnt/mmc/.beat/q2-beat')
     ui.click(label.parent)
-    assert label.text == 'Boot to: Q2 Pod' and page.files.files == {}
-    assert [p[3] for p in page.prompts.seen] == ['Rockbox is not on the card']
+    assert label.text == 'Boot to: Q2 Pod' and page.card.files[BOOT] == b'beat'  # nothing saved: back on the card, it's the choice
 
 
 # Now Playing's info page.

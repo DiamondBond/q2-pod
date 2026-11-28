@@ -47,7 +47,7 @@ class App(C.Structure):
 
 
 class Ap(C.Structure):
-    _fields_ = [('a', App * APPS_MAX), ('n', C.c_int), ('cnt', C.c_int * 4), ('rows', (C.c_int * APPS_MAX) * 4)]
+    _fields_ = [('a', App * APPS_MAX), ('n', C.c_int), ('cnt', C.c_int * 4), ('rows', (C.c_int * APPS_MAX) * 4), ('boots', C.c_int), ('boot', C.c_int * APPS_MAX)]
 
 
 class Sm(C.Structure):

@@ -146,7 +146,8 @@ enum { ROW_STREAMING, ROW_GAMES, ROW_LIBRARY, ROW_NETWORK }; /* as addon_scan's 
 static struct {
     app_t a[APPS_MAX];
     int n, cnt[4],
-        rows[4][APPS_MAX]; /* by ROW_*: how many rows, and their slots on the card by name */
+        rows[4][APPS_MAX];     /* by ROW_*: how many rows, and their slots on the card by name */
+    int boots, boot[APPS_MAX]; /* the takeover apps' slots by name (addon_takeovers) */
 } ap __attribute__((section(".scratch")));
 
 /* An id goes into shell commands: lowercase letters, digits and '-' only. */
@@ -314,6 +315,25 @@ const char *addon_network_name(int k) {
 }
 const char *addon_network_icon(int k) {
     return k >= 0 && k < ap.cnt[ROW_NETWORK] ? ap.a[ap.rows[ROW_NETWORK][k]].icon : 0;
+}
+
+/* Power's Boot to (navigation.c boot_row): how many takeover apps the card has, read again, by name
+ * as the rows are, hidden ones too; then one's id and name, 0 past them. */
+int addon_takeovers(void) {
+    addon_scan();
+    ap.boots = 0;
+    for (int i = 0; i < ap.n; ++i) {
+        if (!ap.a[i].present || !ap.a[i].takeover) continue;
+        int k = ap.boots++;
+        for (; k && strcasecmp(ap.a[ap.boot[k - 1]].name, ap.a[i].name) > 0; --k)
+            ap.boot[k] = ap.boot[k - 1];
+        ap.boot[k] = i;
+    }
+    return ap.boots;
+}
+const char *addon_takeover_id(int k) { return k >= 0 && k < ap.boots ? ap.a[ap.boot[k]].id : 0; }
+const char *addon_takeover_name(int k) {
+    return k >= 0 && k < ap.boots ? ap.a[ap.boot[k]].name : 0;
 }
 
 /* Whether an image's name is a card app's Streaming icon, file:///mnt/mmc/.<id>/icon*.png

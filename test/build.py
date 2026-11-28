@@ -72,29 +72,28 @@ def boot_check():
         exe('release/bin/demo', demo)
         mpris, record = r/'mpris', r/'tmp/q2-bt/nowplaying'  # q2mpris beside each demo (build.py MPRIS)
         exe('usr/bin/q2mpris', f'echo mpris >> {mpris}; echo old > {record}')
-        # Rockbox's binary, which power-on runs, and its card app's launcher, which a takeover runs
-        rb, launcher, target = r/'mnt/mmc/.rockbox/rockbox', r/'mnt/mmc/.rockbox/q2-rockbox', r/'mnt/data/boot-target'
+        # Rockbox's card app: its launcher, which power-on's Boot to and a takeover run, and its q2app
+        launcher, manifest, target = r/'mnt/mmc/.rockbox/q2-rockbox', r/'mnt/mmc/.rockbox/q2app', r/'mnt/data/boot-target'
         def boot(held, card, code=81, shortcut=0, status=137):
             shortcuts.write_text(f'{shortcut}\n')
             (r/'code').write_text(''.join(f'{c}\n' for c in (status if isinstance(status, (list, tuple)) else [status])))
             exe('usr/bin/q2boot', 'exit ' + ('0' if held else '1'))
-            for f in (rb, launcher):
-                if card: exe(f, f'pwd >> {r}/ran; echo rockbox >> {r}/order; exit {code}')
-                else: f.unlink(missing_ok=True)
+            if card: exe(launcher, f'pwd >> {r}/ran; echo rockbox >> {r}/order; exit {code}'); manifest.write_text('name=Rockbox\ntakeover=1\n')
+            else: launcher.unlink(missing_ok=True); manifest.unlink(missing_ok=True)
             (r/'ran').write_text(''); (r/'order').write_text('')
             for marker in ready: marker.write_text('left by the preceding Bluetooth helpers\n')
             subprocess.run(['sh', '-c', script], check=True, env=dict(os.environ, PATH=f'{r}/bin:' + os.environ['PATH']))
             assert config.read_bytes() == saved_config
             ran = (r/'ran').read_text().split()
-            assert all(not marker.exists() if str(rb.parent) in ran else marker.exists() for marker in ready)
+            assert all(not marker.exists() if any(p.startswith(f'{r}/mnt/mmc/.') for p in ran) else marker.exists() for marker in ready)
             return ran, target.exists() and target.read_text().strip()
         (r/'proc/mounts').write_text('')
-        rockbox = [str(rb.parent), 'demo']
+        rockbox = [str(launcher.parent), 'demo']
         assert boot(False, True, 1) == (['demo'], False)        # Rockbox on the card, no Boot to: Q2 Pod
         target.write_text('rockbox')
         assert boot(False, False) == (['demo'], 'rockbox')      # Boot to: Rockbox, none on the card: Q2 Pod
         assert boot(False, True, 1) == (rockbox, 'rockbox')     # Boot to: Rockbox; a crash starts Q2 Pod
-        assert (r/'mnt/mmc/.rockbox/rockbox.log').read_text() == 'exit 1\n'
+        assert (r/'mnt/mmc/.rockbox/q2-rockbox.log').read_text() == 'exit 1\n'  # as a takeover's
         assert boot(False, True) == (rockbox, 'rockbox')        # Boot stock OS (0x51): Q2 Pod starts, nothing saved
         assert boot(True, True, 1) == (['demo'], 'rockbox')     # Play/Pause held: Q2 Pod, this session
         assert boot(False, True, 1) == (rockbox, 'rockbox')     # the next power-on is Rockbox again
@@ -106,6 +105,19 @@ def boot_check():
             assert boot(True, True) == (['demo'], value.strip())
             assert boot(False, False) == (['demo'], value.strip())
             assert boot(True, True, 81, 1) == (['demo', *rockbox], value.strip())
+        # Boot to's app is any takeover app's id, its q2app's takeover=1 as addon.c's number() reads it
+        beat = r/'mnt/mmc/.beat'
+        beat.mkdir(); exe('mnt/mmc/.beat/q2-beat', f'pwd >> {r}/ran; exit 0')
+        target.write_text('beat\n')
+        for q2app, runs in (('name=Beat\ntakeover=1\n', True), ('takeover=01', True), ('name=Beat\r\ntakeover=1\r\n', True), ('takeover=1x\n', True),
+                            (None, False), ('takeover=0\n', False), ('takeover=10\n', False), ('takeover= 1\n', False), ('notakeover=1\n', False), ('name=takeover=1\n', False)):
+            if q2app is None: (beat/'q2app').unlink(missing_ok=True)
+            else: (beat/'q2app').write_text(q2app)
+            assert boot(False, False) == ([str(beat), 'demo'] if runs else ['demo'], 'beat'), q2app
+        assert (beat/'q2-beat.log').read_text() == 'exit 0\n'
+        for bad in ('x/../beat', 'Beat', 'a b', '.beat', 'beat;x'):  # an id valid_id would refuse runs nothing
+            target.write_text(bad); assert boot(False, False) == (['demo'], bad.strip())
+        shutil.rmtree(beat)
         target.unlink()
         # a takeover app's row: the app, then Q2 Pod again, as often as it is taken; the flag is gone after
         assert boot(True, True, 81, 1) == (['demo', *rockbox], False)
@@ -137,7 +149,7 @@ def boot_check():
             target.write_text('rockbox')  # power-on's Rockbox, or a takeover's
             assert order(held, True, 137, shortcut_count) == (['demo', *handover, *session] if held else session)
             assert all(not marker.exists() for marker in ready)
-            assert (r/f'mnt/mmc/.rockbox/{"q2-rockbox" if held else "rockbox"}.log').read_text() == 'exit 137\n'
+            assert (r/'mnt/mmc/.rockbox/q2-rockbox.log').read_text() == 'exit 137\n'
         target.unlink()
         (r/'bt-fail').unlink()
         # an abnormal end of demo leaves its status on /mnt/data, which the next boot copies to a mounted card;
@@ -281,7 +293,7 @@ def boot_check():
         out, cp = logged(137, False)  # a second start's mkdir fails: the link stays, nothing else is made
         assert dlog.is_symlink() and capped.read_text() == 'out 1\n' * 2
         exe('release/bin/demo', demo); dlog.unlink(); shutil.rmtree(r/'tmp/q2-log'); (r/'capfs-ok').unlink(); crash.unlink(missing_ok=True)
-    print('Dual boot: Q2 Pod unless Boot to says Rockbox, one-session Q2 Pod, card fallback, takeover apps by id and Wi-Fi off before an app passed.')
+    print('Dual boot: Q2 Pod unless Boot to names a takeover app, one-session Q2 Pod, card fallback, takeover apps by id and Wi-Fi off before an app passed.')
 boot_check()
 
 def logo_check():

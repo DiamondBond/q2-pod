@@ -5334,9 +5334,12 @@ class BootMachine(ResumeMachine):
             if self.failure==fail and (fail!='fopen' or self.text(u.reg_read(UC_MIPS_REG_A1))=='wb'):
                 self.returns(0 if fail in ('fopen','fwrite') else 0xffffffff); return
         return super().hook(u,address,size,unused)
-def boot_row(value=None,mode=0o100755):
+BOOT_APP='/mnt/mmc/.beat/q2-beat'  # boot_row's takeover app
+def boot_row(value=None,app=True):
     path='/mnt/data/boot-target'
-    m=BootMachine({} if value is None else {path:value}); m.rockbox_mode=mode; m.restack=True
+    m=BootMachine({} if value is None else {path:value}); m.restack=True
+    if app:  # a takeover app on the card, as Boot to lists them (addon_takeovers)
+        m.scope_tree['/mnt/mmc']=[('.beat',4)]; m.files['/mnt/mmc/.beat/q2app']=b'name=Beat\ntakeover=1\n'; m.files[BOOT_APP]=b''
     m.handlers[syms['memcmp@GLIBC_2.0']]='boot_memcmp'
     m.handlers[int(manifest['patch_symbols']['stock_power_trampoline'],16)]='stock_power'
     m.mock('ferror@GLIBC_2.0','fflush@GLIBC_2.0','fsync@GLIBC_2.0','fileno@GLIBC_2.0','navigator_to_with_context')
@@ -5346,7 +5349,7 @@ def boot_row(value=None,mode=0o100755):
     assert m.call(address=HOOKS['systemset_powermanager_page_init'][0],args=(m.top,5,0,0),gap=0)==0
     assert m.calls[0][:3]==('stock_power',m.top,5)
     kids=m.nodes[view]['children']
-    if mode!=0o100755:  # no Boot to
+    if not app:  # no Boot to
         assert len(kids)==8  # stock's two, then Standby Limit, Charge Limit, USB DAC Charging, Smart Wi-Fi, In-Vehicle and Battery History
         return m,None,None
     assert len(kids)==9

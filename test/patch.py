@@ -11649,10 +11649,10 @@ for radio,page in (('wifiswitch','systemset/wifi_page'),('btswitch','systemset/b
 # and styles; Centre or tap toggles and saves each. Artists is stock's own PLAYSET ARTISTTYPE.
 m,rows,texts,icons,click=settings_page('power','scroll_view_powermanager')
 assert all(switch_image(m,rows[i])=='switch_off' for i in (1,3,4))  # 2, USB DAC Charging, is a value
-assert len(rows)==7 and icons==['system_powermanager','usb_chargeswitch','usb_chargeswitch','wifiset_wifi','system_carmode','system_powermanager','system_powermanager'] and all(m.nodes[r]['style']=='s_listitem_black' for r in rows)
-assert texts()==['Standby Limit: Off','Charge Limit (80%)','USB DAC Charging: Off','Smart Wi-Fi','system_carmode','Battery History','Boot to: Q2 Pod']
+assert len(rows)==6 and icons==['system_powermanager','usb_chargeswitch','usb_chargeswitch','wifiset_wifi','system_carmode','system_powermanager'] and all(m.nodes[r]['style']=='s_listitem_black' for r in rows)
+assert texts()==['Standby Limit: Off','Charge Limit (80%)','USB DAC Charging: Off','Smart Wi-Fi','system_carmode','Battery History']
 assert click(1)==[(1,'Q2POD','CHARGELIMIT')] and texts()[1]==f"Charge Limit ({O['CHARGE_STOP']}%)"
-assert click(1)==[(0,'Q2POD','CHARGELIMIT')] and texts()==['Standby Limit: Off','Charge Limit (80%)','USB DAC Charging: Off','Smart Wi-Fi','system_carmode','Battery History','Boot to: Q2 Pod']; passed()
+assert click(1)==[(0,'Q2POD','CHARGELIMIT')] and texts()==['Standby Limit: Off','Charge Limit (80%)','USB DAC Charging: Off','Smart Wi-Fi','system_carmode','Battery History']; passed()
 # In-Vehicle Mode, System's stock row before (0x4d34c0): its byte, its key, and the state byte cleared.
 m.byte(syms['g_carmode_state'],1)
 assert click(4)==[(1,'SYSSET','CARMODE')] and m.u.mem_read(syms['g_carmode'],1)==b'\1' and m.u.mem_read(syms['g_carmode_state'],1)==b'\0' and switch_image(m,rows[4])=='switch_on'
@@ -12016,7 +12016,7 @@ for double in ('0','1'):
     assert not press(DOWN,0) and not press(UP,50) and press(DOWN,O['WAKE_MS']) and press(UP,50),double
 passed()
 m,rows,texts,*_=settings_page('power','scroll_view_powermanager',{'CHARGELIMIT':'1','WAKEDOUBLE':'1','VOLGUARD':'1','STANDBYLIMIT':'2'})
-assert texts()==[limits[1],f"Charge Limit ({O['CHARGE_STOP']}%)",'USB DAC Charging: Off','Smart Wi-Fi','system_carmode','Battery History','Boot to: Q2 Pod']
+assert texts()==[limits[1],f"Charge Limit ({O['CHARGE_STOP']}%)",'USB DAC Charging: Off','Smart Wi-Fi','system_carmode','Battery History']
 m,rows,texts,*_=settings_page('display','scroll_view_display',{'WAKEDOUBLE':'1','VOLGUARD':'1'},stock_rows=3,sub=3)
 assert texts()[6:]==['Wake: Double Press','Volume Guard']
 assert m.get(payload_syms['wheel_guard'])==1; passed()

@@ -546,6 +546,10 @@ void list_row_show(widget_t *row, int on); /* home.c: the Library's Apps row, Ho
  * addon_network_open (ctx: its place by name). */
 int addon_network(void), addon_network_open(void *ctx, event_t *event);
 const char *addon_network_name(int k), *addon_network_icon(int k);
+/* addon.c: Power's Boot to, the card's takeover apps by name: addon_takeovers (how many, a scan),
+ * then one's id and name. */
+int addon_takeovers(void);
+const char *addon_takeover_id(int k), *addon_takeover_name(int k);
 /* addon.c: the wifi=1 apps, for addon_wifi.c's link follower: each started (but those the user
  * stopped), each stopped, and the user's stops forgotten. */
 void addon_wifi_start(void), addon_wifi_stop(void), addon_wifi_release(void);

@@ -73,25 +73,25 @@ print('Boot logo: mount edges, validation, rotation, unchanged bytes and failed 
 
 # System boot row: regular-file gating, persisted choice and transactional failures.
 
-for value,expected in ((None,'Q2 Pod'),(b'bad','Q2 Pod'),(b'q2pod','Q2 Pod'),(b'rockbox','Rockbox'),
-                       (b'rockbox\n','Rockbox'),(b'rockbox\0bad','Q2 Pod')):
+for value,expected in ((None,'Q2 Pod'),(b'bad','Q2 Pod'),(b'q2pod','Q2 Pod'),(b'beat','Beat'),
+                       (b'beat\n','Beat'),(b'beat\0bad','Q2 Pod')):
     m,button,label=boot_row(value)
     assert m.nodes[label]['text']=='Boot to: '+expected
     toggle_boot(m,button)
-    next_value=b'rockbox' if expected=='Q2 Pod' else b'q2pod'
+    next_value=b'beat' if expected=='Q2 Pod' else b'q2pod'
     assert m.files['/mnt/data/boot-target']==next_value
-    assert m.nodes[label]['text']=='Boot to: '+('Rockbox' if next_value==b'rockbox' else 'Q2 Pod')
+    assert m.nodes[label]['text']=='Boot to: '+('Beat' if next_value==b'beat' else 'Q2 Pod')
     restarted,_,l=boot_row(next_value); assert restarted.nodes[l]['text']==m.nodes[label]['text']
     passed()
-for mode in (0,0o040755,0o020644): boot_row(mode=mode); passed()
+boot_row(app=False); passed()
 for failure in ('fopen','fwrite','fflush','fsync','fclose','rename'):
-    m,button,label=boot_row(b'rockbox'); m.failure=failure
+    m,button,label=boot_row(b'beat'); m.failure=failure
     toggle_boot(m,button)
-    assert m.files['/mnt/data/boot-target']==b'rockbox' and m.nodes[label]['text']=='Boot to: Rockbox'
+    assert m.files['/mnt/data/boot-target']==b'beat' and m.nodes[label]['text']=='Boot to: Beat'
     assert '/mnt/data/boot-target.tmp' not in m.files
     assert any(c[0]=='navigator_to_with_context' for c in m.calls)
     passed()
-m,button,label=boot_row(); m.rockbox_mode=0; toggle_boot(m,button)
+m,button,label=boot_row(); m.files.pop(BOOT_APP); toggle_boot(m,button)  # the app gone from the card: nothing saved
 assert m.nodes[label]['text']=='Boot to: Q2 Pod' and '/mnt/data/boot-target' not in m.files; passed()
 # Wheel centre reaches Boot to through the existing selection/dispatch path.
 m,button,label=boot_row(); view=m.nodes[m.top]['children'][0]; view=m.nodes[view]['children'][0]

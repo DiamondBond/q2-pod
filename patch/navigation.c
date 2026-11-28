@@ -6496,39 +6496,52 @@ int ringnav_display(widget_t *win, void *ctx) {
     return result;
 }
 
+/* Power's Boot to: Q2 Pod or a takeover card app (addon_takeovers), saved as the app's id or q2pod,
+ * which S90play reads at power-on (build.py BOOT_HOOK). Its code is here with the row's. */
 #define BOOT_TARGET "/mnt/data/boot-target"
-static int boot_rockbox __attribute__((section(".scratch")));
-static void boot_text(widget_t *label) {
-    widget_set_text_utf8(label, boot_rockbox ? tr("Boot to: Rockbox") : tr("Boot to: Q2 Pod"));
+static char boot_id[16] __attribute__((section(".scratch"))); /* the app's id, "": Q2 Pod */
+/* boot_id's place among the takeover apps as the last addon_takeovers read them, -1: none */
+static int boot_place(void) {
+    for (int k = 0; addon_takeover_id(k); ++k)
+        if (!strcmp(addon_takeover_id(k), boot_id)) return k;
+    return -1;
 }
+static void boot_text(widget_t *label) {
+    const char *name = addon_takeover_name(boot_place());
+    char text[64];
+    if (name) tk_snprintf(text, sizeof text, tr("Boot to: %s"), name);
+    widget_set_text_utf8(label, name ? text : tr("Boot to: Q2 Pod"));
+}
+/* The next app by name, Q2 Pod after the last, the card read again; none there, nothing saved */
 static int boot_click(void *label, event_t *event) {
-    if (!rockbox_available()) {
-        toast(tr("Rockbox is not on the card"));
-        return 0;
-    }
-    const char *value = boot_rockbox ? "q2pod" : "rockbox";
+    if (!addon_takeovers()) return boot_text(label), 0;
+    int k = boot_place() + 1;
+    const char *id = addon_takeover_id(k), *value = id ? id : "q2pod";
     if (!blob_io(BOOT_TARGET, BOOT_TARGET ".tmp", (void *)value, strlen(value), 1)) {
         unlink(BOOT_TARGET ".tmp");
         toast(tr("Could not save boot choice"));
         return 0;
     }
-    boot_rockbox = !boot_rockbox;
+    tk_snprintf(boot_id, sizeof boot_id, "%s", id ? id : "");
     boot_text(label);
     return 0;
 }
 static void boot_row(widget_t *view) {
-    if (!view || !rockbox_available()) return;
-    char value[16];
+    if (!view || !addon_takeovers()) return;
+    char value[sizeof boot_id];
     void *f = fopen(BOOT_TARGET, "rb");
-    boot_rockbox = 0; /* missing or invalid: Q2 Pod, as S90play reads it */
+    boot_id[0] = 0; /* missing, invalid or not a takeover app's: Q2 Pod, as S90play reads it */
     if (f) {
-        unsigned n = fread(value, 1, 7, f);
-        int rockbox = n == 7 && !memcmp(value, "rockbox", 7);
-        /* Shell command substitution strips all trailing newlines. */
-        while (rockbox && (n = fread(value, 1, sizeof value, f)))
-            for (unsigned i = 0; i < n; ++i)
-                if (value[i] != '\n') rockbox = 0;
-        boot_rockbox = rockbox && !ferror(f);
+        unsigned n = fread(value, 1, sizeof value, f), i = 0;
+        while (i < n && value[i] && value[i] != '\n') ++i; /* a NUL ends it: not an id */
+        /* Shell command substitution strips all trailing newlines: only those may follow */
+        int ok = i < sizeof value;
+        for (unsigned j = i; j < n; ++j) ok &= value[j] == '\n';
+        for (char c; ok && fread(&c, 1, 1, f) == 1;) ok &= c == '\n';
+        if (ok && !ferror(f)) {
+            value[i] = 0;
+            if (valid_id(value) && strcmp(value, "q2pod")) memcpy(boot_id, value, i + 1);
+        }
         fclose(f);
     }
     widget_t *label = list_row(view, "system_powermanager", 0, 0);
