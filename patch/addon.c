@@ -434,7 +434,7 @@ static void launch(app_t *a) {
 int addon_needed(const char *id) {
     for (int i = 0; i < ap.n; ++i) {
         const app_t *a = &ap.a[i];
-        if (!a->launched || access(a->pid, 0) || !strcmp(a->id, id)) continue;
+        if (!a->nneeds || !a->launched || access(a->pid, 0) || !strcmp(a->id, id)) continue;
         for (int k = 0; k < a->nneeds; ++k)
             if (!strcmp(a->needs[k], id)) return 1;
     }
@@ -463,7 +463,7 @@ int addon_wake(const char *id) {
     if (!a) return 0;
     /* a Retry's restart or USB storage's relaunch pending: poll_one starts it, the song waits */
     int pending = (a->restart || a->relaunch) && !access(a->bin, 0);
-    if (!pending && !access(a->bin, 0) && idle(a)) launch(a);
+    if (!pending && idle(a) && !access(a->bin, 0)) launch(a);
     return pending || (a->launched && time_now_ms() - a->launch_at < ADDON_START_MS);
 }
 
