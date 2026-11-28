@@ -141,6 +141,7 @@ MOTION_TODAY = {**{f'motion.{k}.{a}': 0 for k in ('page', 'playing', 'coverflow'
                 'motion.page.ms': 120, 'motion.page.easing': 5, 'motion.swap.ms': 120, 'motion.swap.easing': 8,
                 'motion.step.ms': 200, 'motion.step.easing': 8, 'motion.step_fast.ms': 120, 'motion.step_fast.easing': 8,
                 'motion.coverflow_step.ms': 200, 'motion.coverflow_step.easing': 8, 'motion.coverflow_step_fast.ms': 120, 'motion.coverflow_step_fast.easing': 8,
+                'motion.coverflow.ms': 200, 'motion.coverflow.easing': 8, 'motion.coverflow.anim': theme.ANIMS.index('split'),
                 'recall_ms': 300, 'bump_px': 6}
 
 
@@ -510,7 +511,8 @@ MINIMAL_FIELDS = [('name', '"Minimal"'), ('painter[PAINT_SELECTION]', 'SEL_CARD'
                   ('schemes', 'minimal_schemes'), ('light', 'minimal_schemes'), ('n_schemes', 9), ('opts', 'minimal_opts'), ('n_opts', 10),
                   ('undeclared', 0), ('np_layout', 'NP_IPOD'),
                   *CF_TODAY.items(), ('page_row', 48), ('page_detail', 64), ('page_title_h', 48), ('page_x', 36), ('page_cap_y', 4), ('page_cap_h', 32), ('page_det_y', 36), ('page_det_h', 24), ('geom', 0),
-                  *((f'motion[MOTION_{k}].hint', 0) for k in ('PAGE', 'PLAYING', 'COVERFLOW')),
+                  ('motion[MOTION_PAGE].hint', 0), ('motion[MOTION_PLAYING].hint', 0),
+                  ('motion[MOTION_COVERFLOW].hint', '"split(duration=200,easing=sin_inout)"'),
                   *((f'motion[MOTION_{k}].{a}', v) for k, ms, e in (('INPLACE', 0, 0), ('SWAP', 120, 8), ('STEP', 200, 8), ('STEP_FAST', 120, 8), ('COVERFLOW_STEP', 200, 8), ('COVERFLOW_STEP_FAST', 120, 8))
                     for a, v in (('ms', ms), ('easing', e))),
                   ('recall_ms', 300), ('bump_px', 6)]
@@ -1320,14 +1322,14 @@ def test_easings_are_awtk():
         and theme.EASINGS[O['EASE_FOLLOW']] == 'follow'  # ours, one past AWTK's 24
 
 
-def test_motion_today(tmp_path):  # Minimal: the asset hint kept (0), today's numbers
+def test_motion_today(tmp_path):  # Minimal: the asset hint kept (0) but Cover Flow's split, today's numbers
     inc = boot_inc(tmp_path, theme.builtins()[:1])
     assert inc.count('.motion[MOTION_PAGE].hint = 0,') == 1 and ipod.SLIDE == 'htranslate(duration=120)'
     assert [t['motion.page.ms'] for t in theme.builtins()[:1]] == [120]  # the key as MINIMAL spells it
     for f, v in (('motion[MOTION_SWAP].ms', 120), ('motion[MOTION_SWAP].easing', 8), ('motion[MOTION_STEP].ms', 200),
                  ('motion[MOTION_STEP_FAST].ms', 120), ('motion[MOTION_STEP].easing', 8), ('recall_ms', 300), ('bump_px', 6)):
         assert inc.count(f'.{f} = {v},') == 1, f
-    assert inc.count('.motion[MOTION_COVERFLOW].hint = 0,') == 1 and inc.count('.motion[MOTION_INPLACE].ms = 0,') == 1
+    assert inc.count(SPLIT_HINT) == 1 and inc.count('.motion[MOTION_INPLACE].ms = 0,') == 1
     assert '.anim' not in inc
     # theme.h's order is the emitted kinds', which test/patch.py indexes by
     motions = re.search(r'enum \{\s*MOTION_PAGE.*?\}', (theme.ROOT/'patch/theme.h').read_text(), re.S)
@@ -1338,8 +1340,7 @@ def test_motion_today(tmp_path):  # Minimal: the asset hint kept (0), today's nu
 
 MOTION_CLASSIC_LIGHT = {**MOTION_TODAY,
                         'motion.swap.ms': 120, 'motion.swap.easing': 0, 'motion.inplace.ms': 120, 'motion.inplace.easing': 5, 'recall_ms': 0, 'bump_px': 0,
-                        'motion.coverflow_step.ms': 81, 'motion.coverflow_step.easing': 24, 'motion.coverflow_step_fast.ms': 81, 'motion.coverflow_step_fast.easing': 24,
-                        'motion.coverflow.ms': 200, 'motion.coverflow.easing': 8, 'motion.coverflow.anim': theme.ANIMS.index('split')}
+                        'motion.coverflow_step.ms': 81, 'motion.coverflow_step.easing': 24, 'motion.coverflow_step_fast.ms': 81, 'motion.coverflow_step_fast.easing': 24}
 SPLIT_HINT = '.motion[MOTION_COVERFLOW].hint = "split(duration=200,easing=sin_inout)",'
 
 
@@ -1354,9 +1355,8 @@ def test_motion_classic_light(tmp_path):
     assert {k.field: light[k.field] for k in theme.SCHEMA.values() if k.cls == 'motion'} == MOTION_CLASSIC_LIGHT
     inc = boot_inc(tmp_path, theme.builtins())
     assert inc.count('.motion[MOTION_PAGE].hint = 0,') == 4  # every theme's pages: the asset's own
-    # Cover Flow's split, Classic's and Classic Modern's by extends; no other window animates beyond stock's own slide:
-    # no push, no dialog fade
-    assert inc.count(SPLIT_HINT) == 2 and inc.count('.hint = "') == 2
+    # Cover Flow's split, every theme's; no other window animates beyond stock's own slide: no push, no dialog fade
+    assert inc.count(SPLIT_HINT) == 4 and inc.count('.hint = "') == 4
 
 
 def test_motion_composes_hints(tmp_path):

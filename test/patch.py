@@ -8363,22 +8363,21 @@ passed()
 for below in ('album_page','home_page'):
     m=motion_machine('1'); set_hint(m,'page',FADE_HINT); motion_over(m,below); assert m.nodes[motion_load(m,'localmusic/albuminfo_page',anim_hint=ASSET_HINT)]['anim_hint']==FADE_HINT,below
 passed()
-# Queue, More and Go to, a page with no slide, and the payload's own pages stay instant in every theme, over Home too;
-# Cover Flow's in Minimal.
+# Queue, More and Go to, a page with no slide, and the payload's own pages stay instant in every theme, over Home too.
 for t in '01':
     m=motion_machine(t); assert all('anim_hint' not in m.nodes[motion_load(m,n)] for n in (*EXTRA,'wifi_page')),t
-    for name in (*PAYLOAD,'addon_page','radionp_page','spotify_page','chapters_page',*(('coverflow_page',) if t=='0' else ())):
+    for name in (*PAYLOAD,'addon_page','radionp_page','spotify_page','chapters_page'):
         m=motion_machine(t); assert 'anim_hint' not in m.nodes[motion_open(m,name)],(t,name)
         motion_over(m,'home_page'); assert 'anim_hint' not in m.nodes[motion_open(m,name)],(t,name)
 passed()
 # A theme with a Cover Flow hint: its page takes it, and no other page does.
 m=motion_machine('1'); set_hint(m,'coverflow',FADE_HINT); assert m.nodes[motion_open(m,'coverflow_page')]['anim_hint']==FADE_HINT; passed()
-# Classic's is the split, over Home or any page, and the hint's first write gives stock's factory the split, once.
+# Every theme's is the split, over Home or any page, and the hint's first write gives stock's factory the split, once.
 # Each case is a function: this script's globals (m, f, ctx...) are later cases' own.
 SPLIT_HINT='split(duration=200,easing=sin_inout)'
 def split_registers():
-    for below in ('home_page','album_page',None):
-        m=motion_machine('1'); m.mock('window_animator_factory',prefix='one:')
+    for t,below in (('0','home_page'),('1','home_page'),('1','album_page'),('1',None)):
+        m=motion_machine(t); m.mock('window_animator_factory',prefix='one:')
         if below: motion_over(m,below)
         assert m.nodes[motion_open(m,'coverflow_page')]['anim_hint']==SPLIT_HINT,below
         regs=[c for c in m.calls if c[0]=='window_animator_factory_register']; assert [(a,m.text(b)) for _,a,b,_ in regs]==[(1,'split')],below
@@ -8464,12 +8463,13 @@ for gap in (1000,20,20): assert m.call(gap=gap)==11
 assert m.selected(w)==0; m.animating=0
 for i in (1,2,3): m.advance(O['HOLD_POLL_MS']); assert m.selected(w)==i
 assert not m.timers; passed()
-# Minimal: no load or open writes a hint or a highlight.
+# Minimal: no load or open writes a hint or a highlight but Cover Flow's split.
 for t in ('0',):
     m=motion_machine(t); hints=0; motion_over(m,'home_page')
     for n,kw in (('playing_page',{}),('localmusic/albuminfo_page',{'anim_hint':ASSET_HINT}),*((n,{'highlight':'default(alpha=200)'}) for n in (*DIALOGS,*EXTRA))):
         motion_load(m,n,**kw); hints+=hint_writes(m)
-    motion_open(m,'shuffle_page'); hints+=hint_writes(m); motion_open(m,'coverflow_page'); hints+=hint_writes(m); assert hints==0,t
+    motion_open(m,'shuffle_page'); hints+=hint_writes(m); assert hints==0,t
+    assert m.nodes[motion_open(m,'coverflow_page')]['anim_hint']==SPLIT_HINT,t
 passed()
 # The Library rows follow the constructor's live body and icon x, whichever group the audit gave them.
 m=ShuffleMachine(); m.record_syscalls(); m.handlers[int(manifest['patch_symbols']['stock_ui_load_trampoline'],16)]='stock_ui_load'

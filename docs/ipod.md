@@ -470,14 +470,14 @@ and the equalizer page. A hinted page slides in from the right, pushing the page
 left, and Return reverses that; the status bar is not part of either page and stays still.
 
 Left immediate: Home (opened once, never closed), Now Playing (its open starts the player, which can
-hold the UI thread), Cover Flow but under Classic (below), the dialogs and quick settings, the
+hold the UI thread), the dialogs and quick settings, the
 queue, More and jump pages over Now Playing, and the pages that keep their stock assets: Tidal and
 the other online pages, Wi-Fi transfer and the firmware download. Moving between folders reloads the
 folder page in place, so only opening and leaving that page slides. Stock drops every key and touch
 while a page slides; none is queued ([internals.md](internals.md#page-transitions-ipod)).
 
-A theme can set these from its `motion` view. Classic sets Cover Flow's alone, and Classic Modern
-takes it from Classic: Cover Flow opens as an iPod classic's does. The page underneath splits at
+A theme can set these from its `motion` view. Every built-in theme sets Cover Flow's alone: Cover
+Flow opens as an iPod classic's does. The page underneath splits at
 Home's split line (`HOME_SPLIT_W`, between Home's list and its art), its left half sliding off to
 the left and its right half off to the right, each by its own width, over 200 ms (`sin_inout`), and
 Cover Flow shows between them, still; Return closes it the same way back. Its covers are as its
@@ -485,7 +485,7 @@ first frame draws them, placeholders where a cover isn't decoded yet, and the st
 still, as for a slide. An artist's covers and the playlists' (Display's Artist View and Playlist
 View) open at once, as before, as the page under them opened unseen; they close with the split.
 The split is the payload's own animation, which stock's window manager runs as it runs its slides
-([internals.md](internals.md#themes), Motion). Minimal and Modern open Cover Flow at once.
+([internals.md](internals.md#themes), Motion).
 
 Classic's other pages open and close as Minimal's, with stock's slide or none, as above, and
 confirms, add to playlist, the hold menu and every other dialog show at once, with no fade.
