@@ -22,6 +22,8 @@ void playback_speed_start(void);
 void playback_track_speed(void);         /* a track's start: the folder's speed, to the decoder */
 int playback_start_fits(void);           /* 0: the track at MCL_POS is too long to open */
 void xfade_poll(int next, int shuffled); /* crossfade.c */
+void btmeta_poll(void);                  /* btmeta.c */
+void btmeta_seek(int target);            /* explicit track-relative seek, including while paused */
 void xfade_boot(void);                   /* crossfade.c */
 void xfade_save(void);                   /* crossfade.c: the slider page's change, written now */
 void mono_sync(void);                    /* crossfade.c */

@@ -1904,6 +1904,7 @@ static int playback_next(void) {
     return (mode == 0 || mode == 3) && at + 1 < n ? (int)at + 1 : -1;
 }
 void playback_poll(void) {
+    btmeta_poll();
     ui_thread = pthread_self();
     wheel_pct(); /* the saved sensitivity from the first UI pass */
     if (too_long) {

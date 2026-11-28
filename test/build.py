@@ -539,6 +539,13 @@ def validate_assets(directory):
         absent = subprocess.run(['unsquashfs', '-cat', str(directory/'rootfs.squashfs'), REMOTE],
                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         assert absent.returncode != 0, 'release rootfs contains q2remote'
+    from build import MPRIS, MPRIS_START, MPRIS_STOP
+    publisher = read('rootfs.squashfs', MPRIS)
+    assert sha(publisher) == manifest['q2mpris_sha256'] and publisher[:4] == b'\x7fELF'
+    expected_start = expected_start.replace(*MPRIS_START).replace(*MPRIS_STOP)
+    if manifest['dev']:
+        expected_start = expected_start.replace(b'/usr/bin/q2mpris 2>>/tmp/q2-demo.err',
+                                                b'/usr/bin/q2mpris >>/tmp/q2-demo.log 2>&1')
     assert read('rootfs.squashfs', S90PLAY) == expected_start
     assert read('rootfs.squashfs', S11LOGO) == read('stock.squashfs', S11LOGO).replace(*LOGO_HOOK)  # the card's logo, if saved
     # Card apps without root (build.py APP_UID): q2mount, executable, from the mdev script and USB storage's end, and
