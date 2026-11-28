@@ -666,6 +666,9 @@ static inline int arc_out(int r, int y) {
 /* A row's size, as platformTypeRegister registers stSongInfo (0x5c6be0). Its copy (0x5c65ac) gives
  * each of the 11 strings at 0x04-0x2c its own buffer, so a row owns them and nothing points into it. */
 #define REC_SIZE 0x58
+/* libcstl 2.2.0's deque: its element type's record (_type_register's: the size, then the name), as
+ * _deque_iterator_next reads it */
+#define DEQUE_TYPE 0x100
 /* g_play_id3_info, as player_get_id3info (0x51f3a4) parses the playing file: its path, then tags. */
 #define ID3_ALBUM 0x404
 #define ID3_ARTIST 0x504

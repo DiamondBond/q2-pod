@@ -682,6 +682,10 @@ SCAN_REFRESH = (0x5dc4d8, 0x0411fd8d)  # toolsLoadAllFile's existing-song check,
 AUDIO_EXTENSION_CALLS = (0x5d4cac, 0x5d69fc)  # toolsLoadDirectory and recursive scan
 M3U_DIR_CALL = 0x518768  # importPlayList's toolsGetDirectoryM3u8 listing (card apps' own imports)
 SORT_TRIMS = (0x5cc968, 0x5cc9d4, 0x5cd280, 0x5cd2ec)
+# The jalr algo_sort_if of toolsQueryDbTable, toolsQueryDbTableAndSort and toolsQueryContentDbTable, each on the
+# list its query just read: they become jal ringnav_record_sort, libcstl's sort with each row moved by its bytes
+# (patch/record_sort.c).
+RECORD_SORTS = (0x5dae90, 0x5db0c8, 0x5db494)
 # Tag text as tagged (docs/internals.md#tag-text): toolsFixId3ErrorCode (0x5d8950), which toolsGetMusicInfo
 # runs on each of its six fields, took any field whose every character TagLib decoded below U+0100 ("Lo que
 # la música me enseñó") for GBK bytes when they went to UTF-8 and back unchanged, and showed it in Chinese
@@ -1918,7 +1922,7 @@ FLAGS = ['--target=mipsel-linux-gnu','-march=mips32r2','-mabi=32','-mfp64',
          '-Wshadow','-Wimplicit-int-conversion','-Wconditional-uninitialized','-Wmissing-variable-declarations',
          '-Wvla','-Wundef']
 # navigation.c and the files split out of it (patch/navigation.h), each its own object, linked in this order.
-NAVIGATION = ['navigation.c', 'theme_engine.c', 'playlists.c', 'classic_pages.c', 'home.c', 'np_bar.c', 'volume.c', 'smart_wifi.c', 'system.c', 'usb_charge.c', 'tags.c', 'scrobble_ui.c', 'lastfm_link.c', 'library_lists.c', 'durations.c', 'script.c', 'coverflow_position.c', 'ratings.c', 'scan_folders.c', 'folder_delete.c', 'battery.c', 'np_lyrics.c', 'quick_settings.c', 'flat.c', 'clock.c', 'queue_menu.c', 'np_marks.c', 'rotate.c', 'netservice.c', 'addon_bar.c', 'side_seek.c', 'language.c', 'bidi_text.c', 'card_theme.c', 'card_rules.c', 'sleep_row.c', 'shortcut_pick.c', 'name_sort.c', 'window_split.c']
+NAVIGATION = ['navigation.c', 'theme_engine.c', 'playlists.c', 'classic_pages.c', 'home.c', 'np_bar.c', 'volume.c', 'smart_wifi.c', 'system.c', 'usb_charge.c', 'tags.c', 'scrobble_ui.c', 'lastfm_link.c', 'library_lists.c', 'durations.c', 'script.c', 'coverflow_position.c', 'ratings.c', 'scan_folders.c', 'folder_delete.c', 'battery.c', 'np_lyrics.c', 'quick_settings.c', 'flat.c', 'clock.c', 'queue_menu.c', 'np_marks.c', 'rotate.c', 'netservice.c', 'addon_bar.c', 'side_seek.c', 'language.c', 'bidi_text.c', 'card_theme.c', 'card_rules.c', 'sleep_row.c', 'shortcut_pick.c', 'name_sort.c', 'record_sort.c', 'window_split.c']
 
 def compile_payload(out):  # pragma: no mutate block
     """Compile and link the payload."""
@@ -1940,7 +1944,7 @@ def compile_payload(out):  # pragma: no mutate block
     run('clang',*FLAGS,'-c',out/'trampoline.S','-o',out/'trampoline.o')
     run('ld.lld','-m','elf32ltsmip','--gc-sections','-O2','--icf=safe','-T',ROOT/'patch/link.ld','-e','ringnav',
         *[f'--undefined={name}' for _, name, _ in HOOKS.values()], f'--undefined={GRADIENT_LEAF[2]}', '--undefined=ringnav_lrc_open',
-        f'--undefined={WM_PAINT_LEAF[2]}', f'--undefined={QUEUE_LEAF[2]}', f'--undefined={FONT_GLYPH_LEAF[2]}', '--undefined=ringnav_audio_extension', '--undefined=start_mute', '--undefined=start_sleep', '--undefined=ringnav_genre_copy', '--undefined=ringnav_lyric_save', '--undefined=ringnav_lyric_drop', '--undefined=ringnav_cover_copy','--undefined=ringnav_folder_rm','--undefined=ringnav_bootmode', '--undefined=lockscreen_access','--undefined=lockscreen_dark','--undefined=ringnav_ts_read',
+        f'--undefined={WM_PAINT_LEAF[2]}', f'--undefined={QUEUE_LEAF[2]}', f'--undefined={FONT_GLYPH_LEAF[2]}', '--undefined=ringnav_audio_extension', '--undefined=ringnav_record_sort', '--undefined=start_mute', '--undefined=start_sleep', '--undefined=ringnav_genre_copy', '--undefined=ringnav_lyric_save', '--undefined=ringnav_lyric_drop', '--undefined=ringnav_cover_copy','--undefined=ringnav_folder_rm','--undefined=ringnav_bootmode', '--undefined=lockscreen_access','--undefined=lockscreen_dark','--undefined=ringnav_ts_read',
         '--undefined=ringnav_baidu_poll', '--undefined=ringnav_tidal_poll', '--undefined=addon_m3u_dir', f'--undefined={COVERINFO_CALL[2]}',
         '--undefined=coverflow_player_cover', '--undefined=coverflow_grid_cover', '--undefined=coverflow_album_cover', '--undefined=coverflow_folder_cover', '--undefined=headset_bt_init',
         '--undefined=headset_status_register', '--undefined=headset_bt_autolink', '--undefined=headset_bt_service', *[f'--undefined={guard[2]}' for guard in PNG_GUARDS],
@@ -2368,6 +2372,9 @@ def build(zip_path, out, logo, dev=False, repo=REPO, stock_flac=False):  # pragm
     check(word(raw_demo, M3U_DIR_CALL-4) == 0x8f99bb64,
           'playlist import: expected toolsGetDirectoryM3u8 call')  # lw t9, -0x452c(gp)
     patch_word(patched, M3U_DIR_CALL, 0x0320f809, jal(ps['addon_m3u_dir']), "card apps import only their own playlists")
+    for address in RECORD_SORTS:
+        check(word(raw_demo, address-4) == 0x8f99fa34, 'record sort: expected the algo_sort_if import')  # lw t9, -0x5cc(gp)
+        patch_word(patched, address, 0x0320f809, jal(ps['ringnav_record_sort']), "sort a list's rows by moving their bytes")
     for address in SORT_TRIMS:
         patch_word(patched, address, branch(0x04110000, address, syms['toolsTrimLeft']),
                    jal(ps['ringnav_sort_key']), 'sort without a leading article')

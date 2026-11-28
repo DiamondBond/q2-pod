@@ -1,6 +1,7 @@
 # Changelog
 
 - **1.9.6**:
+  - Library: these lists take less of the processor to sort, in the same order: **Songs** sorted alphabetically, by file name or by format; **Albums**; **Artists**; **Genres**; an artist's albums; playlists in A–Z order; and Search's results.
   - The shutdown prompt keeps its **Shut Down** button when the screen turns off and wakes again.
   - Cover Flow: after **Rate Album** in a cover's hold menu, the wheel sets the hearts. It turned the covers behind them instead, so the album could not be rated with the wheel.
   - Folder names and file names copied from a Mac show й, ё and accented letters with the mark over its letter, not over the next one or into a capital (#542).
