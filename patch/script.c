@@ -148,9 +148,9 @@ static void mark_place(const font_t *font, unsigned chr, unsigned size, glyph_t 
         return;
     }
     if (chr == 0x31b || mark_base.font != font || mark_base.size != size) return;
-    g->x = b->x + (b->w - g->w) / 2 - b->advance;
+    g->x = (short)(b->x + (b->w - g->w) / 2 - b->advance);
     if (g->y + g->h > 0) return; /* a mark below: centred alone */
-    if (g->y + g->h > b->y) g->y = b->y - ((int)size + 8) / 16 - g->h;
+    if (g->y + g->h > b->y) g->y = (short)(b->y - ((int)size + 8) / 16 - g->h);
     b->y = g->y;
 }
 
