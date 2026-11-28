@@ -464,6 +464,30 @@ def test_a_cut_face_takes_a_letter_it_lacks_from_stock_s(fw):
     assert asked == [(0x1234, b'default', 20), (0x1234, b'default', 24)]
 
 
+def test_a_combining_mark_sits_over_its_letter(fw):
+    """script.c mark_place (#542): a Mac name's и + U+0306 draws the breve centred over the и, over И lifted
+    size/16 clear of it, a second mark stacked over the first; a mark below is centred alone, and the pen's
+    advance stays each glyph's own."""
+    boxes = {0x438: (1, -11, 10, 11, 13), 0x418: (1, -14, 12, 14, 15), 0x63: (1, -11, 9, 11, 11),
+             0x306: (-4, -15, 7, 4, 0), 0x308: (-4, -14, 6, 3, 0), 0x327: (-3, 0, 4, 4, 0)}
+    KEPT.append(GLYPH(lambda _f, c, _s, g: struct.pack_into('<hhHHH', (C.c_char * 10).from_address(g), 0,
+                                                            *boxes[c]) or 0))
+    f = C.create_string_buffer(b'other', 0x40)
+    C.c_void_p.from_buffer(f, 0x24).value = C.cast(KEPT[-1], C.c_void_p).value
+    glyph = fw.fn('ringnav_font_glyph', C.c_int, C.c_void_p, C.c_uint, C.c_uint, C.c_void_p)
+    g = C.create_string_buffer(32)
+
+    def drawn(*chars):
+        out = []
+        for c in chars:
+            assert glyph(C.addressof(f), c, 20, g) == 0
+            out.append(struct.unpack_from('<hhHHH', g))
+        return out[1:]
+    assert drawn(0x438, 0x306) == [(-11, -15, 7, 4, 0)]  # й: centred, the face's own height
+    assert drawn(0x418, 0x306, 0x308) == [(-12, -19, 7, 4, 0), (-11, -23, 6, 3, 0)]
+    assert drawn(0x63, 0x327) == [(-8, 0, 4, 4, 0)]  # ç
+
+
 def test_an_era_and_a_playlist_s_delete_button_say_the_language_s_words(fw, lang):
     """library_lists.c era_name's formats through tr(); playlists.c's tr_text a line of Q2 Pod's own."""
     lang.files[COPY] = lines(('%02ds', '%02ds', '%02der'), ('%ds', '%ds', '%der'),

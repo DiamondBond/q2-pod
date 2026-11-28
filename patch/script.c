@@ -117,10 +117,49 @@ static int subset_lacks(const font_t *font, unsigned chr) {
                      &chr, 1);
 }
 
+/* AWTK's glyph_t (16 bytes, glyph_clone's copy): the ink's box from the pen, y its top from the
+ * baseline (up is negative); canvas_draw_text moves the pen by advance. */
+typedef struct {
+    short x, y;
+    unsigned short w, h, advance;
+    unsigned char format, pitch;
+    const void *data;
+} glyph_t;
+
+/* A combining mark (U+0300-U+036F), as a Mac stores é or й in a file name, has no advance, and
+ * stb_truetype reads no GPOS: each face drew it where its outline sits, bold.ttf's centred on the
+ * pen (half over the next letter), stock's a fixed 0.28 em back, all at a lowercase letter's
+ * height, into a capital (#542). canvas_draw_text and canvas_measure_text ask for a line's glyphs
+ * in order, so the glyph before a mark is its letter: the mark is centred over that letter's ink
+ * and, a mark above that would run into it, lifted to sit size/16 (each face's own Й and Ё gap)
+ * over its top; a second mark stacks over the first. ponytail: the horn (U+031B) keeps its face's
+ * place; the UI thread's lines only, as a second thread drawing text could hand a mark another
+ * line's letter. */
+static struct {
+    const font_t *font;
+    unsigned size;
+    glyph_t g;
+} mark_base;
+
+static void mark_place(const font_t *font, unsigned chr, unsigned size, glyph_t *g) {
+    glyph_t *b = &mark_base.g;
+    if (chr < 0x300 || chr > 0x36f) {
+        mark_base.font = font, mark_base.size = size, *b = *g;
+        return;
+    }
+    if (chr == 0x31b || mark_base.font != font || mark_base.size != size) return;
+    g->x = b->x + (b->w - g->w) / 2 - b->advance;
+    if (g->y + g->h > 0) return; /* a mark below: centred alone */
+    if (g->y + g->h > b->y) g->y = b->y - ((int)size + 8) / 16 - g->h;
+    b->y = g->y;
+}
+
 /* font_get_glyph, which the build jumps here from (a leaf: FONT_GLYPH_LEAF), the whole of it: the
  * font's get_glyph, the pack's font's for a character it is for, stock's default.ttf's for one a
- * subset face lacks. Bad params (0x10) as stock's for no font, no get_glyph or no glyph. */
+ * subset face lacks, a combining mark placed over its letter (mark_place). Bad params (0x10) as
+ * stock's for no font, no get_glyph or no glyph. */
 int ringnav_font_glyph(font_t *font, unsigned chr, unsigned size, void *glyph) {
+    const font_t *asked = font;
     if (in_ranges(chr, glyph_ranges, sizeof glyph_ranges / sizeof *glyph_ranges)) {
         if (!gf.tried) {
             unsigned n = 0;
@@ -138,7 +177,12 @@ int ringnav_font_glyph(font_t *font, unsigned chr, unsigned size, void *glyph) {
         if (stock) font = stock;
     }
     int (*get)(font_t *, unsigned, unsigned, void *) = font ? P(font, FONT_GET_GLYPH) : (void *)0;
-    return get && glyph ? get(font, chr, size, glyph) : 0x10;
+    int r = get && glyph ? get(font, chr, size, glyph) : 0x10;
+    if (!r)
+        mark_place(asked, chr, size, glyph);
+    else
+        mark_base.font = 0; /* the pen moves 4 px past a missing glyph: no letter for a mark */
+    return r;
 }
 
 /* bold.ttf or stock's default.ttf standing in for classic-light.ttf: that much of the px gives the
