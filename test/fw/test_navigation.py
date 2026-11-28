@@ -438,16 +438,113 @@ def test_a_lock_choice_comes_back(fw, choice):
     assert [c[1][0] for c in fw.calls('write_int_config')] == [fw.var('g_keylock_mode', C.c_ubyte).value, int(choice > 0)]
 
 
+def bt_device(fw, mac):
+    """Stock's Bluetooth link list: mac connected (status 3), or none."""
+    fw.mock('getBtLinkSize', lambda *_: int(bool(mac)))
+    def item(i, status, out, *_):
+        C.c_int.from_address(status).value = 3
+        C.memmove(out, mac.encode() + b'\0', len(mac) + 1)
+        return 0
+    fw.mock('getBtLinkItem', item)
+
+
+A_MAC, B_MAC = '00:11:22:33:44:55', 'AA:BB:CC:DD:EE:FF'
+A_KEY, B_KEY = b'BTV001122334455', b'BTVAABBCCDDEEFF'
+
+
 @pytest.mark.parametrize('saved, volume, top, want', [
-    (b'50', 20, 100, 50), (b'0', 20, 100, 0), (b'100', 20, 100, 100), (b'101', 20, 100, 20), (b'', 20, 100, 20),
-    (b'abc', 20, 100, 20), (b'1000', 20, 100, 20), (b'5x', 20, 100, 20), (b'90', 20, 80, 80),
+    (b'50', 20, 100, 20), (b'10', 20, 100, 10), (b'0', 20, 100, 0), (b'100', 20, 100, 20), (b'101', 20, 100, 20),
+    (b'', 20, 100, 20), (b'abc', 20, 100, 20), (b'1000', 20, 100, 20), (b'5x', 20, 100, 20), (b'90', 85, 80, 80),
 ])
-def test_a_new_output_takes_its_saved_volume(fw, saved, volume, top, want):
+def test_bluetooth_with_no_device_known_takes_the_lower_of_the_shared_and_the_wired_level(fw, saved, volume, top, want):
     Config(fw, BT_VOLUME=saved)
     fw.var('g_volume', C.c_ubyte).value, fw.var('g_maxvolume', C.c_ubyte).value = volume, top
     fw.mock('mclGetOutputWay', lambda *_: 0)
     fw.fn('ringnav_output', C.c_int, C.c_int)(1)
     assert fw.var('g_volume', C.c_ubyte).value == want and fw.calls('device_set_volume')[-1][1][0] == want
+
+
+@pytest.mark.parametrize('own, shared, wired, top, want', [
+    (b'30', b'100', 50, 100, 30), (b'90', b'10', 20, 100, 90),  # its own, under or over the others
+    (b'90', None, 20, 60, 60),  # in Max Volume
+    (None, b'100', 40, 100, 40), (b'x', b'25', 40, 100, 25),  # none of its own: the lower of the shared and the wired
+])
+def test_each_bluetooth_device_takes_its_own_level(fw, own, shared, wired, top, want):
+    bt_device(fw, A_MAC)
+    Config(fw, **{k: v for k, v in (('BTV001122334455', own), ('BT_VOLUME', shared)) if v is not None})
+    fw.var('g_volume', C.c_ubyte).value, fw.var('g_maxvolume', C.c_ubyte).value = wired, top
+    fw.mock('mclGetOutputWay', lambda *_: 0)
+    fw.fn('ringnav_output', C.c_int, C.c_int)(1)
+    assert fw.var('g_volume', C.c_ubyte).value == want and fw.calls('device_set_volume')[-1][1][0] == want
+
+
+def test_a_bluetooth_level_is_saved_under_its_device_and_comes_back_with_it(fw):
+    config, way, now = Config(fw), [0], [1000]
+    fw.mock('stock_write_config_trampoline', lambda v, s, k, *_: config.values.__setitem__(C.string_at(k), b'%d' % v) or 0)
+    save = fw.fn('ringnav_write_config', C.c_int, C.c_int, C.c_char_p, C.c_char_p)
+    fw.mock('write_int_config', lambda v, s, k, *_: save(C.c_int(v).value, C.string_at(s), C.string_at(k)))
+    fw.mock('mclGetOutputWay', lambda *_: way[0])
+    fw.mock('time_now_ms', lambda *_: now[0])
+    fw.var('g_maxvolume', C.c_ubyte).value = 100
+    volume, poll = fw.var('g_volume', C.c_ubyte), fw.fn('bt_device_poll', None)
+    output, flush = fw.fn('ringnav_output', C.c_int, C.c_int), fw.fn('volume_save_flush', None)
+
+    def turn(v):
+        volume.value = v
+        save(v, b'PLAYSET', b'VOLUME')
+
+    def look():
+        now[0] += 500
+        poll()
+
+    volume.value = 20
+    bt_device(fw, A_MAC)
+    output(1)
+    way[0] = 1
+    assert volume.value == 20  # new: the wired level, none shared
+    turn(33)
+    flush()
+    assert config.values[A_KEY] == b'33' and b'BT_VOLUME' not in config.values
+    turn(44)  # held as B takes over, the output still Bluetooth
+    bt_device(fw, B_MAC)
+    look()
+    assert config.values[A_KEY] == b'44' and volume.value == 20 and fw.calls('device_set_volume')[-1][1][0] == 20
+    turn(70)
+    look()  # the same device: nothing loaded
+    assert volume.value == 70
+    flush()
+    assert config.values[B_KEY] == b'70'
+    bt_device(fw, A_MAC)
+    look()
+    assert volume.value == 44
+    output(0)  # A goes: its level saved under it, the wired one back
+    way[0] = 0
+    assert volume.value == 20 and config.values[A_KEY] == b'44'
+    bt_device(fw, B_MAC)
+    output(1)
+    assert volume.value == 70
+
+
+def test_the_device_look_waits_and_leaves_the_wire_alone(fw):
+    now, way = [1000], [0]
+    bt_device(fw, A_MAC)
+    Config(fw, BTV001122334455=b'61')
+    fw.mock('time_now_ms', lambda *_: now[0])
+    fw.mock('mclGetOutputWay', lambda *_: way[0])
+    fw.var('g_volume', C.c_ubyte).value, fw.var('g_maxvolume', C.c_ubyte).value = 20, 100
+    poll = fw.fn('bt_device_poll', None)
+    poll()  # the wire
+    assert fw.var('g_volume', C.c_ubyte).value == 20
+    way[0] = 1
+    bt_device(fw, '')
+    poll()  # Bluetooth, no device in the list yet: a look, nothing loaded
+    bt_device(fw, A_MAC)
+    now[0] += 499
+    poll()
+    assert fw.var('g_volume', C.c_ubyte).value == 20  # under 500 ms since the last look
+    now[0] += 1
+    poll()
+    assert fw.var('g_volume', C.c_ubyte).value == 61
 
 
 def test_a_saved_volume_any_text(fw):
@@ -457,10 +554,10 @@ def test_a_saved_volume_any_text(fw):
     output = fw.fn('ringnav_output', C.c_int, C.c_int)
     for data in hostile(random.Random(0x701), [b'50', b'100', b'101', b'007', b'1000', b'5x'], 1500, 240):
         config.values[b'BT_VOLUME'] = data
-        fw.var('g_volume', C.c_ubyte).value = 20
+        fw.var('g_volume', C.c_ubyte).value = 100  # the wired level, over any good one
         output(1)
         good = re.fullmatch(rb'\d{1,3}', data) and int(data) <= 100
-        assert fw.var('g_volume', C.c_ubyte).value == (int(data) if good else 20)
+        assert fw.var('g_volume', C.c_ubyte).value == (int(data) if good else 100)
 
 
 def test_a_same_kind_output_leaves_the_volume(fw):

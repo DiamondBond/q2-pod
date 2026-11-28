@@ -57,11 +57,18 @@ for links,paired,want in (([],True,1),([],False,0),([(b_mac,3)],True,0),([(b_mac
 ov=OutputVolumeMachine(); assert ov.output(1)==20  # first connection inherits the current level
 ov.save(65)
 assert ov.output(0)==20 and ov.config=={'VOLUME':'20','BT_VOLUME':'65'}; ov.save(13)  # the held 65 is written as it goes
-assert ov.output(1)==65 and ov.output(1)==65 and ov.output(2)==13
-assert ov.output(0)==13 and ov.output(1)==65; passed()
-# A fresh boot uses wired VOLUME; reconnect restores Bluetooth, including muted and capped levels.
+# no device known: the lower of the shared Bluetooth level and the wired one
+assert ov.output(1)==13 and ov.output(1)==13 and ov.output(2)==13 and ov.output(0)==13; passed()
+# Each device keeps its own level, under its address; a new one starts at the lower of the shared and the wired.
+ov=OutputVolumeMachine({'VOLUME':'30','BT_VOLUME':'90'},[(a_mac,3)]); ov.byte(syms['g_volume'],30)
+assert ov.output(1)==30; ov.save(80)
+assert ov.output(0)==30 and ov.config['BTVAAAAAAAAAAAA']=='80'
+ov.links=[[b_mac,3]]; assert ov.output(1)==30; ov.save(25); assert ov.output(0)==30
+ov.links=[[a_mac,3]]; assert ov.output(1)==80 and ov.output(0)==30
+ov.links=[[b_mac,3]]; assert ov.output(1)==25; passed()
+# A fresh boot uses wired VOLUME; reconnect restores the device's own, including muted and capped levels.
 for value,limit,want in (('0',100,0),('100',40,40),('37',100,37)):
-    ov=OutputVolumeMachine({'VOLUME':'13','BT_VOLUME':value}); ov.byte(syms['g_volume'],13)
+    ov=OutputVolumeMachine({'VOLUME':'13','BTVAAAAAAAAAAAA':value},[(a_mac,3)]); ov.byte(syms['g_volume'],13)
     ov.byte(syms['g_maxvolume'],limit)
     assert ov.output(1)==want and ov.output(0)==13; passed()
 for value in ('','-1','101','999999999999999999','20junk',' 20'):

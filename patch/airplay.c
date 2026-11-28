@@ -91,9 +91,7 @@ static void air_volume(cast_tap *t, int on) {
         air.on = 0;
         g_maxvolume = (unsigned char)air.limit;
         int way = mclGetOutputWay();
-        v = way == air.way
-                ? air.local
-                : config_value("PLAYSET", way == 1 ? "BT_VOLUME" : "VOLUME", 101, air.local);
+        v = way == air.way ? air.local : output_volume(way, air.local);
         if (v > g_maxvolume) v = g_maxvolume;
     }
     g_volume = (unsigned char)v;

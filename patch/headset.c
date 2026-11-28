@@ -380,6 +380,16 @@ void headset_command(int code) {
         if (!hs.known || hs.ears) media_set_playing(1);
     }
 }
+/* The volume key of the Bluetooth device that is connected (bt_volume.c's level for each
+ * device): BTV and its address's 12 digits, "" with none. */
+void headset_volume_key(char *key) {
+    char mac[32] = { 0 };
+    *key = 0;
+    if (!bt_connected(mac) || strlen(mac) != 17) return;
+    memcpy(key, "BTV", 3);
+    for (int i = 0; i < 6; ++i) key[3 + 2 * i] = mac[3 * i], key[4 + 2 * i] = mac[3 * i + 1];
+    key[15] = 0;
+}
 /* EQ per Output's name for what plays (stock's config_bal_output and config_po_output: the jack
  * last plugged in; unplugging 4.4 mm leaves output 0, so a jack must be in to count). None, nothing
  * to hear: the EQ stays with its output until another takes over. */

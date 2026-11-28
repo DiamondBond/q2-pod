@@ -8710,24 +8710,26 @@ static int np_animating(void) {
  * whole settings file (a small file of its own) would lift it. */
 #define VOLUME_SAVE_MS 3000 /* over BT_VOLUME_SLOW_MS, so a key held dark is one save too */
 static struct {
-    int key, value; /* key: 0 none held, 1 PLAYSET VOLUME, 2 PLAYSET BT_VOLUME, 3 Q2POD AIRVOL */
+    int key, value; /* key: 0 none held, 1 PLAYSET VOLUME, 2 Bluetooth's, 3 Q2POD AIRVOL */
     unsigned at;
+    char bt[16]; /* key 2's device as the save came (bt_volume_key): "" PLAYSET BT_VOLUME */
 } vsave __attribute__((section(".scratch")));
 void volume_save_flush(void) {
     int key = vsave.key;
     if (!key) return;
     vsave.key = 0;
     if (access("/mnt/data/config.ini", 0)) return;
-    const char *name = key == 1 ? "VOLUME" : key == 2 ? "BT_VOLUME" : "AIRVOL";
-    stock_write_config_trampoline(vsave.value, key == 3 ? "Q2POD" : "PLAYSET", name);
+    int shared = key == 1 || (key == 2 && !vsave.bt[0]);
+    const char *name = key == 1 ? "VOLUME" : key == 3 ? "AIRVOL" : shared ? "BT_VOLUME" : vsave.bt;
+    stock_write_config_trampoline(vsave.value, shared ? "PLAYSET" : "Q2POD", name);
 }
 static void volume_save_poll(void) {
     if (vsave.key && (unsigned)time_now_ms() - vsave.at >= VOLUME_SAVE_MS) volume_save_flush();
 }
 
-/* Keep stock VOLUME for wired/USB and boot; Bluetooth saves its own level, and an AirPlay speaker
- * its own while it plays (airplay.c). Smart Wi-Fi's own toggles of the Wi-Fi switch save nothing
- * (smart_config). */
+/* Keep stock VOLUME for wired/USB and boot; Bluetooth saves its own level (bt_volume.c: each
+ * device's), and an AirPlay speaker its own while it plays (airplay.c). Smart Wi-Fi's own toggles
+ * of the Wi-Fi switch save nothing (smart_config). */
 int ringnav_write_config(int value, const char *section, const char *key) {
     if (smart_config(section, key)) return 0;
     int volume = 0; /* vsave's key */
@@ -8736,21 +8738,22 @@ int ringnav_write_config(int value, const char *section, const char *key) {
     else if (!tk_strcmp(section, "Q2POD") && !tk_strcmp(key, "AIRVOL"))
         volume = 3; /* airplay.c's own, as a speaker stops */
     if (!volume) return stock_write_config_trampoline(value, section, key);
-    if (vsave.key != volume) volume_save_flush();
+    const char *bt = bt_volume_key();
+    if (vsave.key != volume || (volume == 2 && tk_strcmp(vsave.bt, bt))) volume_save_flush();
     vsave.key = volume, vsave.value = value, vsave.at = (unsigned)time_now_ms();
+    memcpy(vsave.bt, bt, sizeof vsave.bt);
     return 0;
 }
 
 int ringnav_output(int way) {
     int old = mclGetOutputWay();
     int changed = (old == 1) != (way == 1);
+    if (changed && way == 1) bt_volume_device(); /* during a cast too, for airplay.c's end */
     if (changed &&
         !airplay_on()) { /* a speaker's level stays its own; airplay.c swaps back at its end */
         write_int_config(g_volume, "PLAYSET", "VOLUME");
         volume_save_flush();
-        int v = config_value("PLAYSET", way == 1 ? "BT_VOLUME" : "VOLUME", 101, g_volume);
-        if (v > g_maxvolume) v = g_maxvolume;
-        g_volume = (unsigned char)v;
+        g_volume = (unsigned char)output_volume(way, g_volume);
         headset_volume_reset();
     }
     int result = stock_output_trampoline(way);
@@ -8932,6 +8935,7 @@ int ringnav_sleep(void *loop) {
     quick_poll();
     headset_poll();
     headset_eq_poll();
+    bt_device_poll();
     bt_volume_poll();
     volume_save_poll();
     spot_poll();

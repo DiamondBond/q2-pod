@@ -9,6 +9,7 @@ import pytest
 
 import host
 from conftest import NAVIGATION_SOURCE, O, Files, in_fork
+from test_navigation import bt_device
 
 W_PARENT, EVT_CLICK, TIMER_CTX = O['W_PARENT'], O['EVT_CLICK'], O['TIMER_CTX']
 EVT_KEY_DOWN, EVT_KEY_UP = O['EVT_KEY_DOWN'], O['EVT_KEY_UP']
@@ -1207,23 +1208,37 @@ def set_volume(q2, v):
     q2.fw.fn('write_int_config', C.c_long, C.c_long, C.c_char_p, C.c_char_p)(v, b'PLAYSET', b'VOLUME')
 
 
-def test_bluetooth_and_the_wire_keep_their_own_volumes_across_a_restart(q2):
+def test_each_bluetooth_device_and_the_wire_keep_their_own_volumes_across_a_restart(q2):
     volume = lambda: q2.var('g_volume').value  # noqa: E731
+    speaker, earbuds = '00:11:22:33:44:55', 'AA:BB:CC:DD:EE:FF'
     q2.var('g_maxvolume').value = 100
     set_volume(q2, 30)
-    output(q2, 1)  # a headset connects
+    bt_device(q2.fw, speaker)
+    output(q2, 1)  # a speaker connects
     assert q2.way == 1 and volume() == 30  # no Bluetooth level saved yet: the wired one carries over
-    set_volume(q2, 55)
+    set_volume(q2, 100)
     output(q2, 0)  # it goes, the level just set still to save: under its own key
-    assert q2.flash.get('PLAYSET', 'VOLUME') == '30' and q2.flash.get('PLAYSET', 'BT_VOLUME') == '55'
+    assert q2.flash.get('PLAYSET', 'VOLUME') == '30' and q2.flash.get('Q2POD', 'BTV001122334455') == '100'
     assert volume() == 30 and q2.fw.calls('device_set_volume')[-1][1][0] == 30
+    bt_device(q2.fw, earbuds)
+    output(q2, 1)
+    assert volume() == 30  # new earbuds: never the speaker's 100
+    set_volume(q2, 45)
+    output(q2, 0)
+    assert q2.flash.get('Q2POD', 'BTVAABBCCDDEEFF') == '45' and q2.flash.get('PLAYSET', 'BT_VOLUME') is None
     q2.power_on()
     q2.var('g_maxvolume').value = 100
     q2.var('g_volume').value = int(q2.flash.get('PLAYSET', 'VOLUME'))  # stock's boot reads the wired key
+    bt_device(q2.fw, speaker)
     output(q2, 1)
-    assert volume() == 55 and q2.fw.calls('device_set_volume')[-1][1][0] == 55
+    assert volume() == 100 and q2.fw.calls('device_set_volume')[-1][1][0] == 100
+    output(q2, 0)
+    bt_device(q2.fw, earbuds)
+    output(q2, 1)
+    assert volume() == 45
     q2.var('g_maxvolume').value = 40  # a lower volume limit since
     output(q2, 0)
+    bt_device(q2.fw, speaker)
     output(q2, 1)
     assert volume() == 40
 

@@ -10,6 +10,7 @@ import pytest
 from conftest import Files
 from test_addon import Page as AppPage  # a card app's page on its world
 from test_nav_library_pages import Config
+from test_navigation import A_KEY, A_MAC, B_MAC, bt_device
 from test_onlinematch import More, Queue, records  # noqa: F401  Now Playing's ⋯ page, the play queue and its songs
 
 TAP, TRACK = b'/tmp/q2cast', '/tmp/q2cast.track'
@@ -287,10 +288,11 @@ def test_an_app_back_with_no_volume_of_its_own_finds_the_wheel_s_last_level_not_
     assert tap.volume.value == 25
 
 
-@pytest.mark.parametrize('began, became, key', [(0, 1, 'BT_VOLUME'), (1, 0, 'VOLUME')])
+@pytest.mark.parametrize('began, became, key', [(0, 1, 'BTV001122334455'), (1, 0, 'VOLUME')])  # the device's, the wire's
 def test_an_output_changed_meanwhile_gets_its_own_saved_level_within_the_limit(fw, began, became, key):
     tap = Tap(fw)
     tap.way = began
+    bt_device(fw, A_MAC)
     Config(fw, **{key: b'90'})
     tap.app(state=CAST_ON, spk=20)
     tap.poll()
@@ -300,6 +302,26 @@ def test_an_output_changed_meanwhile_gets_its_own_saved_level_within_the_limit(f
     tap.app(state=CAST_OFF)
     tap.poll()
     assert tap.volume.value == 80 and tap.set()[-1] == (80, 1)  # that output's 90, held to the limit
+
+
+def test_a_bluetooth_device_changed_while_a_speaker_plays_gets_its_own_level_after(fw):
+    tap = Tap(fw)
+    bt_device(fw, A_MAC)
+    Config(fw, BTVAABBCCDDEEFF=b'30')
+    fw.fn('ringnav_output', C.c_int, C.c_int)(1)  # A connects: none of its own, the wired 60
+    tap.way = 1
+    tap.app(state=CAST_ON, spk=20)
+    tap.poll()
+    bt_device(fw, B_MAC)
+    look = fw.fn('bt_device_poll', None)
+    look()
+    assert tap.volume.value == 20  # the speaker's, still
+    tap.app(state=CAST_OFF)
+    tap.poll()
+    assert tap.volume.value == 60  # A's, from RAM
+    look()
+    assert tap.volume.value == 30 and tap.set()[-1] == (30, 1)  # then B's own
+    assert (60, b'Q2POD', A_KEY) in tap.saved()  # A's filed under A
 
 
 @pytest.mark.parametrize('seq, spk, last, want', [

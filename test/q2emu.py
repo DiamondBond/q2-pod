@@ -1715,19 +1715,24 @@ a_mac,b_mac='AA:AA:AA:AA:AA:AA','BB:BB:BB:BB:BB:BB'
 # Bluetooth volume runs through the shared hook. Mock only headset I/O
 # and stock gain; device_set_volume itself executes its native output routing.
 class OutputVolumeMachine(Machine):
-    def __init__(self,config=()):
+    def __init__(self,config=(),links=()):  # links: stock's Bluetooth link list, (MAC, status)
         super().__init__(); self.way=0; self.config.update(config); self.present.add('/mnt/data/config.ini')
+        self.links=[list(x) for x in links]
         self.byte(syms['g_volume'],20); self.byte(syms['g_maxvolume'],100)
         self.handlers.pop(syms['write_int_config'])
         for name,label in (('mclSetOutputWay','output'),('write_int_config','write_config')):
             self.handlers[HOOKS[name][0]+12]='stock_'+label
     def hook(self,u,address,size,unused):
         name=self.handlers.get(address,'')
-        if name not in ('mclGetOutputWay','stock_output','stock_write_config'):
+        if name not in ('mclGetOutputWay','stock_output','stock_write_config','getBtLinkSize','getBtLinkItem'):
             return super().hook(u,address,size,unused)
         a,b,c=[u.reg_read(r) for r in REGS[:3]]
         self.calls.append((name,a,b,c))
-        if name=='stock_output': self.way=a; ret=1
+        if name=='getBtLinkSize': ret=len(self.links)
+        elif name=='getBtLinkItem':
+            if 0<=signed(a)<len(self.links): self.word(b,self.links[a][1]); self.u.mem_write(c,self.links[a][0].encode()+b'\0')
+            ret=0
+        elif name=='stock_output': self.way=a; ret=1
         elif name=='stock_write_config': self.config[self.text(c)]=str(a); ret=0
         else: ret=self.way
         self.returns(ret)

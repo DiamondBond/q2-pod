@@ -2,6 +2,7 @@
 
 - **1.9.6**:
   - Library: **Songs**, **Albums**, **Artists**, **Genres**, Search and other long lists open faster on a big library, in the same order.
+  - Bluetooth: the Q2 keeps a volume for each Bluetooth device, so earbuds no longer start at a speaker's volume. A device connects at the volume last set for it. A new one starts at the lower of the old Bluetooth volume and the wired volume. **Max Volume** still limits each one.
   - App Store: once **Languages** is installed, its message says it is ready in **System settings**, where its **Language** row is. It said **Streaming**, where it has no row.
   - Bluetooth: an app such as Rockbox no longer opens with a moment of the song the Q2 was playing in the headphones. The Q2 sends them a short silence before it hands over, and hands over as before if that fails (#516).
   - The shutdown prompt keeps its **Shut Down** button when the screen turns off and wakes again.

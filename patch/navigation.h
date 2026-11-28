@@ -643,6 +643,12 @@ int ringnav_netservice(void *win, void *ctx);
 /* addon_bar.c: a card app's status bar icon, shown while room (bar_sync) */
 void bar_addon_sync(int room);
 
+/* bt_volume.c: Bluetooth's level for each device; the key a save goes under ("" the shared
+ * one), the connected device taken as the one that plays, and the look for another */
+const char *bt_volume_key(void);
+void bt_volume_device(void);
+void bt_device_poll(void);
+
 /* smart_wifi.c */
 void smart_wake(void); /* Smart Wi-Fi's radio back now, if it had it off */
 int smart_config(const char *section, const char *key);
