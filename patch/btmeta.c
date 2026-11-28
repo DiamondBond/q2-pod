@@ -78,7 +78,7 @@ void btmeta_poll(void) {
     if (key == bm.key && sec <= expected + SEEK_S && sec + SEEK_S >= expected && !bm.seek_pending)
         return;
     tk_snprintf(text + k, sizeof text - (unsigned)k, "position=%d\nnow=%u\n", sec * 1000,
-                (unsigned)(now_ns() / 1000000));
+                (unsigned)now_ms());
     if (!blob_io(RECORD, RECORD ".tmp", text, strlen(text), 1)) return; /* again next pass */
     bm.key = key;
     bm.seek_pending = 0;
