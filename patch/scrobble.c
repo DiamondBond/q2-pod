@@ -42,29 +42,49 @@ static struct {
     unsigned long thread;
     volatile int running, done, ok, sent;
     char cfg[CONFIG_N][256];
+    /* A secrets app (secrets.c) for this upload, by its id and name, or a SECRETS=1 in the file:
+     * marks, by section bit (1 ListenBrainz, 2 Last.fm), the file's SECRETS=1; own its sections
+     * with a login of the file's own; ask those the app now keeps (scrobble_ui.c offers them off
+     * the card); missing: a marked section left without its logins, so nothing went */
+    char app[16], name[32];
+    int marks, own, ask, missing;
 } up __attribute__((section(".scratch")));
 
 static const char header[] = "#AUDIOSCROBBLER/1.1\n#TZ/UTC\n#CLIENT/Q2 Pod\n";
 
+static const char *const keys[] = { "TOKEN",   "USER",       "PASSWORD",
+                                    "API_KEY", "API_SECRET", "SESSION_KEY" };
+#define SECTION(i) ((i) ? "LASTFM" : "LISTENBRAINZ")
+#define BIT(i) ((i) ? 2 : 1) /* a key's section, as up.marks' bits */
+#define BLANK(c) ((unsigned char)(c) <= ' ')
+
+static int fm_ready(char c[][256]) {
+    return c[FM_KEY][0] && c[FM_SECRET][0] && (c[FM_SK][0] || (c[FM_USER][0] && c[FM_PASS][0]));
+}
+
 /* Bit 0 ListenBrainz, bit 1 Last.fm: its API pair with a session key (SESSION_KEY, which
  * tools/lastfm_key.py puts in the password's place) or with the user and password that fetch one
- * at each upload. toolsReadConfig leaves the value alone for a missing file. */
-static int read_config(char c[][256]) {
-    static const char *const keys[] = { "TOKEN",   "USER",       "PASSWORD",
-                                        "API_KEY", "API_SECRET", "SESSION_KEY" };
+ * at each upload. toolsReadConfig leaves the value alone for a missing file. A section the file
+ * doesn't complete counts with SECRETS=1 too, its logins in a secrets app (*marks). */
+static int read_config(char c[][256], int *marks) {
     for (int i = 0; i < CONFIG_N; i++) {
         c[i][0] = 0;
         toolsReadConfig(INI_FILE, i ? "LASTFM" : "LISTENBRAINZ", keys[i], c[i], "");
     }
-    return (c[LB_TOKEN][0] != 0) |
-           (c[FM_KEY][0] && c[FM_SECRET][0] && (c[FM_SK][0] || (c[FM_USER][0] && c[FM_PASS][0])))
-               << 1;
+    int on = (c[LB_TOKEN][0] != 0) | fm_ready(c) << 1;
+    *marks = 0;
+    for (int bit = 1; bit < 4; bit <<= 1) {
+        char v[256] = "";
+        if (!(on & bit)) toolsReadConfig(INI_FILE, SECTION(bit >> 1), "SECRETS", v, "");
+        if (!strcmp(v, "1")) *marks |= bit;
+    }
+    return on | *marks;
 }
 
 /* The Library also offers linking with just the API pair, before an upload is possible. */
 int scrobble_ready(int *linkable) {
     char c[CONFIG_N][256];
-    int ready = read_config(c);
+    int marks, ready = read_config(c, &marks);
     if (linkable) *linkable = c[FM_KEY][0] && c[FM_SECRET][0];
     return ready;
 }
@@ -375,15 +395,133 @@ static int retire(unsigned done) {
     return ok;
 }
 
+/* The secrets app's copy: KEY=value lines (keys[]' names, which no two sections share) of the
+ * sections in bits, Last.fm's PASSWORD only until a session key replaces it; the same logins, the
+ * same bytes. */
+static unsigned copy_write(char *o, unsigned cap, int bits) {
+    unsigned n = 0;
+    for (int i = 0; i < CONFIG_N; i++)
+        if (bits & BIT(i) && up.cfg[i][0] && (i != FM_PASS || !up.cfg[FM_SK][0]) && n < cap)
+            n += (unsigned)tk_snprintf(o + n, cap - n, "%s=%s\n", keys[i], up.cfg[i]);
+    return n < cap ? n : 0;
+}
+
+/* Before the batches: the copy fills a marked section's logins the file lacks, the file's own
+ * winning (a SESSION_KEY Link Last.fm saved, a PASSWORD typed again, which then signs in as without
+ * the app); another Last.fm USER in the file takes none of the old account's session or password.
+ * -1, nothing sent and the log kept, when a marked section is still without its logins. */
+static int secrets_load(void) {
+    char copy[SECRETS_MAX], b[CONFIG_N][256] = { { 0 } };
+    up.own = 0;
+    for (int i = 0; i < CONFIG_N; i++)
+        if (i != FM_USER && up.cfg[i][0]) up.own |= BIT(i);
+    if (up.marks && up.app[0] && secrets_get(up.app, copy, sizeof copy) > 0)
+        for (char *line = copy, *next; *line; line = next) {
+            for (next = line; *next && *next != '\n'; ++next) {}
+            if (*next) *next++ = 0;
+            for (int i = 0; i < CONFIG_N; i++) {
+                unsigned k = (unsigned)strlen(keys[i]);
+                if (!strncmp(line, keys[i], k) && line[k] == '=')
+                    tk_snprintf(b[i], 256, "%s", line + k + 1);
+            }
+        }
+    if (b[FM_USER][0] && up.cfg[FM_USER][0] && strcmp(b[FM_USER], up.cfg[FM_USER]))
+        b[FM_PASS][0] = b[FM_SK][0] = 0;
+    if (up.cfg[FM_PASS][0]) b[FM_SK][0] = 0;
+    for (int i = 0; i < CONFIG_N; i++)
+        if (up.marks & BIT(i) && !up.cfg[i][0]) memcpy(up.cfg[i], b[i], 256);
+    memset(copy, 0, sizeof copy), memset(b, 0, sizeof b);
+    up.missing = (up.marks & 1 && !up.cfg[LB_TOKEN][0]) || (up.marks & 2 && !fm_ready(up.cfg));
+    return up.missing ? -1 : 0;
+}
+
+/* After an upload that sent something: the working logins (a sign-in's session key in the
+ * password's place) put in the app when its copy differs, and read back; ask is then the sections
+ * whose lines the file still holds. ponytail: a section gone from the file leaves the copy at the
+ * next put, but with none left the copy stays until the app's own Remove. */
+static void secrets_save(const char *got) {
+    char now[SECRETS_MAX], was[SECRETS_MAX];
+    if (got[0]) tk_snprintf(up.cfg[FM_SK], 256, "%s", got);
+    int bits = (up.cfg[LB_TOKEN][0] ? 1 : 0) | (fm_ready(up.cfg) ? 2 : 0);
+    unsigned n = copy_write(now, sizeof now, bits);
+    int have = n ? secrets_get(up.app, was, sizeof was) : -1;
+    if (have >= 0 && (have && !strcmp(was, now) ? 1 : secrets_put(up.app, now, n)))
+        up.ask = up.own & bits;
+    memset(now, 0, sizeof now), memset(was, 0, sizeof was);
+}
+
+/* Remove (scrobble_ui.c): .scrobble.ini again without the login lines of the sections in up.ask,
+ * one SECRETS=1 under each of their headers, every other line as it was. Lines are
+ * matched as stock's toolsReadConfig reads them (trimmed, any case), and the new file is read back
+ * with it before it is renamed over the old one: 1 only when none of those logins is left. Written
+ * beside it and synced, so a power cut leaves the old file or the new one; 0 and the old file on
+ * any failure. ponytail: the old bytes can stay in the card's free space. */
+int scrobble_strip(void) {
+    unsigned size;
+    char *p = read_all(INI_FILE, 64 << 10, &size);
+    void *f = p ? fopen(INI_FILE ".tmp", "wb") : 0;
+    int ok = f != 0, in = 0; /* the section's bit, 0 another */
+    for (unsigned at = 0, end; ok && at < size; at = end) {
+        for (end = at; end < size && p[end++] != '\n';) {}
+        unsigned s = at, e = end;
+        while (s < e && BLANK(p[s])) ++s;
+        while (e > s && BLANK(p[e - 1])) --e;
+        int drop = 0;
+        if (e > s && p[s] == '[' && p[e - 1] == ']') {
+            unsigned a = s + 1, z = e - 1;
+            while (a < z && BLANK(p[a])) ++a;
+            while (z > a && BLANK(p[z - 1])) --z;
+            in = z - a == 6 && !strncasecmp(p + a, "LASTFM", 6)           ? 2
+                 : z - a == 12 && !strncasecmp(p + a, "LISTENBRAINZ", 12) ? 1
+                                                                          : 0;
+            ok = fwrite(p + at, end - at, 1, f) == 1 &&
+                 (p[end - 1] == '\n' || fwrite("\n", 1, 1, f));
+            if (ok && in & up.ask) ok = fwrite("SECRETS=1\n", 10, 1, f) == 1;
+            continue;
+        }
+        unsigned k = s;
+        while (k < e && p[k] != '=') ++k;
+        while (k > s && BLANK(p[k - 1])) --k;
+        for (int i = 0; i <= CONFIG_N;
+             i++) { /* CONFIG_N: the section's SECRETS line, written anew */
+            const char *key = i < CONFIG_N ? keys[i] : "SECRETS";
+            drop |= in & up.ask && (i == CONFIG_N || (in == BIT(i) && i != FM_USER)) &&
+                    k - s == strlen(key) && !strncasecmp(p + s, key, k - s);
+        }
+        if (!drop) ok = fwrite(p + at, end - at, 1, f) == 1;
+    }
+    if (f) {
+        if (fflush(f) || fsync(fileno(f))) ok = 0;
+        if (fclose(f)) ok = 0;
+    }
+    for (int i = 0; ok && i < CONFIG_N; i++) {
+        char v[256] = "";
+        toolsReadConfig(INI_FILE ".tmp", SECTION(i), keys[i], v, "");
+        ok = !(BIT(i) & up.ask && i != FM_USER && v[0]);
+    }
+    if (ok) ok = !rename(INI_FILE ".tmp", INI_FILE);
+    if (f && !ok) unlink(INI_FILE ".tmp");
+    if (p) memset(p, 0, size), free(p);
+    if (ok) up.ask = 0;
+    return ok;
+}
+
+int scrobble_ask(const char **name) {
+    *name = up.name;
+    return up.ask;
+}
+int scrobble_missing(void) { return up.missing; }
+
 static void *worker(void *unused) {
     reply_t r;
     entry_t e[BATCH];
     char got[64] = "";
+    int loaded = up.app[0] || up.marks ? secrets_load() : 0; /* -1: a marked section unfilled */
     const char *sk = up.cfg[FM_SK][0] ? up.cfg[FM_SK] : got; /* the file's key, else session()'s */
     unsigned size;
     int lb = !!up.cfg[LB_TOKEN][0], fm = !!up.cfg[FM_KEY][0], sent = 0;
     buf_t b = { calloc(1, BODY_MAX), 0, BODY_MAX };
-    int ok = b.p != 0;
+    int ok = b.p && loaded >= 0;
     /* A window at a time, each retired before the next is read, until one comes back short. A full
      * window always retires something (whole lines, or the junk), so the passes end. ponytail: each
      * pass rewrites the rest of the log under the lock, so card writes grow with the square of the
@@ -418,6 +556,7 @@ static void *worker(void *unused) {
         if (done && !retire(done)) ok = 0;
     }
     free(b.p);
+    if (up.app[0] && ok && sent) secrets_save(got);
     up.sent = sent;
     up.ok = ok;
     up.done = 1;
@@ -427,12 +566,16 @@ static void *worker(void *unused) {
 /* 1 started, 0 already running, -1 no thread, -2 awaiting Last.fm approval. */
 int scrobble_start(void) {
     if (up.running) return 0;
-    int on = read_config(up.cfg);
+    int marks, on = read_config(up.cfg, &marks);
     /* A configured API pair awaiting approval keeps the backlog for both services. */
     if (!(on & 2) && up.cfg[FM_KEY][0] && up.cfg[FM_SECRET][0]) return -2;
     if (!on) return -1;
     if (!(on & 2)) up.cfg[FM_KEY][0] = 0; /* an incomplete Last.fm is off */
     up.done = 0;
+    /* with no secrets app on the card and no SECRETS=1, none of secrets.c runs: the upload as ever
+     */
+    up.marks = marks, up.ask = up.missing = 0;
+    if (!addon_secrets(up.app, up.name, marks)) up.app[0] = 0;
     if (pthread_create(&up.thread, 0, worker, 0)) return -1;
     up.running = 1;
     return 1;

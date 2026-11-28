@@ -87,7 +87,19 @@ static int upload_wait(const void *unused) {
     char s[96]; /* in any language */
     tk_snprintf(s, sizeof s, done < 0 ? tr("Upload failed, %d sent") : tr("Scrobbles sent: %d"),
                 sent);
-    toast(done > 0 && !sent ? tr("Nothing to upload") : s);
+    toast(done > 0 && !sent    ? tr("Nothing to upload")
+          : scrobble_missing() ? tr("Logins missing: add them back to .scrobble.ini")
+                               : s);
+    /* the logins now in a secrets app (scrobble.c secrets_save), after an upload that sent some:
+     * Remove takes them off the card; any other answer asks again after the next one */
+    const char *app;
+    if (done > 0 && sent && scrobble_ask(&app)) {
+        char ask[160];
+        tk_snprintf(ask, sizeof ask, tr("Logins saved in %s.\nRemove them from the card?"), app);
+        if (confirm_over(ask, tr("Remove"), 0) == 10)
+            toast(scrobble_strip() ? tr("Logins removed from the card")
+                                   : tr("Couldn't change .scrobble.ini"));
+    }
     return 0;
 }
 

@@ -1,6 +1,7 @@
 # Changelog
 
 - **1.9.6**:
+  - Scrobbling: with a card app that keeps logins installed, your Last.fm and ListenBrainz logins move into it at the next upload, and **Upload Scrobbles** offers to remove them from the card.
   - Library: **Songs**, **Albums**, **Artists**, **Genres**, Search and other long lists open faster on a big library, in the same order.
   - Bluetooth: the Q2 keeps a volume for each Bluetooth device, so earbuds no longer start at a speaker's volume. A device connects at the volume last set for it. A new one starts at the lower of the old Bluetooth volume and the wired volume. **Max Volume** still limits each one.
   - App Store: once **Languages** is installed, its message says it is ready in **System settings**, where its **Language** row is. It said **Streaming**, where it has no row.

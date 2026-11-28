@@ -1141,7 +1141,8 @@ def test_a_file_two_cue_tracks_run_to_the_end_of_is_kept_once(fw, ui, song, cloc
 # Upload Scrobbles.
 class Up(C.Structure):
     _fields_ = [('lock', C.c_uint * 16), ('thread', C.c_ulong), ('running', C.c_int), ('done', C.c_int), ('ok', C.c_int),
-                ('sent', C.c_int), ('cfg', (C.c_char * 256) * 6)]
+                ('sent', C.c_int), ('cfg', (C.c_char * 256) * 6), ('app', C.c_char * 16), ('name', C.c_char * 32),
+                ('marks', C.c_int), ('own', C.c_int), ('ask', C.c_int), ('missing', C.c_int)]
 
 
 class Scrobbler:
@@ -3709,3 +3710,55 @@ def test_a_database_that_refuses_leaves_the_playlist(fw, song, fail, rolled):
 def test_a_database_that_will_not_open_is_left(fw, song):
     db = Playlists(fw, {}, opens=False)
     assert mutate(fw, 3, entry(song, 201, b'/m/a.flac')) == 0 and db.log == []
+
+
+# After Upload Scrobbles, with a secrets app keeping the logins (scrobble.c secrets_save sets ask).
+
+PROMPT = 'Logins saved in Vault.'
+
+
+def asked(fw, ui, answer, ask=3, ok=1, sent=1):
+    """Upload Scrobbles ended with ask set; answer: the Remove prompt's (10 Remove). (every dialog's first line, in
+    turn; config.ini's writes)"""
+    scrobbler = Scrobbler(fw)
+    seen, saved = [], []
+
+    def show(name, info, *_):
+        seen.append(C.string_at(info + 8).decode())
+        if seen[-1] == PROMPT:
+            assert C.string_at(info + 8 + 0x200) == b'Remove them from the card?'  # stock's two-line prompt
+        return answer if seen[-1] == PROMPT else 0
+    fw.mock('navigator_to_with_context', show)
+    fw.mock('write_int_config', lambda v, s, k, *_: saved.append((v, C.string_at(s), C.string_at(k))))
+    call(fw, 'upload_scrobbles')
+    scrobbler.ends(ok, sent)
+    scrobbler.up.ask, scrobbler.up.name = ask, b'Vault'
+    ui.fire('upload_wait')
+    return seen, saved
+
+
+def test_remove_is_offered_once_the_app_keeps_the_logins(fw, ui):
+    seen, saved = asked(fw, ui, 10)
+    assert seen.count(PROMPT) == 1 and saved == []
+    assert seen[-1] == "Couldn't change .scrobble.ini"  # no file here: scrobble_strip fails
+
+
+def test_any_other_answer_does_nothing(fw, ui):
+    seen, saved = asked(fw, ui, 0)
+    assert seen[-1] == PROMPT and saved == []  # asked again after the next upload that sends
+
+
+@pytest.mark.parametrize('why', ['failed', 'nothing sent', 'nothing to offer'])
+def test_remove_isn_t_offered(fw, ui, why):
+    seen, saved = asked(fw, ui, 10, ask=0 if why == 'nothing to offer' else 3, ok=0 if why == 'failed' else 1,
+                        sent=0 if why == 'nothing sent' else 1)
+    assert PROMPT not in seen and saved == []
+
+
+def test_logins_the_app_can_t_fill_say_so(fw, ui):
+    scrobbler = Scrobbler(fw)
+    call(fw, 'upload_scrobbles')
+    scrobbler.ends(0, 0)
+    scrobbler.up.missing = 1
+    ui.fire('upload_wait')
+    assert ui.toasts[1:] == ['Logins missing: add them back to .scrobble.ini']

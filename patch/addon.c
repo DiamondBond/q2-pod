@@ -107,7 +107,7 @@
 #define ADDON_CAPS                                                                                 \
     "playlist progress pages library goto sleep game audio sections art window urls sort field "   \
     "more fav now fieldtext wake audio2 dim gameview eq screen volume wifi network bar switch "    \
-    "playkept playing takeover player input needs bt seen"
+    "playkept playing takeover player input needs bt seen secrets"
 #define ADDON_SECTIONS 8  /* sections an app's first page may have */
 #define SWIPE_CLAIM_PX 24 /* a sideways move this far, twice as far as up or down, is a swipe's */
 #define SWIPE_PX 60       /* and this far at the lift, more than up or down, changes section */
@@ -145,7 +145,8 @@ typedef struct {
     int lang;     /* q2app's lang=1: a language pack, picked in System settings' Language row */
     char needs[NEEDS_MAX][APP_ID]; /* q2app's needs: the ids of the apps it needs (needs_read) */
     int nneeds;
-    int bt; /* q2app's bt=1: started while Bluetooth is on, stopped when it goes off */
+    int bt;      /* q2app's bt=1: started while Bluetooth is on, stopped when it goes off */
+    int secrets; /* q2app's secrets=1: it keeps Q2 Pod's scrobbling logins (secrets.c) */
 } app_t;
 enum { ROW_STREAMING, ROW_GAMES, ROW_LIBRARY, ROW_NETWORK }; /* as addon_scan's rows[] names them */
 
@@ -252,6 +253,7 @@ static void slots_read(void) {
         a->lang = number(raw, "lang") == 1;
         needs_read(a, raw);
         a->bt = number(raw, "bt") == 1;
+        a->secrets = number(raw, "secrets") == 1;
         /* its row where row says, else as firmware without the key lists it: Games for a game,
          * Streaming for any other */
         static const char *const rows[] = { "streaming", "games", "library", "network" };
@@ -317,6 +319,19 @@ int addon_scan(void) {
     }
     blob_io(CAPS_FILE, CAPS_FILE ".tmp", ADDON_CAPS "\n", sizeof(ADDON_CAPS "\n") - 1, 1);
     return ap.cnt[ROW_STREAMING];
+}
+
+/* scrobble.c's scrobble_start, on the UI thread: the slots as the last scan left them, so no card
+ * read unless scan and none has run (an automatic upload before Home's first). */
+int addon_secrets(char *id, char *name, int scan) {
+    if (scan && !ap.n) slots_read();
+    for (int i = 0; i < ap.n; ++i)
+        if (ap.a[i].present && ap.a[i].secrets) {
+            tk_snprintf(id, APP_ID, "%s", ap.a[i].id);
+            tk_snprintf(name, 32, "%s", ap.a[i].name);
+            return 1;
+        }
+    return 0;
 }
 
 const char *addon_name(int k) {
