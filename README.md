@@ -200,6 +200,11 @@ The [user guide][guide] covers every control, EQ, Cover Flow and more tips.
     <td></td>
   </tr>
   <tr valign="top">
+    <td><b><a href="https://github.com/DiamondBond/q2-deck">Deck</a></b></td>
+    <td>Play the Q2 from your phone, tablet or computer: open <b>Library → Apps → Deck</b> and scan the code with a phone on the same Wi-Fi. Browse and search the library, see the cover and lyrics, change the queue, and use the Q2's own screen and click wheel from the page. Needs Q2 Pod 1.9.6.</td>
+    <td></td>
+  </tr>
+  <tr valign="top">
     <td><b><a href="https://github.com/DiamondBond/q2-mixtape">Mixtape</a></b></td>
     <td>Mixes from your own music, 5 minutes to an hour long: a shuffle, your most played, forgotten favourites, songs that sound like an album or artist, or Last.fm's and ListenBrainz's picks. In <b>Library → Apps → Mixtape</b>.</td>
     <td></td>
