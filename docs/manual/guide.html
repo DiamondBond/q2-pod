@@ -904,7 +904,7 @@ TOKEN=12345678-1234-1234-1234-123456789abc</pre>
   </div>
   <p class="task">To upload your listens:</p>
   <ol class="steps">
-    <li>Put the card in the Q2 and open <b>Library</b>. <b>Upload Scrobbles</b> appears when the file has a ListenBrainz token or your Last.fm API key, secret and session key.</li>
+    <li>Put the card in the Q2 and open <b>Library</b>. <b>Upload Scrobbles</b> appears when the file has a ListenBrainz token or your Last.fm API key and secret.</li>
     <li>Set the Q2’s date, time and time zone. An incorrect clock can stop uploads.</li>
     <li>Connect to Wi-Fi, then select <b>Upload Scrobbles</b>.</li>
   </ol>
@@ -927,7 +927,8 @@ TOKEN=12345678-1234-1234-1234-123456789abc</pre>
   </div>
   <div class="sub">
   <h3 id="lastfm-link">Link your Last.fm account</h3>
-  <p>Put the card in a computer with Python 3.9 or newer. Download <a href="https://github.com/DiamondBond/q2-pod/raw/main/tools/lastfm_key.py">lastfm_key.py</a> and run it with the path to the file on your card. On Windows, use <code>py</code>.</p>
+  <p>Connect the Q2 to Wi-Fi and open <b>Library → Link Last.fm</b>. Scan the code with your phone, approve access on Last.fm, then press <b>Done</b> on the Q2. It saves <code>SESSION_KEY</code> on the card and uploads your queued listens. You can now remove any old <code>PASSWORD</code> line from <code>[LASTFM]</code>.</p>
+  <p>For setup on a computer, download <a href="https://github.com/DiamondBond/q2-pod/raw/main/tools/lastfm_key.py">lastfm_key.py</a> and run it with Python 3.9 or newer and the path to your card’s file. On Windows, use <code>py</code>.</p>
   <pre>python3 lastfm_key.py /path/to/card/.scrobble.ini</pre>
   <p>Approve access in your browser, then press Enter in the terminal. If the browser does not open, use the printed link. The helper saves <code>SESSION_KEY</code> and removes any old Last.fm password from the file. If you lose the card, revoke the app in <b>Settings → Applications</b> on Last.fm. A password previously stored on the card may still be recoverable.</p>
   </div>

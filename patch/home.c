@@ -115,7 +115,11 @@ int ringnav_localmusic(widget_t *win, void *ctx) {
         widget_restack(library_row(view, "local_games", games_open, 0, tr("Games"), 1), n++);
     if (!pod_value(POD_HIDE_STORE))
         widget_restack(library_row(view, "local_store", shelf_open, 0, tr("App Store"), 1), n++);
-    if (scrobble_ready())
+    int linkable, ready = scrobble_ready(&linkable);
+    if (linkable)
+        widget_restack(library_row(view, "local_scrobble", lastfm_link, 0, tr("Link Last.fm"), 1),
+                       n++);
+    if (ready || linkable)
         widget_restack(
             library_row(view, "local_scrobble", upload_scrobbles, 0, tr("Upload Scrobbles"), 0),
             n++);

@@ -94,6 +94,7 @@ static int upload_wait(const void *unused) {
 int upload_scrobbles(void *ctx, event_t *event) {
     if (!need_link(upload_scrobbles, ctx)) return 0; /* held for Smart Wi-Fi's link, or none */
     int started = scrobble_start();
+    if (started == -2) return lastfm_link(ctx, event);
     if (!started && sa.running) sa.running = 0, started = 1; /* the automatic one: report it */
     if (started > 0) timer_add(upload_wait, (void *)0, 500);
     toast(started > 0 ? tr("Uploading scrobbles")

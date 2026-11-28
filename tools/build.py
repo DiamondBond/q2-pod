@@ -1652,6 +1652,7 @@ FUNCTIONS = {
  'navigator_back': ('int', 'void'),
  'write_int_config': ('int', 'int, const char *, const char *'),
  'toolsWriteConfig': ('int', 'const char *, const char *, const char *, const char *'),
+ 'toolsMakeQrcode': ('int', 'const char *, const char *'),  # URL to PNG, through stock libqrencode
  'toolsReadConfig': ('int', 'const char *, const char *, const char *, char *, const char *'),
  'toolsCopyFile': ('int', 'const char *, const char *'),  # the bytes read, -1 when either can't open (system.c)
  'button_create': ('widget_t *', 'widget_t *, int, int, int, int'),
@@ -1917,7 +1918,7 @@ FLAGS = ['--target=mipsel-linux-gnu','-march=mips32r2','-mabi=32','-mfp64',
          '-Wshadow','-Wimplicit-int-conversion','-Wconditional-uninitialized','-Wmissing-variable-declarations',
          '-Wvla','-Wundef']
 # navigation.c and the files split out of it (patch/navigation.h), each its own object, linked in this order.
-NAVIGATION = ['navigation.c', 'theme_engine.c', 'playlists.c', 'classic_pages.c', 'home.c', 'np_bar.c', 'volume.c', 'smart_wifi.c', 'system.c', 'usb_charge.c', 'tags.c', 'scrobble_ui.c', 'library_lists.c', 'durations.c', 'script.c', 'coverflow_position.c', 'ratings.c', 'scan_folders.c', 'folder_delete.c', 'battery.c', 'np_lyrics.c', 'quick_settings.c', 'flat.c', 'clock.c', 'queue_menu.c', 'np_marks.c', 'rotate.c', 'netservice.c', 'addon_bar.c', 'side_seek.c', 'language.c', 'bidi_text.c', 'card_theme.c', 'card_rules.c', 'sleep_row.c', 'shortcut_pick.c', 'name_sort.c', 'window_split.c']
+NAVIGATION = ['navigation.c', 'theme_engine.c', 'playlists.c', 'classic_pages.c', 'home.c', 'np_bar.c', 'volume.c', 'smart_wifi.c', 'system.c', 'usb_charge.c', 'tags.c', 'scrobble_ui.c', 'lastfm_link.c', 'library_lists.c', 'durations.c', 'script.c', 'coverflow_position.c', 'ratings.c', 'scan_folders.c', 'folder_delete.c', 'battery.c', 'np_lyrics.c', 'quick_settings.c', 'flat.c', 'clock.c', 'queue_menu.c', 'np_marks.c', 'rotate.c', 'netservice.c', 'addon_bar.c', 'side_seek.c', 'language.c', 'bidi_text.c', 'card_theme.c', 'card_rules.c', 'sleep_row.c', 'shortcut_pick.c', 'name_sort.c', 'window_split.c']
 
 def compile_payload(out):  # pragma: no mutate block
     """Compile and link the payload."""

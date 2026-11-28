@@ -2346,7 +2346,7 @@ SCROBBLE = r"""
 #include <sys/resource.h>
 #include <sys/stat.h>
 #include "peq.h"
-int scrobble_ready(void), scrobble_start(void), scrobble_poll(int *), scrobble_flag(const char *);
+int scrobble_ready(int *), scrobble_start(void), scrobble_poll(int *), scrobble_flag(const char *);
 int scrobble_append(const char *, unsigned);
 
 static const char *cfg[7]; /* TOKEN, USER, PASSWORD, API_KEY, API_SECRET, ALBUM_ARTIST, AUTO */
@@ -2452,20 +2452,20 @@ int main(void) {
     int sent = -1;
     dump = fopen(ROOT "/requests", "w");
     setvbuf(dump, 0, _IONBF, 0);
-    assert(!scrobble_ready() && run(&sent) == -11); /* no accounts: no row, and never an upload */
+    assert(!scrobble_ready(NULL) && run(&sent) == -11); /* no accounts: no row, and never an upload */
     assert(!scrobble_flag("ALBUM_ARTIST")); /* [SCROBBLE] flags: off unless 1 */
     cfg[5] = "0";
     assert(!scrobble_flag("ALBUM_ARTIST"));
     cfg[5] = "1";
-    assert(scrobble_flag("ALBUM_ARTIST") && !scrobble_flag("AUTO") && !scrobble_ready()); /* not an account */
+    assert(scrobble_flag("ALBUM_ARTIST") && !scrobble_flag("AUTO") && !scrobble_ready(NULL)); /* not an account */
     cfg[6] = "1";
     assert(scrobble_flag("AUTO"));
     cfg[0] = "tok";
-    assert(scrobble_ready() == 1);
+    assert(scrobble_ready(NULL) == 1);
     cfg[1] = "u", cfg[2] = "p&w", cfg[3] = "key";
-    assert(scrobble_ready() == 1); /* Last.fm needs all four */
+    assert(scrobble_ready(NULL) == 1); /* Last.fm needs all four */
     cfg[4] = "sec";
-    assert(scrobble_ready() == 3);
+    assert(scrobble_ready(NULL) == 3);
     assert(run(&sent) == 1 && !sent && !requests); /* no log: nothing to upload */
 
     write_log(120);
@@ -2486,7 +2486,7 @@ int main(void) {
     strcpy(before, slurp(LOG)); /* no session key: nothing changes */
     fail_at = -1, no_key = 1;
     assert(run(&sent) == -1 && !sent && !strcmp(slurp(LOG), before) && lines(slurp(LOG ".sent")) == 172);
-    cfg[1] = 0, no_key = 0; /* An old card CA file is ignored: firmware supplies trust. */
+    cfg[3] = 0, no_key = 0; /* An old card CA file is ignored: firmware supplies trust. */
     fclose(fopen(ROOT "/mnt/mmc/.scrobble.pem", "w"));
     assert(run(&sent) == 1 && sent == 10 && !strcmp(slurp(LOG), HEADER));
     /* A log rewrite that fails (a full card) keeps the listens to resend, and .sent gains none. */

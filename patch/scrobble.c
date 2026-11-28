@@ -61,9 +61,12 @@ static int read_config(char c[][256]) {
                << 1;
 }
 
-int scrobble_ready(void) {
+/* The Library also offers linking with just the API pair, before an upload is possible. */
+int scrobble_ready(int *linkable) {
     char c[CONFIG_N][256];
-    return read_config(c);
+    int ready = read_config(c);
+    if (linkable) *linkable = c[FM_KEY][0] && c[FM_SECRET][0];
+    return ready;
 }
 
 /* [SCROBBLE] key's number, 0 when missing. PERCENT: the share of a song heard that logs a listen
@@ -256,11 +259,12 @@ static int by_name(const void *a, const void *b) {
 }
 
 /* A signed Last.fm call: api_sig is the MD5 of the sorted names and values, then the secret. */
-static int lastfm(param_t *p, int n, buf_t *b, reply_t *r) {
+static long signed_post(param_t *p, int n, buf_t *b, reply_t *r, const char *key,
+                        const char *secret) {
     unsigned ctx[32];
     unsigned char d[16];
     char sig[33];
-    add(p, &n, "api_key", -1, up.cfg[FM_KEY]);
+    add(p, &n, "api_key", -1, key);
     qsort(p, (unsigned)n, sizeof *p, by_name);
     MD5_Init(ctx);
     b->n = 0;
@@ -272,17 +276,38 @@ static int lastfm(param_t *p, int n, buf_t *b, reply_t *r) {
         put(b, p[i].value, 1);
         put(b, "&", 0);
     }
-    MD5_Update(ctx, up.cfg[FM_SECRET], strlen(up.cfg[FM_SECRET]));
+    MD5_Update(ctx, secret, strlen(secret));
     MD5_Final(d, ctx);
     for (int i = 0; i < 16; i++) tk_snprintf(sig + 2 * i, 3, "%02x", d[i]);
     put(b, "api_sig=", 0);
     put(b, sig, 0);
     put(b, "&format=json", 0);
+    return b->n < b->cap ? post(FM_URL, b->p, 0, r) : 0;
+}
+
+static int lastfm(param_t *p, int n, buf_t *b, reply_t *r) {
     /* A refusal is {"message":...,"error":9}. Only the key counts: track.scrobble's reply echoes
      * each listen's names, and a name is JSON-escaped (a quote is \"), so none reads as "error":.
      * ponytail: rests on Last.fm's compact JSON (no space before the colon); parse the reply if
      * that changes. */
-    return b->n < b->cap && post(FM_URL, b->p, 0, r) == 200 && !strstr(r->s, "\"error\":");
+    return signed_post(p, n, b, r, up.cfg[FM_KEY], up.cfg[FM_SECRET]) == 200 &&
+           !strstr(r->s, "\"error\":");
+}
+
+/* The link worker uses its own credentials while an upload can be running. Last.fm sends the
+ * reason for a refused token in the response body, including on HTTP 403. */
+int scrobble_auth(const char *key, const char *secret, const char *token, char *json,
+                  unsigned cap) {
+    char body[1024];
+    buf_t b = { body, 0, sizeof body };
+    reply_t r = { 0 };
+    param_t p[3];
+    int n = 0;
+    add(p, &n, "method", -1, *token ? "auth.getSession" : "auth.getToken");
+    add(p, &n, "token", -1, token);
+    long status = signed_post(p, n, &b, &r, key, secret);
+    tk_snprintf(json, cap, "%s", r.s);
+    return status == 200;
 }
 
 /* auth.getMobileSession: the session key for the batches, once per upload, when the file has
@@ -399,11 +424,13 @@ static void *worker(void *unused) {
     return 0;
 }
 
-/* 1 started, 0 already running, -1 no thread. */
+/* 1 started, 0 already running, -1 no thread, -2 awaiting Last.fm approval. */
 int scrobble_start(void) {
     if (up.running) return 0;
     int on = read_config(up.cfg);
-    if (!on) return -1; /* nothing would take the batches, so none may leave the log */
+    /* A configured API pair awaiting approval keeps the backlog for both services. */
+    if (!(on & 2) && up.cfg[FM_KEY][0] && up.cfg[FM_SECRET][0]) return -2;
+    if (!on) return -1;
     if (!(on & 2)) up.cfg[FM_KEY][0] = 0; /* an incomplete Last.fm is off */
     up.done = 0;
     if (pthread_create(&up.thread, 0, worker, 0)) return -1;

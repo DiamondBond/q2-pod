@@ -217,15 +217,15 @@ def upload(fw, log, values=ACCOUNT, reply=None, fail=()):
                                           ({k: v for k, v in ACCOUNT.items() if k[0] == 'LASTFM'}, 2), (ACCOUNT, 3)))
 def test_ready_is_listenbrainz_s_token_and_last_fm_s_four(fw, values, want):
     read = config(fw, values)
-    assert fw.fn('scrobble_ready', C.c_int)() == want
+    assert fw.fn('scrobble_ready', C.c_int, C.POINTER(C.c_int))(None) == want
     assert set(read) == {INI}
 
 
 def test_a_key_the_file_lacks_reads_empty_not_what_the_stack_held(fw):
     config(fw, ACCOUNT)
-    assert fw.fn('scrobble_ready', C.c_int)() == 3
+    assert fw.fn('scrobble_ready', C.c_int, C.POINTER(C.c_int))(None) == 3
     config(fw, {})
-    assert fw.fn('scrobble_ready', C.c_int)() == 0
+    assert fw.fn('scrobble_ready', C.c_int, C.POINTER(C.c_int))(None) == 0
 
 
 @pytest.mark.parametrize('value, flag', (('1', 1), ('0', 0), ('2', 0), (None, 0), ('', 0)))
@@ -388,7 +388,7 @@ KEYED = {('LASTFM', 'USER'): 'u', ('LASTFM', 'SESSION_KEY'): 'SK9', ('LASTFM', '
         ({k: v for k, v in ACCOUNT.items() if k[0] == 'LASTFM' and k[1] != 'PASSWORD'}, 0)))  # neither: as before
 def test_last_fm_is_ready_with_a_session_key_in_the_password_s_place(fw, values, want):
     config(fw, values)
-    assert fw.fn('scrobble_ready', C.c_int)() == want
+    assert fw.fn('scrobble_ready', C.c_int, C.POINTER(C.c_int))(None) == want
 
 
 def test_a_session_key_in_the_file_sends_the_batches_and_asks_for_no_session(fw):
@@ -424,11 +424,23 @@ def test_a_line_still_being_written_stays_in_the_log(fw):
     assert result == 1 and sent == 1 and card.files[LOG] == HEADER + partial
 
 
-def test_an_incomplete_last_fm_is_off(fw):
-    """The API pair without a password or session key: no sign-in is tried with an empty password."""
+def test_an_api_pair_awaiting_approval_keeps_the_batch_for_both_services(fw):
     values = {**LB_ONLY, ('LASTFM', 'USER'): 'u', ('LASTFM', 'API_KEY'): 'k', ('LASTFM', 'API_SECRET'): 's'}
-    (_, result, sent), _, net = upload(fw, HEADER + line(), values=values)
-    assert result == 1 and sent == 1 and not net.to('audioscrobbler') and len(net.to('listenbrainz')) == 1
+    result, card, net = upload(fw, HEADER + line(), values=values)
+    assert result == (-2, None, None) and not net.requests and card.files == {LOG: HEADER + line()}
+    linkable = C.c_int()
+    assert fw.fn('scrobble_ready', C.c_int, C.POINTER(C.c_int))(C.byref(linkable)) == 1 and linkable.value
+
+
+def test_link_signs_both_calls_and_only_the_exchange_sends_the_token(fw):
+    net = Net(fw, lambda url, body: (200, '{"token":"abc"}') if 'auth.getToken' in body else
+              (403, '{"error":14}'))
+    auth = fw.fn('scrobble_auth', C.c_int, C.c_char_p, C.c_char_p, C.c_char_p, C.c_char_p, C.c_uint)
+    reply = C.create_string_buffer(1024)
+    assert auth(b'key', b'sec', b'', reply, len(reply)) and json.loads(reply.value) == {'token': 'abc'}
+    assert not auth(b'key', b'sec', b'abc', reply, len(reply)) and json.loads(reply.value) == {'error': 14}
+    assert net.forms() == [{'api_key': 'key', 'method': 'auth.getToken'},
+                           {'api_key': 'key', 'method': 'auth.getSession', 'token': 'abc'}]
 
 
 def test_last_fm_alone_sends_no_json(fw):

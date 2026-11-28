@@ -326,8 +326,10 @@ extern int stock_keyup_trampoline(void *, event_t *), stock_touch_trampoline(voi
     stock_stream_row_trampoline(widget_t *, event_t *),
     stock_standby_row_trampoline(widget_t *, event_t *),
     stock_netservice_row_trampoline(widget_t *, event_t *), stock_online_match_trampoline(void *);
-extern int scrobble_ready(void), scrobble_start(void), scrobble_poll(int *sent),
+extern int scrobble_ready(int *linkable), scrobble_start(void), scrobble_poll(int *sent),
     scrobble_flag(const char *key), scrobble_value(const char *key);
+int scrobble_auth(const char *key, const char *secret, const char *token, char *json, unsigned cap);
+int lastfm_link(void *ctx, event_t *event);
 extern const char *now_tag(void *r, int field);
 extern void *queue_now(unsigned *pos, unsigned *n); /* coverflow.c: the playing record, or 0 */
 extern int queue_loaded(void);
