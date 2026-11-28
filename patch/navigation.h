@@ -780,4 +780,8 @@ int ple_listing(void);
 int pl_first(menu_t *m, int cur);
 void pl_fit(widget_t *button);
 
+/* bt_handover.c: best-effort silence before a takeover's existing gain increase and exit. */
+int bt_handover_route(void);
+void bt_handover_quiet(int routed);
+
 #endif

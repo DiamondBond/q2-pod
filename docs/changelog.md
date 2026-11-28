@@ -3,6 +3,7 @@
 - **1.9.6**:
   - Library: **Songs**, **Albums**, **Artists**, **Genres**, Search and other long lists open faster on a big library, in the same order.
   - App Store: once **Languages** is installed, its message says it is ready in **System settings**, where its **Language** row is. It said **Streaming**, where it has no row.
+  - Bluetooth: an app such as Rockbox no longer opens with a moment of the song the Q2 was playing in the headphones. The Q2 sends them a short silence before it hands over, and hands over as before if that fails (#516).
   - The shutdown prompt keeps its **Shut Down** button when the screen turns off and wakes again.
   - Cover Flow: after **Rate Album** in a cover's hold menu, the wheel sets the hearts. It turned the covers behind them instead, so the album could not be rated with the wheel.
   - Folder names and file names copied from a Mac show й, ё and accented letters with the mark over its letter, not over the next one or into a capital (#542).
