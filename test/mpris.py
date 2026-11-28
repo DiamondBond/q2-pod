@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Optional private-bus metadata check (cc, libdbus headers, dbus-daemon, Python dbus/gi)."""
+"""Optional private-bus metadata check (cc, libdbus, dbus-daemon, Python dbus/gi)."""
 import fcntl
 import json
 import os
@@ -56,9 +56,8 @@ def record(path, generation, status='Playing', position=1000):
 def main():
     with tempfile.TemporaryDirectory(prefix='q2mpris-') as tmp:
         d = Path(tmp)
-        flags = subprocess.check_output(['pkg-config', '--cflags', '--libs', 'dbus-1'], text=True).split()
         subprocess.run(['cc', '-std=gnu99', '-Wall', '-Wextra', '-Werror', str(ROOT/'patch/mpris.c'),
-                        '-o', str(d/'helper'), *flags], check=True)
+                        '-o', str(d/'helper'), '-l:libdbus-1.so.3'], check=True)
         with open('/tmp/q2-mpris-tests.lock', 'a') as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
             path = Path('/tmp/q2-bt/nowplaying')

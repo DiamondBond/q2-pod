@@ -1980,13 +1980,7 @@ def check_rootfs_size(size, stock_size):
     check(free >= ROOTFS_FREE_MIN, f'Repacked rootfs leaves {free:,} bytes of stock size free, '
                                    f'{ROOTFS_FREE_MIN - free:,} short of ROOTFS_FREE_MIN ({ROOTFS_FREE_MIN:,})')
 
-def dbus_cflags(out):
-    (out/'dbus').mkdir(exist_ok=True)
-    (out/'dbus/dbus-arch-deps.h').write_bytes((ROOT/'patch/dbus-arch-deps.h').read_bytes())
-    return [f'-I{out}', *run('pkg-config', '--cflags', 'dbus-1').split()]
-
-
-def compile_helper(out, cat, src, name, rels, cflags=()):
+def compile_helper(out, cat, src, name, rels):
     """Link patch/{src}.c and start.c as name against the stock rootfs's libraries rels."""
     libs = []
     for rel in rels:
@@ -1995,7 +1989,7 @@ def compile_helper(out, cat, src, name, rels, cflags=()):
     objs = [out/f'{s}.o' for s in (src, 'start')]
     for o in objs:
         run('clang', *[f for f in FLAGS if f not in ('-mno-abicalls', '-G0')], '-mnan=2008', '-mabs=2008',
-            '-mabicalls', *cflags, '-c', ROOT/'patch'/f'{o.stem}.c', '-o', o)
+            '-mabicalls', '-c', ROOT/'patch'/f'{o.stem}.c', '-o', o)
     run('ld.lld', '-m', 'elf32ltsmip', '-e', '__start', '--dynamic-linker', '/lib/ld-linux-mipsn8.so.1',
         '--image-base=0x400000', '-z', 'noexecstack', '--gc-sections', '-s', '--hash-style=sysv', '--build-id=none',
         *objs, *libs, '-o', out/name)
@@ -2553,7 +2547,7 @@ def build(zip_path, out, logo, dev=False, repo=REPO, stock_flac=False):  # pragm
     for path, (like, data) in {**{xx+n: (xx+l, d) for n, (l, d) in icons.items()}, **pages, **drawn,
                                'etc/init.d/S12usbcharge': ('etc/init.d/S20urandom', (ROOT/'patch/usb_charge.sh').read_bytes()),
                                HELPER: (HELPER_LIKE, compile_helper(out, cat, 'video', 'q2video', HELPER_LIBS)),
-                               MPRIS: (HELPER_LIKE, compile_helper(out, cat, 'mpris', 'q2mpris', MPRIS_LIBS, dbus_cflags(out))),
+                               MPRIS: (HELPER_LIKE, compile_helper(out, cat, 'mpris', 'q2mpris', MPRIS_LIBS)),
                                SCROBBLE_CA: ('etc/hosts', (ROOT/'assets/scrobble-ca.pem').read_bytes()),
                                Q2MOUNT: ('etc/init.d/S20urandom', Q2MOUNT_SH),  # an executable script's (wifi_connect.sh's is swapped)
                                BOOT: (HELPER_LIKE, compile_helper(out, cat, 'boot', 'q2boot', HELPER_LIBS[:1])),

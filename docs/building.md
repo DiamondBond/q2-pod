@@ -11,7 +11,6 @@
 ## Requirements
 
 - clang, lld and llvm-objcopy
-- pkg-config and libdbus-1-dev headers for the Bluetooth metadata helper
 - squashfs-tools 4.6 or later (tested with 4.6.1 and 4.7.5)
 - ImageMagick 6 or 7 for the iPod UI's settings icons (`convert` or `magick`; tested with 6.9.12)
 - The test dependencies: `pip install -r requirements.txt`

@@ -14,7 +14,84 @@
  * Plain libdbus, no GLib or helper threads. Text buffers are fixed. Built by tools/build.py
  * against the stock rootfs's libdbus-1. */
 #define _GNU_SOURCE
-#include <dbus/dbus.h>
+/* libdbus 1.12's, as the stock rootfs has it: what this file uses, with the structs a caller
+ * allocates laid out as libdbus's own on 32 and 64 bits (no host libdbus headers needed). */
+typedef unsigned dbus_bool_t;
+typedef int dbus_int32_t;
+typedef long long dbus_int64_t;
+typedef struct DBusConnection DBusConnection;
+typedef struct DBusMessage DBusMessage;
+typedef struct {
+    void *dummy1, *dummy2;
+    unsigned dummy3;
+    int dummy4[9];
+    void *pad2, *pad3;
+} DBusMessageIter;
+typedef struct {
+    const char *name, *message;
+    unsigned dummy;
+    void *padding1;
+} DBusError;
+typedef enum { DBUS_BUS_SESSION, DBUS_BUS_SYSTEM } DBusBusType;
+typedef enum { DBUS_HANDLER_RESULT_HANDLED, DBUS_HANDLER_RESULT_NOT_YET_HANDLED } DBusHandlerResult;
+typedef enum { DBUS_DISPATCH_DATA_REMAINS } DBusDispatchStatus;
+typedef DBusHandlerResult (*DBusHandleMessageFunction)(DBusConnection *, DBusMessage *, void *);
+typedef struct {
+    void (*unregister_function)(DBusConnection *, void *);
+    DBusHandleMessageFunction message_function;
+    void (*pad[4])(void *);
+} DBusObjectPathVTable;
+#define FALSE 0
+#define DBUS_TYPE_INVALID 0
+#define DBUS_TYPE_ARRAY 'a'
+#define DBUS_TYPE_DICT_ENTRY 'e'
+#define DBUS_TYPE_OBJECT_PATH 'o'
+#define DBUS_TYPE_STRING 's'
+#define DBUS_TYPE_VARIANT 'v'
+#define DBUS_SERVICE_DBUS "org.freedesktop.DBus"
+#define DBUS_INTERFACE_DBUS "org.freedesktop.DBus"
+#define DBUS_INTERFACE_PROPERTIES "org.freedesktop.DBus.Properties"
+DBusConnection *dbus_bus_get_private(DBusBusType, DBusError *);
+void dbus_bus_add_match(DBusConnection *, const char *, DBusError *);
+dbus_bool_t dbus_bus_name_has_owner(DBusConnection *, const char *, DBusError *);
+dbus_bool_t dbus_connection_add_filter(DBusConnection *, DBusHandleMessageFunction, void *,
+                                       void (*)(void *));
+dbus_bool_t dbus_connection_register_object_path(DBusConnection *, const char *,
+                                                 const DBusObjectPathVTable *, void *);
+void dbus_connection_set_exit_on_disconnect(DBusConnection *, dbus_bool_t);
+dbus_bool_t dbus_connection_get_unix_fd(DBusConnection *, int *);
+dbus_bool_t dbus_connection_read_write_dispatch(DBusConnection *, int);
+DBusDispatchStatus dbus_connection_get_dispatch_status(DBusConnection *);
+dbus_bool_t dbus_connection_send(DBusConnection *, DBusMessage *, unsigned *);
+DBusMessage *dbus_connection_send_with_reply_and_block(DBusConnection *, DBusMessage *, int,
+                                                       DBusError *);
+void dbus_connection_flush(DBusConnection *), dbus_connection_close(DBusConnection *),
+    dbus_connection_unref(DBusConnection *);
+dbus_bool_t dbus_connection_get_is_connected(DBusConnection *);
+void dbus_error_init(DBusError *), dbus_error_free(DBusError *);
+dbus_bool_t dbus_error_is_set(const DBusError *),
+    dbus_error_has_name(const DBusError *, const char *);
+dbus_bool_t dbus_validate_utf8(const char *, DBusError *);
+DBusMessage *dbus_message_new_method_call(const char *, const char *, const char *, const char *);
+DBusMessage *dbus_message_new_method_return(DBusMessage *);
+DBusMessage *dbus_message_new_signal(const char *, const char *, const char *);
+void dbus_message_unref(DBusMessage *);
+dbus_bool_t dbus_message_is_method_call(DBusMessage *, const char *, const char *);
+dbus_bool_t dbus_message_is_signal(DBusMessage *, const char *, const char *);
+dbus_bool_t dbus_message_has_sender(DBusMessage *, const char *);
+const char *dbus_message_get_destination(DBusMessage *);
+dbus_bool_t dbus_message_get_args(DBusMessage *, DBusError *, int, ...);
+dbus_bool_t dbus_message_append_args(DBusMessage *, int, ...);
+dbus_bool_t dbus_message_iter_init(DBusMessage *, DBusMessageIter *);
+void dbus_message_iter_init_append(DBusMessage *, DBusMessageIter *);
+int dbus_message_iter_get_arg_type(DBusMessageIter *);
+void dbus_message_iter_get_basic(DBusMessageIter *, void *);
+dbus_bool_t dbus_message_iter_next(DBusMessageIter *);
+void dbus_message_iter_recurse(DBusMessageIter *, DBusMessageIter *);
+dbus_bool_t dbus_message_iter_open_container(DBusMessageIter *, int, const char *,
+                                             DBusMessageIter *);
+dbus_bool_t dbus_message_iter_close_container(DBusMessageIter *, DBusMessageIter *);
+dbus_bool_t dbus_message_iter_append_basic(DBusMessageIter *, int, const void *);
 #ifdef __mips__ /* the Q2 build: the host's libc headers are x86's, so libc is declared here (as   \
                    video.c) */
 int open(const char *, int, ...), close(int), read(int, void *, unsigned);
@@ -378,7 +455,7 @@ static DBusHandlerResult on_message(DBusConnection *c, DBusMessage *m, void *use
     register_pending = bluez_up;
     return send_reply(c, dbus_message_new_method_return(m));
 }
-static const DBusObjectPathVTable vtable = { 0, on_message, 0, 0, 0, 0 };
+static const DBusObjectPathVTable vtable = { .message_function = on_message };
 
 /* A renamed record preserves the directory watch; overflow rereads the current file. */
 static int notify_fd;
