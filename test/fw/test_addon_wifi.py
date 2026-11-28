@@ -4,6 +4,7 @@ ADDON_WIFI_DOWN_MS or more."""
 import ctypes as C
 
 from test_addon import MOUNTED, App, ap, card, scan
+from test_netupdate import JOB_INSTALL, Sh, apps
 
 DOWN_MS = 10000
 RUN = (b'/bin/sh /mnt/mmc/.vpn/run',)
@@ -269,3 +270,124 @@ def test_a_stale_pid_file_from_before_a_restart_doesnt_hold_the_start(fw):
     world.files[b'/tmp/q2-vpn'] = b'4242\n'  # no /proc/4242
     link.poll(1)
     assert link.starts() == 1
+
+
+# bt=1: the same follower on Bluetooth's switch (g_bluetoothflag), stopped at the next pass once it is off
+PAD = (b'/bin/sh /mnt/mmc/.pad/run',)
+
+
+class Bt(Link):
+    """Bluetooth's switch (stock's g_bluetoothflag) and the followers' poll; the link down."""
+    def poll(self, on=None, ms=0):
+        if on is not None:
+            self.fw.var('g_bluetoothflag', C.c_ubyte).value = on
+        super().poll(0, ms)
+
+    def starts(self):
+        return self.world.of('system').count(PAD)
+
+
+def pad_app(fw, q2app=b'name=Pad\nbt=1\nhidden=1\n', **more):
+    world = card(fw, pad=q2app, **more)
+    return world, Bt(fw, world)
+
+
+def pad(fw):
+    return [ap(fw).a[i] for i in range(ap(fw).n) if ap(fw).a[i].id == b'pad'][0]
+
+
+def test_bluetooth_on_starts_a_hidden_bt_app_and_off_stops_it(fw):
+    world, bt = pad_app(fw)
+    bt.poll(0)
+    assert bt.starts() == 0
+    bt.poll(1, 500)  # on: the card scanned, the app started, hidden as it is
+    assert bt.starts() == 1 and pad(fw).launched == 1
+    world.files[b'/tmp/q2-pad'] = b'1234'
+    for _ in range(5):
+        bt.poll(1, 500)
+    assert (bt.starts(), bt.stops()) == (1, 0)
+    bt.poll(0, 500)  # off: stopped at the next pass
+    bt.poll(0, 500)
+    assert bt.stops() == 1 and pad(fw).launched == 0
+    bt.poll(0, 500)
+    assert bt.stops() == 1
+    del world.files[b'/tmp/q2-pad']
+    bt.poll(1, 500)
+    assert bt.starts() == 2
+
+
+def test_bluetooth_on_before_the_card_mounts_starts_the_app_once_it_does(fw):
+    world, bt = pad_app(fw)
+    del world.files[b'/proc/mounts']
+    bt.poll(1)
+    bt.poll(1, 5000)
+    assert bt.starts() == 0
+    world.files[b'/proc/mounts'] = MOUNTED
+    bt.poll(1, 1000)
+    assert bt.starts() == 1
+
+
+def test_a_user_stop_holds_until_bluetooth_is_turned_on_again(fw):
+    world, bt = pad_app(fw)
+    bt.poll(1)
+    world.files[b'/tmp/q2-pad'] = b'1234'
+    fw.fn('addon_stop', None)()  # Stop Streaming Services
+    del world.files[b'/tmp/q2-pad']
+    for _ in range(4):
+        bt.poll(1, 500)
+    assert bt.starts() == 1 and pad(fw).wifi_off == 1
+    bt.poll(0, 500)
+    bt.poll(0, 500)
+    bt.poll(1, 500)
+    assert bt.starts() == 2
+
+
+def test_usb_storage_leaves_the_bt_app_to_its_relaunch(fw):
+    world, bt = pad_app(fw)
+    bt.poll(1)
+    world.files[b'/tmp/q2-pad'] = b'1234'
+    fw.mock('sleep_ms', lambda *_: world.files.pop(b'/tmp/q2-pad', None))
+    fw.fn('addon_card_away', None)()
+    assert pad(fw).relaunch == 1
+    bt.poll(1, 500)
+    assert bt.starts() == 1
+    fw.mock('navigator_window_is_exist', lambda *_: 0)  # USB mode's page gone: the card is back
+    world.ms += 3000
+    fw.fn('addon__poll_one', None, C.POINTER(App))(C.pointer(pad(fw)))
+    bt.poll(1, 500)
+    assert bt.starts() == 2 and pad(fw).launched == 1
+
+
+def test_the_app_store_replacing_the_bt_app_holds_its_start(fw):
+    world, bt = pad_app(fw)
+    sh = fw.var('netupdate__sh', Sh)
+    apps(fw, b'me/q2-pad')
+    sh.running, sh.job, sh.app = 1, JOB_INSTALL, 0  # an update replacing .pad's files (shelf_busy)
+    assert fw.fn('shelf_busy', C.c_char_p)() == b'.pad'
+    bt.poll(1)
+    bt.poll(1, 500)
+    assert bt.starts() == 0 and pad(fw).launched == 0
+    sh.running = 0
+    fw.fn('addon_forget', None, C.c_char_p)(b'.pad')
+    bt.poll(1, 500)
+    assert bt.starts() == 1
+
+
+def test_bluetooth_leaves_wifi_and_plain_apps_alone_and_wifi_leaves_bt_apps(fw):
+    world, bt = pad_app(fw, vpn=b'name=Tunnel\nwifi=1\n', foo=b'name=Foo\n')
+    bt.poll(1)
+    assert bt.starts() == 1 and world.of('system').count(RUN) == 0
+    world.files[b'/tmp/q2-pad'] = b'1234'
+    bt.up = 1
+    bt.poll_fn()  # the link up: the Wi-Fi app's, not a second Pad
+    assert bt.starts() == 1 and world.of('system').count(RUN) == 1
+    assert fw.fn('addon_running', C.c_int)() == 0  # neither holds Smart Wi-Fi's radio
+
+
+def test_no_bt_apps_does_nothing(fw):
+    world = card(fw, foo=b'name=Foo\n')
+    bt = Bt(fw, world)
+    bt.poll(1)
+    bt.poll(0, 500)
+    bt.poll(0, 500)
+    assert world.of('system') == []

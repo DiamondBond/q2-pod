@@ -11,9 +11,10 @@
  *            its row is: library, games, network or streaming; without it, Games for a game and
  *            Streaming for any other), wifi (0: it never uses the network, so Smart Wi-Fi keeps
  *            no radio on for it: addon_running, addon_offline; 1: it follows the Wi-Fi link,
- *            addon_wifi.c), root (1: it runs as root; without it, as APP_UID, app_user.c) and
- *            takeover (1: its row ends demo and S90play runs q2-<id> as root in its place, demo
- *            starting again when it exits: takeover);
+ *            addon_wifi.c), bt (1: it runs while Bluetooth is on, hidden or not: addon_wifi.c),
+ *            root (1: it runs as root; without it, as APP_UID, app_user.c) and takeover (1: its
+ *            row ends demo and S90play runs q2-<id> as root in its place, demo starting again when
+ *            it exits: takeover);
  *   run      its launcher, which copies the app to /tmp and runs it there in a restart loop, so
  *            the card is never kept busy, leaving the loop's pid in /tmp/q2-<id>;
  *   q2-<id>  the app;
@@ -105,7 +106,7 @@
 #define ADDON_CAPS                                                                                 \
     "playlist progress pages library goto sleep game audio sections art window urls sort field "   \
     "more fav now fieldtext wake audio2 dim gameview eq screen volume wifi network bar switch "    \
-    "playkept playing takeover player input needs"
+    "playkept playing takeover player input needs bt"
 #define ADDON_SECTIONS 8  /* sections an app's first page may have */
 #define SWIPE_CLAIM_PX 24 /* a sideways move this far, twice as far as up or down, is a swipe's */
 #define SWIPE_PX 60       /* and this far at the lift, more than up or down, changes section */
@@ -129,8 +130,9 @@ typedef struct {
     int nowifi;   /* q2app's wifi=0: it never uses the network */
     int row;      /* where its row is: a ROW_ */
     int wifi;     /* q2app's wifi=1: started with the Wi-Fi link, stopped once it is gone */
-    int wifi_off; /* a wifi app the user stopped (or that ended itself): not started again until
-                   * Wi-Fi is back after being gone 10 s or more (addon_wifi_release) */
+    int wifi_off; /* a wifi (or bt) app the user stopped (or that ended itself): not started again
+                   * until Wi-Fi is back after being gone 10 s or more (or Bluetooth is turned on
+                   * again: addon_follow_release) */
     unsigned polled, launch_at, restart_at, play; /* play: its .play as read last (play_read) */
     /* its status file's bar= (bar_read): the word as read last, and file:// of the icon it names
      * (bar.png for 1, bar-<word>.png else) if one fits BAR_ICON_W x BAR_ICON_H; else "" */
@@ -142,6 +144,7 @@ typedef struct {
     int lang;     /* q2app's lang=1: a language pack, picked in System settings' Language row */
     char needs[NEEDS_MAX][APP_ID]; /* q2app's needs: the ids of the apps it needs (needs_read) */
     int nneeds;
+    int bt; /* q2app's bt=1: started while Bluetooth is on, stopped when it goes off */
 } app_t;
 enum { ROW_STREAMING, ROW_GAMES, ROW_LIBRARY, ROW_NETWORK }; /* as addon_scan's rows[] names them */
 
@@ -247,6 +250,7 @@ static void slots_read(void) {
         a->player = number(raw, "player") == 1;
         a->lang = number(raw, "lang") == 1;
         needs_read(a, raw);
+        a->bt = number(raw, "bt") == 1;
         /* its row where row says, else as firmware without the key lists it: Games for a game,
          * Streaming for any other */
         static const char *const rows[] = { "streaming", "games", "library", "network" };
@@ -1041,7 +1045,7 @@ static void poll_one(app_t *a) {
     sleep_read(a);
     addon_eq_poll((int)(a - ap.a), a->id);
     if (access(a->pid, 0) && now - a->launch_at > ADDON_START_MS) {
-        if (a->launched) a->wifi_off = a->wifi; /* ended by itself: held off (wifi_off) */
+        if (a->launched) a->wifi_off = a->wifi | a->bt; /* ended by itself: held off (wifi_off) */
         a->launched = a->hold = 0;
     }
 }
@@ -1523,10 +1527,12 @@ int addon_bar_width(void) {
  * storage counts once it starts again: the cable holds the radio meanwhile, and an app deleted from
  * the computer, which never starts again, holds nothing. One whose q2app says wifi=0 never uses the
  * network and never counts, nor does its page (addon_offline); a wifi=1 app follows the link, it
- * doesn't hold it. */
+ * doesn't hold it, nor does a bt=1 app, which follows Bluetooth. */
 int addon_running(void) {
     for (int i = 0; i < ap.n; ++i)
-        if ((ap.a[i].launched || ap.a[i].restart) && !ap.a[i].nowifi && !ap.a[i].wifi) return 1;
+        if ((ap.a[i].launched || ap.a[i].restart) && !ap.a[i].nowifi && !ap.a[i].wifi &&
+            !ap.a[i].bt)
+            return 1;
     return 0;
 }
 
@@ -1573,7 +1579,7 @@ void addon_stop(void) {
         app_t *a = &ap.a[i];
         if (a->launched || !access(a->pid, 0)) stop_cmd(a->pid, cmd, sizeof cmd), system(cmd);
         a->launched = a->hold = a->relaunch = a->restart = 0;
-        a->wifi_off = a->wifi;
+        a->wifi_off = a->wifi | a->bt;
     }
     /* a takeover kills demo next, /tmp kept; Stop Streaming Services stops a URL queue too */
     if (nw.live) now_write(1, nw.sec, nw.total);
@@ -1587,16 +1593,18 @@ static int loop_alive(const app_t *a) {
     tk_snprintf(proc, sizeof proc, "/proc/%d", pid);
     return pid > 0 && !access(proc, 0);
 }
-/* The wifi=1 apps (addon_wifi.c follows the link for them): each on the card started that isn't
- * running, held off or about to start again, each running one (or one waiting to start again after
- * USB storage) stopped, and the user's stops forgotten for a new link. */
-void addon_wifi_start(void) {
+/* The wifi=1 apps (bt 0) or the bt=1 apps (bt 1), which addon_wifi.c follows the link or Bluetooth
+ * for: each on the card started that isn't running, held off or about to start again (a hidden one
+ * only for Bluetooth), each running one (or one waiting to start again after USB storage) stopped,
+ * and the user's stops forgotten for a new link or Bluetooth on. */
+static int follows(const app_t *a, int bt) { return bt ? a->bt : a->wifi; }
+void addon_follow_start(int bt) {
     for (int i = 0; i < ap.n; ++i) {
         app_t *a = &ap.a[i];
         /* its loop still running: a stop not yet done (run would exit at once, and the loop's end
          * then read as the app ending itself); started once it is gone */
-        if (a->wifi && a->present && !a->hidden && !a->wifi_off && !a->launched && !a->relaunch &&
-            !a->restart && !loop_alive(a)) {
+        if (follows(a, bt) && a->present && (bt || !a->hidden) && !a->wifi_off && !a->launched &&
+            !a->relaunch && !a->restart && !loop_alive(a)) {
             /* the card as it is now: an App Store remove, or a link before the card mounts, can
              * leave present from an older scan */
             if (access(a->bin, 0))
@@ -1606,13 +1614,14 @@ void addon_wifi_start(void) {
         }
     }
 }
-void addon_wifi_stop(void) {
+void addon_follow_stop(int bt) {
     for (int i = 0; i < ap.n; ++i)
-        if (ap.a[i].wifi && (ap.a[i].launched || ap.a[i].restart || ap.a[i].relaunch))
+        if (follows(&ap.a[i], bt) && (ap.a[i].launched || ap.a[i].restart || ap.a[i].relaunch))
             app_stop(&ap.a[i], 0);
 }
-void addon_wifi_release(void) {
-    for (int i = 0; i < ap.n; ++i) ap.a[i].wifi_off = 0;
+void addon_follow_release(int bt) {
+    for (int i = 0; i < ap.n; ++i)
+        if (follows(&ap.a[i], bt)) ap.a[i].wifi_off = 0;
 }
 
 /* usbmode_page_init's hook (navigation.c), before stock unmounts the card for USB storage: every
@@ -2498,7 +2507,7 @@ static void got(void) {
             pg.up = 0; /* asked to end: its level's reload starts nothing */
         if (ok && !strcmp(pg.aop, "stop")) {
             app()->launched = app()->hold = 0;
-            app()->wifi_off = app()->wifi;
+            app()->wifi_off = app()->wifi | app()->bt;
             navigator_back();
         } else if (ok && l == top() && l->state == K_READY && l->live)
             keep_sel(), fetch(l); /* a live level stays shown, asked again now: no Loading… page */
@@ -2744,7 +2753,7 @@ static int go(const void *unused) {
         char t[128];
         tk_snprintf(t, sizeof t, tr("%s stopped"), app()->name);
         app_stop(app(), 0);
-        app()->wifi_off = app()->wifi;
+        app()->wifi_off = app()->wifi | app()->bt;
         toast(t);
         navigator_back();
     } else if (l->state == K_ERROR) {

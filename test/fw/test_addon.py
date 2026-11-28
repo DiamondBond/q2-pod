@@ -44,7 +44,7 @@ class App(C.Structure):
                                          'nowifi', 'row', 'wifi', 'wifi_off')),
                 *((n, C.c_uint) for n in ('polled', 'launch_at', 'restart_at', 'play')), ('baricon', C.c_char * 56),
                 ('barword', C.c_char * 12), ('barw', C.c_int), ('root', C.c_int), ('takeover', C.c_int), ('player', C.c_int), ('lang', C.c_int),
-                ('needs', (C.c_char * 16) * 4), ('nneeds', C.c_int)]
+                ('needs', (C.c_char * 16) * 4), ('nneeds', C.c_int), ('bt', C.c_int)]
 
 
 class Ap(C.Structure):
@@ -738,11 +738,11 @@ def test_a_wifi_app_does_not_hold_the_radio(fw):
     world = card(fw, vpn=b'name=Tunnel\nwifi=1\n', foo=b'name=Foo\n')
     scan(fw)
     running = fw.fn('addon_running', C.c_int)
-    fw.fn('addon_wifi_start', None)()
+    fw.fn('addon_follow_start', None, C.c_int)(0)
     vpn = [ap(fw).a[i] for i in range(2) if ap(fw).a[i].id == b'vpn'][0]
     assert vpn.launched == 1 and world.of('system') == [(b'/bin/sh /mnt/mmc/.vpn/run',)]
     assert running() == 0
-    fw.fn('addon_wifi_start', None)()  # already running: no second start
+    fw.fn('addon_follow_start', None, C.c_int)(0)  # already running: no second start
     assert len(world.of('system')) == 1
     foo = [ap(fw).a[i] for i in range(2) if ap(fw).a[i].id == b'foo'][0]
     foo.launched = 1
@@ -752,26 +752,26 @@ def test_a_wifi_app_does_not_hold_the_radio(fw):
 def test_a_user_stop_marks_a_wifi_app_off_until_released(fw):
     world = card(fw, vpn=b'name=Tunnel\nwifi=1\n')
     scan(fw)
-    fw.fn('addon_wifi_start', None)()
+    fw.fn('addon_follow_start', None, C.c_int)(0)
     fw.fn('addon_stop', None)()  # Stop Streaming Services
     a = ap(fw).a[0]
     assert (a.launched, a.wifi_off) == (0, 1)
-    fw.fn('addon_wifi_start', None)()
+    fw.fn('addon_follow_start', None, C.c_int)(0)
     assert len(world.of('system')) == 2  # the start and the stop: no second start
-    fw.fn('addon_wifi_release', None)()
-    fw.fn('addon_wifi_start', None)()
+    fw.fn('addon_follow_release', None, C.c_int)(0)
+    fw.fn('addon_follow_start', None, C.c_int)(0)
     assert a.wifi_off == 0 and a.launched == 1 and len(world.of('system')) == 3
 
 
 def test_the_follower_stop_leaves_wifi_off_clear(fw):
     world = card(fw, vpn=b'name=Tunnel\nwifi=1\n', foo=b'name=Foo\n')
     scan(fw)
-    fw.fn('addon_wifi_start', None)()
+    fw.fn('addon_follow_start', None, C.c_int)(0)
     for i in range(2):
         if ap(fw).a[i].id == b'foo':
             ap(fw).a[i].launched = 1
     world.files[b'/tmp/q2-vpn'] = b'1234'
-    fw.fn('addon_wifi_stop', None)()
+    fw.fn('addon_follow_stop', None, C.c_int)(0)
     vpn, foo = sorted((ap(fw).a[i] for i in range(2)), key=lambda a: a.id != b'vpn')
     assert (vpn.launched, vpn.wifi_off, foo.launched) == (0, 0, 1)  # a plain app is not the follower's
 
@@ -990,7 +990,7 @@ def test_more_apps_than_slots(fw):
 def test_the_features_are_published_at_every_scan(fw):
     world = card(fw)
     scan(fw)
-    assert world.written[b'/tmp/q2-addon.caps.tmp'] == b'playlist progress pages library goto sleep game audio sections art window urls sort field more fav now fieldtext wake audio2 dim gameview eq screen volume wifi network bar switch playkept playing takeover player input needs\n'
+    assert world.written[b'/tmp/q2-addon.caps.tmp'] == b'playlist progress pages library goto sleep game audio sections art window urls sort field more fav now fieldtext wake audio2 dim gameview eq screen volume wifi network bar switch playkept playing takeover player input needs bt\n'
     assert world.of('rename') == [(b'/tmp/q2-addon.caps.tmp', b'/tmp/q2-addon.caps')]
 
 

@@ -550,9 +550,9 @@ const char *addon_network_name(int k), *addon_network_icon(int k);
  * then one's id and name. */
 int addon_takeovers(void);
 const char *addon_takeover_id(int k), *addon_takeover_name(int k);
-/* addon.c: the wifi=1 apps, for addon_wifi.c's link follower: each started (but those the user
- * stopped), each stopped, and the user's stops forgotten. */
-void addon_wifi_start(void), addon_wifi_stop(void), addon_wifi_release(void);
+/* addon.c: the wifi=1 apps (bt 0) or the bt=1 apps (bt 1), for addon_wifi.c's followers: each
+ * started (but those the user stopped), each stopped, and the user's stops forgotten. */
+void addon_follow_start(int bt), addon_follow_stop(int bt), addon_follow_release(int bt);
 void addon_wifi_poll(void);    /* addon_wifi.c: once per addon_poll pass */
 void addon_playing_poll(void); /* addon_playing.c: once per addon_poll pass */
 /* addon.c: a running app's status bar icon, the one its status file's bar= names (bar.png for 1,
