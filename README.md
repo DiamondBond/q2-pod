@@ -175,6 +175,11 @@ The [user guide][guide] covers every control, EQ, Cover Flow and more tips.
     <td><a href="https://github.com/harpmudd/q2-lma/raw/main/docs/guide/LMA-Mini-Guide.pdf">Guide</a></td>
   </tr>
   <tr valign="top">
+    <td><b><a href="https://github.com/DiamondBond/q2-piss">PISS</a></b></td>
+    <td>Dial a number on public internet sound storage and play its sound; Next and Previous step through the numbers.</td>
+    <td></td>
+  </tr>
+  <tr valign="top">
     <td><b><a href="https://github.com/DiamondBond/q2-airplay">AirPlay</a></b></td>
     <td>Send what the Q2 plays to AirPlay speakers: choose <b>AirPlay</b> at the top of Now Playing's <b>⋯</b>.</td>
     <td></td>
