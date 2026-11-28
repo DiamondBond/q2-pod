@@ -122,6 +122,10 @@ h3 { font-size: 19px; line-height: 1.3; letter-spacing: -0.01em; margin: 0 0 6px
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 26px; padding: 0; list-style: none; }
 .chips li a { display: inline-block; padding: 6px 13px; border-radius: 999px; background: var(--bg); color: var(--text); font-size: 15px; text-decoration: none; box-shadow: inset 0 0 0 1px var(--line); }
 .chips li a:hover { text-decoration: none; box-shadow: inset 0 0 0 1px var(--muted); }
+.players { margin-top: 64px; }
+.players .themes { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.players figcaption a { color: inherit; }
+.players figcaption > a { text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; }
 .store .more { margin: 0; font-size: 15px; }
 .more a:not(:hover) { text-decoration: none; }
 .community { margin-top: 64px; }
@@ -249,6 +253,17 @@ footer a { color: var(--muted); text-decoration: underline; }
       <h3>Games</h3>
       <ul class="chips" id="games-list"></ul>
       <p class="more"><a href="https://github.com/DiamondBond/q2-pod#apps">What each app does</a></p>
+    </div>
+    <div class="players" id="players">
+      <div class="head minor reveal"><p class="kick">Players</p>
+        <h2>Three players. One Q2.</h2>
+        <p>Rockbox installs from the App Store and runs beside Q2 Pod, from the same card. Start it in Library → Apps, or set System settings → Power → Boot to, and the Q2 starts in it.</p>
+      </div>
+      <div class="themes">
+        <figure class="reveal" style="--i:0"><img src="img/classic-cover-flow.png" width="375" height="320" loading="lazy" alt="Q2 Pod: Cover Flow in the Classic theme"><figcaption><b>Q2 Pod</b>Cover Flow, the parametric EQ, streaming and the App Store.</figcaption></figure>
+        <figure class="reveal" style="--i:1"><a href="https://github.com/DiamondBond/q2-rockbox"><img src="img/rockbox.png" width="375" height="320" loading="lazy" alt="Rockbox on the Q2: Now Playing in the iMMXX theme, with the cover, title, artist and album"></a><figcaption><b><a href="https://github.com/DiamondBond/q2-rockbox">Rockbox</a></b>The open-source jukebox firmware, with <a href="https://diamondbond.github.io/q2-rockbox-themes/">59 themes</a> made for the Q2’s screen.</figcaption></figure>
+        <figure class="reveal" style="--i:2"><img src="img/rockwheel.png" width="375" height="320" loading="lazy" alt="RockWheel on the Q2: Now Playing, with the cover, title and time"><figcaption><b>RockWheel</b>The iPod’s menus, Cover Flow and Live Lyrics, built on Rockbox. Coming soon.</figcaption></figure>
+      </div>
     </div>
     <div class="community reveal" id="community">
       <h3 class="love">From the community <span aria-hidden="true">❤️</span></h3>
