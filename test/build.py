@@ -22,7 +22,7 @@ def boot_check():
         r = pathlib.Path(tmp)
         def host(hook):
             script = hook.decode().replace(' &\n', '\n')
-            for old in ('/mnt/', '/tmp/mmc_add', TAKEOVER_FLAG, '/usr/bin/q2boot', '/release/bin/demo', '/proc/mounts', '/tmp/q2-demo.log',
+            for old in ('/mnt/', '/tmp/mmc_add', TAKEOVER_FLAG, '/usr/bin/q2boot', '/usr/bin/q2mpris', '/tmp/q2-bt', '/release/bin/demo', '/proc/mounts', '/tmp/q2-demo.log',
                         '/tmp/q2-scan-file', '/tmp/q2-scan.log', '/tmp/q2-art-file', '/tmp/q2-art.log', '/tmp/rtk_init_success', '/tmp/bt_startup'):
                 script = script.replace(old, f'{r}{old}')
             script = script.replace('usleep 200000\n', ':\n').replace('usleep 500000', ':')
@@ -70,6 +70,8 @@ def boot_check():
                 f'[ "$n" -gt 0 ] && echo $((n - 1)) > {shortcuts} && cat {takeover} > {flag}; '
                 f's=$(head -n1 {r}/code); [ $(wc -l < {r}/code) -gt 1 ] && sed -i 1d {r}/code; exit $s')  # one status per run, the last repeats
         exe('release/bin/demo', demo)
+        mpris, record = r/'mpris', r/'tmp/q2-bt/nowplaying'  # q2mpris beside each demo (build.py MPRIS)
+        exe('usr/bin/q2mpris', f'echo mpris >> {mpris}; echo old > {record}')
         # Rockbox's binary, which power-on runs, and its card app's launcher, which a takeover runs
         rb, launcher, target = r/'mnt/mmc/.rockbox/rockbox', r/'mnt/mmc/.rockbox/q2-rockbox', r/'mnt/data/boot-target'
         def boot(held, card, code=81, shortcut=0, status=137):
@@ -108,7 +110,9 @@ def boot_check():
         # a takeover app's row: the app, then Q2 Pod again, as often as it is taken; the flag is gone after
         assert boot(True, True, 81, 1) == (['demo', *rockbox], False)
         assert (r/'mnt/mmc/.rockbox/q2-rockbox.log').read_text() == 'exit 81\n'  # the launcher's log, beside it
+        mpris.write_text('')
         assert boot(False, True, 81, 2) == (['demo', *rockbox * 2], False) and not pathlib.Path(flag).exists()
+        assert mpris.read_text().split() == ['mpris'] * 3 and not record.exists()  # one a demo run, its record gone after
         assert boot(True, False, 81, 1) == (['demo', 'demo'], False)  # not on the card: Q2 Pod again
         for bad in ('', 'x/../rockbox', 'Rockbox', 'a b'):  # an id valid_id would refuse runs nothing: Q2 Pod again
             takeover.write_text(bad)
