@@ -230,6 +230,11 @@ The [user guide][guide] covers every control, EQ, Cover Flow and more tips.
     <td></td>
   </tr>
   <tr valign="top">
+    <td><b><a href="https://github.com/DiamondBond/q2-devices">Devices</a></b></td>
+    <td>An Xbox controller turns the wheel and presses the Q2's buttons, a Bluetooth remote plays, pauses and skips, and card games can read the whole controller. Pair it in <b>System settings → Bluetooth</b>; it runs while Bluetooth is on.</td>
+    <td></td>
+  </tr>
+  <tr valign="top">
     <td><b><a href="https://github.com/DiamondBond/q2-langs">Languages</a></b></td>
     <td>Q2 Pod in 33 more languages (<a href="https://github.com/DiamondBond/q2-langs#languages">the list</a>), Arabic among them, picked in <b>System settings → Language</b>; Arabic, Persian and Urdu titles show in any language.</td>
     <td></td>
