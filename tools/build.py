@@ -263,20 +263,10 @@ HELPER_LIBS = ['lib/libc-2.28.so', 'lib/libpthread-2.28.so', 'usr/lib/libasound.
 # other end of demo ends the loop, so the watchdog reboots as stock's would. Wi-Fi is off while an app runs (WIFI_OFF).
 BOOT = 'usr/bin/q2boot'
 REMOTE = 'usr/bin/q2remote'
-# A single metadata publisher belongs to each demo lifetime, never the Rockbox session.
+# Bluetooth track information (docs/internals.md#bluetooth-track-information): BOOT_HOOK's loop starts q2mpris beside
+# each demo and ends it, its player withdrawn, before an app takes over.
 MPRIS = 'usr/bin/q2mpris'
 MPRIS_LIBS = ['lib/libc-2.28.so', 'lib/libpthread-2.28.so', 'usr/lib/libdbus-1.so.3.19.15']
-MPRIS_START = (b'        while :; do\n            /release/bin/demo', b'''        while :; do
-            mkdir -m 700 -p /tmp/q2-bt
-            rm -f /tmp/q2-bt/nowplaying /tmp/q2-bt/nowplaying.tmp
-            /usr/bin/q2mpris 2>>/tmp/q2-demo.err &
-            metadata_pid=$!
-            /release/bin/demo''')
-MPRIS_STOP = (b'            s=$?\n', b'''            s=$?
-            kill "$metadata_pid" 2>/dev/null
-            wait "$metadata_pid" 2>/dev/null
-            rm -f /tmp/q2-bt/nowplaying /tmp/q2-bt/nowplaying.tmp
-''')
 S90PLAY = 'etc/init.d/S90play'
 TAKEOVER_FLAG = '/tmp/q2pod-takeover'
 # An app in demo's place has no Wi-Fi (Rockbox can't use it) and the radio costs battery, so app() below stops it.
@@ -341,6 +331,7 @@ BOOT_HOOK = (b'    /release/bin/demo &\n', f'''    (
             done
             app rockbox rockbox
         fi
+        mkdir -m 700 -p /tmp/q2-bt  # btmeta.c's record for q2mpris (MPRIS)
         # Every register in the kernel log when a signal ends demo or a helper (show_regs), where a fault otherwise
         # leaves its address, epc and ra alone; the crash log keeps the log's end (docs/boot.md#apps-that-take-over-the-device)
         echo 1 > /proc/sys/kernel/print-fatal-signals
@@ -350,8 +341,11 @@ BOOT_HOOK = (b'    /release/bin/demo &\n', f'''    (
         # log. stdout stays on the console as stock's; --dev takes both (LOG_HOOK)
         (while sleep 60; do n=$(wc -c 2>/dev/null </tmp/q2-demo.err); [ "${{n:-0}}" -gt 524288 ] && : >/tmp/q2-demo.err; done) &
         while :; do
+            /usr/bin/q2mpris 2>>/tmp/q2-demo.err &
             /release/bin/demo 2>>/tmp/q2-demo.err
             s=$?
+            kill $! 2>/dev/null; wait $! 2>/dev/null
+            rm -f /tmp/q2-bt/nowplaying
             [ -e {TAKEOVER_FLAG} ] || break
             id=$(cat {TAKEOVER_FLAG})
             rm -f {TAKEOVER_FLAG}
@@ -397,10 +391,10 @@ REMOTE_HOOK = (b'/usr/bin/dbus-daemon --config-file=/etc/dbus-1/system.conf\n',
 # file and its cap. In BOOT_HOOK's start path. The log is a link into an 8 MB tmpfs of its own, twice the trim, so a
 # flood between trims fills that and not /tmp; a failed mkdir, mount or ln leaves no link and the file is /tmp's.
 LOG_HOOK = (b'        (while sleep 60; do n=$(wc -c 2>/dev/null </tmp/q2-demo.err); [ "${n:-0}" -gt 524288 ] && : >/tmp/q2-demo.err; done) &\n'
-            b'        while :; do\n            /release/bin/demo 2>>/tmp/q2-demo.err\n',
+            b'        while :; do\n            /usr/bin/q2mpris 2>>/tmp/q2-demo.err &\n            /release/bin/demo 2>>/tmp/q2-demo.err\n',
             b'        mkdir /tmp/q2-log && mount -t tmpfs -o size=8m q2-log /tmp/q2-log && ln -s /tmp/q2-log/demo.log /tmp/q2-demo.log\n'
             b'        (while sleep 60; do n=$(wc -c 2>/dev/null </tmp/q2-demo.log); [ "${n:-0}" -gt 4000000 ] && : >/tmp/q2-demo.log; done) &\n'
-            b'        while :; do\n            /release/bin/demo >>/tmp/q2-demo.log 2>&1\n')
+            b'        while :; do\n            /usr/bin/q2mpris >>/tmp/q2-demo.log 2>&1 &\n            /release/bin/demo >>/tmp/q2-demo.log 2>&1\n')
 # --dev only: the wheel's frame log (playback.c wl_flush) and stale-press notes (navigation.c stale_note) go to the
 # card's q2-wheel.log, appended, when the card is up, up to 256 KB. In BOOT_HOOK's start path.
 WHEEL_LOG_HOOK = (b'        # card folder .$1\'s binary $2 in demo\'s place, its log $2.log beside it\n',
@@ -1749,7 +1743,6 @@ FUNCTIONS = {
  'btrecvA2dpFunc': ('int', 'int, void *, void *'),
  'mclGetCueFlag': ('int', 'void'),  # the playing record has a CUE start or end
  'mclGetPlayStatus': ('int', 'void'),  # 1 stopped, 2 playing, 3 paused (mclStop, mclSetResume, mclSetPause)
- 'mclGetPlayPos': ('int', 'void'),
  'player_stop': ('int', 'void'),
  'player_save_stop': ('int', 'void'),  # a playing or paused queue stopped, its status and place kept for player_save_start; nothing when stopped
  'player_save_start': ('int', 'int'),  # pause: mclStartPlayer at the saved seek, then paused if set
@@ -2468,13 +2461,7 @@ def build(zip_path, out, logo, dev=False, repo=REPO, stock_flac=False):  # pragm
     s90play = s90play.replace(*BOOT_HOOK)
     check(s90play.count(LOG_HOOK[0]) == 1, 'Unexpected demo loop')
     check(s90play.count(WHEEL_LOG_HOOK[0]) == 1, 'Unexpected card path')
-    if dev: s90play = s90play.replace(*REMOTE_HOOK).replace(*LOG_HOOK).replace(*WHEEL_LOG_HOOK)
-    check(s90play.count(MPRIS_START[0]) == 1 and s90play.count(MPRIS_STOP[0]) == 1,
-          'Unexpected metadata lifetime insertion')
-    s90play = s90play.replace(*MPRIS_START).replace(*MPRIS_STOP)
-    if dev: s90play = s90play.replace(b'/usr/bin/q2mpris 2>>/tmp/q2-demo.err',
-                                    b'/usr/bin/q2mpris >>/tmp/q2-demo.log 2>&1')
-    (out/'S90play').write_bytes(s90play)
+    (out/'S90play').write_bytes(s90play.replace(*REMOTE_HOOK).replace(*LOG_HOOK).replace(*WHEEL_LOG_HOOK) if dev else s90play)
     (out/'config.ini').write_bytes(default_config(cat(DEFAULT_CONFIG)))
     s11logo = cat(S11LOGO)
     check(s11logo.count(LOGO_HOOK[0]) == 1, 'Unexpected S11logo_display_shell')

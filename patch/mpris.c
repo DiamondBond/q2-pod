@@ -1,18 +1,12 @@
-/* q2mpris: the Q2's now-playing track, published to bluetoothd as a media player.
+/* q2mpris (docs/internals.md#bluetooth-track-information): the Q2's now-playing track, published
+ * to bluetoothd as a media player, for AVRCP track information. No transport-control flags are
+ * advertised: stock's own route keeps the buttons.
  *
- * The standard BlueZ player store needs this publisher for AVRCP track information.
- * No transport-control flags are advertised: stock keeps its existing key route.
- *
- *   - The payload (patch/btmeta.c) writes RECORD_PATH in RAM, whole and renamed into place, when
- *     the track, play status or position (a seek) changes: "key=value" lines, see bm_parse.
- *   - A directory notification wakes this helper, which sends org.freedesktop.DBus.Properties
- *     .PropertiesChanged for org.mpris.MediaPlayer2.Player, which media.c parses (Metadata:
- *     xesam:title, xesam:artist, xesam:album, xesam:genre, mpris:length; PlaybackStatus; Position).
- *   - It registers whenever org.bluez appears (stock kills and restarts bluetoothd at every
- *     Bluetooth off/on). It blocks on record and bus events while healthy.
- *
- * Plain libdbus, no GLib or helper threads. Text buffers are fixed. Built by tools/build.py
- * against the stock rootfs's libdbus-1. */
+ * patch/btmeta.c writes RECORD_PATH whole (renamed into place) when the track, the play status or
+ * the position changes. Its arrival wakes this helper, which sends PropertiesChanged for
+ * org.mpris.MediaPlayer2.Player (Metadata, PlaybackStatus, Position) as bluez's media.c parses
+ * them, and registers again whenever org.bluez or its adapter comes back (stock restarts
+ * bluetoothd at every Bluetooth off/on). It sleeps in ppoll between those events. */
 #define _GNU_SOURCE
 /* libdbus 1.12's, as the stock rootfs has it: what this file uses, with the structs a caller
  * allocates laid out as libdbus's own on 32 and 64 bits (no host libdbus headers needed). */
@@ -92,8 +86,7 @@ dbus_bool_t dbus_message_iter_open_container(DBusMessageIter *, int, const char 
                                              DBusMessageIter *);
 dbus_bool_t dbus_message_iter_close_container(DBusMessageIter *, DBusMessageIter *);
 dbus_bool_t dbus_message_iter_append_basic(DBusMessageIter *, int, const void *);
-#ifdef __mips__ /* the Q2 build: the host's libc headers are x86's, so libc is declared here (as   \
-                   video.c) */
+#ifdef __mips__ /* the Q2 build: no MIPS sysroot, so libc is declared here, as video.c's */
 int open(const char *, int, ...), close(int), read(int, void *, unsigned);
 int inotify_init1(int), inotify_add_watch(int, const char *, unsigned);
 int *__errno_location(void);
@@ -104,45 +97,31 @@ struct bm_pollfd {
 };
 typedef struct {
     unsigned long bits[32];
-} sigset_t;
+} sigset_t; /* glibc MIPS o32's 1024 bits */
 int sigemptyset(sigset_t *), sigaddset(sigset_t *, int);
 int sigprocmask(int, const sigset_t *, sigset_t *);
 void (*signal(int, void (*)(int)))(int);
 int ppoll(struct bm_pollfd *, unsigned long, const void *, const sigset_t *);
-#define SIGTERM 15
-#define SIG_BLOCK 1 /* glibc MIPS o32; sigset_t is 1024 bits */
-#define SIG_SETMASK 3
-typedef int sig_atomic_t;
 int clock_gettime(int, void *);
 void _exit(int) __attribute__((noreturn));
-struct bm_timespec {
-    long sec, nsec;
-}; /* o32 glibc 2.28's timespec: two 32-bit words */
-#define BM_CLOCK(ts) clock_gettime(1 /* CLOCK_MONOTONIC */, (ts))
 unsigned strlen(const char *);
 char *strchr(const char *, int);
 int strcmp(const char *, const char *), memcmp(const void *, const void *, unsigned);
 void *memcpy(void *, const void *, unsigned);
 void *memchr(const void *, int, unsigned);
-
+#define SIGTERM 15
+#define SIG_BLOCK 1
 #define O_RDONLY 0
-#define O_CLOEXEC 0x80000  /* MIPS */
-#define O_NONBLOCK 0x80    /* MIPS */
-#define O_NOFOLLOW 0x20000 /* MIPS */
+#define O_CLOEXEC 0x80000 /* MIPS */
+#define O_NONBLOCK 0x80   /* MIPS */
+#define O_NOFOLLOW 0x20000
 #define POLLIN 1
-#define POLLOUT 4
 #define POLLERR 8
 #define POLLHUP 16
 #define POLLNVAL 32
 #define EINTR 4
-#define EAGAIN 11
-#define ENOSYS 89 /* MIPS */
-#define EINVAL 22
-#define EACCES 13
-#define EPERM 1
-#else
-#include <stdio.h>
-#include <stdlib.h>
+#define IN_MOVED_TO 0x80
+#else /* test/mpris.py */
 #include <string.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -152,37 +131,26 @@ void *memchr(const void *, int, unsigned);
 #include <signal.h>
 #include <sys/inotify.h>
 #define bm_pollfd pollfd
-struct bm_timespec {
-    long sec, nsec;
-}; /* the host's timespec is two 64-bit words: the same layout */
-#define BM_CLOCK(ts) clock_gettime(CLOCK_MONOTONIC, (struct timespec *)(ts))
 #endif
 
-/* An OOM in a writer invalidates its subiterator. Do not continue assembling a partial
- * message, or silently consume the only snapshot event: end the helper, releasing its bus
- * connection. */
-static dbus_bool_t message_space(dbus_bool_t ok) {
-    if (!ok) _exit(1);
-    return ok;
-}
-static DBusMessage *message_new(DBusMessage *message) {
-    if (!message) _exit(1);
-    return message;
-}
-#define dbus_message_iter_open_container(...)                                                      \
-    message_space(dbus_message_iter_open_container(__VA_ARGS__))
-#define dbus_message_iter_append_basic(...)                                                        \
-    message_space(dbus_message_iter_append_basic(__VA_ARGS__))
-#define dbus_message_iter_close_container(...)                                                     \
-    message_space(dbus_message_iter_close_container(__VA_ARGS__))
-#define dbus_message_append_args(...) message_space(dbus_message_append_args(__VA_ARGS__))
-#define dbus_connection_send(...) message_space(dbus_connection_send(__VA_ARGS__))
-#define dbus_message_new_method_call(...) message_new(dbus_message_new_method_call(__VA_ARGS__))
-#define dbus_message_new_method_return(...) message_new(dbus_message_new_method_return(__VA_ARGS__))
-#define dbus_message_new_error(...) message_new(dbus_message_new_error(__VA_ARGS__))
-#define dbus_message_new_signal(...) message_new(dbus_message_new_signal(__VA_ARGS__))
+/* Out of memory, a message can't be finished: end the helper, which releases its bus name. */
+#define NEED(x)                                                                                    \
+    ({                                                                                             \
+        __typeof__(x) need_ = (x);                                                                 \
+        if (!need_) _exit(1);                                                                      \
+        need_;                                                                                     \
+    })
+#define dbus_message_iter_open_container(...) NEED(dbus_message_iter_open_container(__VA_ARGS__))
+#define dbus_message_iter_append_basic(...) NEED(dbus_message_iter_append_basic(__VA_ARGS__))
+#define dbus_message_iter_close_container(...) NEED(dbus_message_iter_close_container(__VA_ARGS__))
+#define dbus_message_append_args(...) NEED(dbus_message_append_args(__VA_ARGS__))
+#define dbus_connection_send(...) NEED(dbus_connection_send(__VA_ARGS__))
+#define dbus_message_new_method_call(...) NEED(dbus_message_new_method_call(__VA_ARGS__))
+#define dbus_message_new_method_return(...) NEED(dbus_message_new_method_return(__VA_ARGS__))
+#define dbus_message_new_signal(...) NEED(dbus_message_new_signal(__VA_ARGS__))
 
-#define RECORD_PATH "/tmp/q2-bt/nowplaying"
+#define RECORD_DIR "/tmp/q2-bt"
+#define RECORD_PATH RECORD_DIR "/nowplaying"
 #define PLAYER_PATH "/q2pod/player"
 #define PLAYER_IFACE "org.mpris.MediaPlayer2.Player"
 #define BLUEZ "org.bluez"
@@ -191,145 +159,86 @@ static DBusMessage *message_new(DBusMessage *message) {
 #define RECORD_MAX 2048
 #define FIELD_MAX 256
 
-static const char *record_path = RECORD_PATH, *record_dir = "/tmp/q2-bt",
-                  *record_leaf = "nowplaying", *bluez_name = BLUEZ, *adapter_path = ADAPTER;
-static DBusBusType bus_type = DBUS_BUS_SYSTEM;
-
-/* The record as last read: strings and numbers the signals and property replies are built from. */
+/* The record as last read; status is empty before the first. */
 static struct {
     char status[16], title[FIELD_MAX], artist[FIELD_MAX], album[FIELD_MAX], genre[FIELD_MAX];
     long long length_us, position_us; /* mpris:length and Position */
-    unsigned written_ms; /* the payload's CLOCK_MONOTONIC milliseconds, wrapping at 32 bits */
-    int track, tracks;
-    unsigned generation; /* the payload's counter, so an unchanged file is not re-sent */
+    unsigned written_ms; /* btmeta.c's CLOCK_MONOTONIC milliseconds, wrapping at 32 bits */
+    int track;
 } rec;
 static int registered, bluez_up, register_pending;
-static volatile sig_atomic_t stopping;
+static volatile int stopping;
 static void stop(int sig) {
     (void)sig;
     stopping = 1;
 }
 
-/* Validate the complete bounded string once; the writer already cuts UTF-8 boundaries. */
-static int bm_field(char *out, unsigned size, const char *value) {
-    const char *end = strchr(value, '\n');
-    unsigned n = end ? (unsigned)(end - value) : strlen(value);
-    if (n >= size) return 0;
-    memcpy(out, value, n);
-    out[n] = 0;
-    return dbus_validate_utf8(out, 0);
-}
+/* btmeta.c's "key=value" lines into rec, each string checked once for UTF-8 (the writer cuts
+ * on character boundaries); 0 leaves rec as it was. */
 static int bm_parse(const char *text) {
     typeof(rec) next = { 0 };
     char *fields[] = { next.status, next.title, next.artist, next.album, next.genre };
-    static const char *const keys[] = {
-        "status", "title",    "artist",   "album", "genre",  "v",
-        "gen",    "duration", "position", "track", "tracks", "now"
-    };
-    long long numbers[7] = { 0 };
-    static const unsigned limits[] = { 1,           0xffffffffu, 1000000000, 1000000000,
-                                       0x7fffffffu, 0x7fffffffu, 0xffffffffu };
-    unsigned seen = 0;
-    for (const char *line = text; *line;) {
-        const char *end = strchr(line, '\n'), *eq = strchr(line, '=');
-        if (!end) return 0; /* publication always ends every line, including the generation */
-        if (eq && eq < end) {
-            for (unsigned i = 0; i < sizeof keys / sizeof *keys; i++) {
-                unsigned len = strlen(keys[i]);
-                if ((unsigned)(eq - line) != len || memcmp(line, keys[i], len)) continue;
-                if (seen & (1u << i)) return 0;
-                seen |= 1u << i;
-                if (i < 5) {
-                    if (!bm_field(fields[i], i ? FIELD_MAX : sizeof next.status, eq + 1)) return 0;
-                } else {
-                    long long n = 0;
-                    if (eq + 1 == end) return 0;
-                    for (const char *v = eq + 1; v < end; v++) {
-                        if (*v < '0' || *v > '9') return 0;
-                        n = n * 10 + (*v - '0');
-                        if (n > limits[i - 5]) return 0;
-                    }
-                    numbers[i - 5] = n;
+    static const char *const keys[] = { "status",   "title", "artist",   "album", "genre",
+                                        "duration", "track", "position", "now" };
+    long long numbers[4] = { 0 };
+    for (const char *line = text, *end; (end = strchr(line, '\n')); line = end + 1) {
+        const char *eq = memchr(line, '=', (unsigned)(end - line));
+        if (!eq) continue;
+        const char *v = eq + 1;
+        unsigned n = (unsigned)(end - v);
+        for (unsigned i = 0; i < sizeof keys / sizeof *keys; i++) {
+            if ((unsigned)(eq - line) != strlen(keys[i]) || memcmp(line, keys[i], strlen(keys[i])))
+                continue;
+            if (i < 5) {
+                if (n >= (i ? FIELD_MAX : sizeof next.status)) return 0;
+                memcpy(fields[i], v, n);
+                fields[i][n] = 0;
+                if (!dbus_validate_utf8(fields[i], 0)) return 0;
+            } else
+                for (; v < end; v++) {
+                    if (*v < '0' || *v > '9') return 0;
+                    numbers[i - 5] = numbers[i - 5] * 10 + (*v - '0');
                 }
-                break;
-            }
+            break;
         }
-        line = end + 1;
     }
-    enum {
-        HAVE_STATUS = 1u << 0,
-        HAVE_VERSION = 1u << 5,
-        HAVE_GENERATION = 1u << 6,
-        HAVE_POSITION = 1u << 8,
-        HAVE_NOW = 1u << 11
-    };
-    unsigned required = HAVE_STATUS | HAVE_VERSION | HAVE_GENERATION | HAVE_POSITION | HAVE_NOW;
-    if ((seen & required) != required || numbers[0] != 1 || !numbers[1]) return 0;
-    if (strcmp(next.status, "Playing") && strcmp(next.status, "Paused") &&
-        strcmp(next.status, "Stopped"))
-        return 0;
-    next.generation = (unsigned)numbers[1];
-    next.length_us = numbers[2] * 1000;
-    next.position_us = numbers[3] * 1000;
-    next.track = (int)numbers[4];
-    next.tracks = (int)numbers[5];
-    next.written_ms = (unsigned)numbers[6];
-    rec = next; /* Commit only a complete, validated record. */
+    if (!next.status[0]) return 0;
+    next.length_us = numbers[0] * 1000;
+    next.track = (int)numbers[1];
+    next.position_us = numbers[2] * 1000;
+    next.written_ms = (unsigned)numbers[3];
+    rec = next;
     return 1;
 }
 
-/* The position now: the record's, plus the time since it was read while playing (media.c keeps
- * the same clock, but a registration after a bluetoothd restart starts from a record that may be
+/* The position now: the record's, plus the time since it was written while playing (media.c
+ * keeps the same clock, but a registration after a bluetoothd restart can start from a record
  * minutes old). */
-static long long now_ms(void) {
-    struct bm_timespec ts;
-    /* A failed clock cannot supply a truthful position. */
-    if (BM_CLOCK(&ts) || ts.sec < 0 || ts.nsec < 0 || ts.nsec >= 1000000000) _exit(1);
-    return ts.sec * 1000LL + ts.nsec / 1000000;
-}
 static long long position_now(void) {
-    long long p = rec.position_us;
-    /* Project the producer's monotonic anchor, including a 32-bit millisecond wrap. */
-    long long elapsed = (unsigned)((unsigned)now_ms() - rec.written_ms);
-    if (elapsed > 86400000LL) elapsed = 86400000LL;
-    if (!strcmp(rec.status, "Playing")) p += elapsed * 1000;
-    if (p < 0) p = 0;
-    if (rec.length_us && p > rec.length_us) p = rec.length_us;
-    return p;
+    struct {
+        long sec, nsec;
+    } ts; /* struct timespec */
+    clock_gettime(1 /* CLOCK_MONOTONIC */, (void *)&ts);
+    unsigned elapsed = (unsigned)(ts.sec * 1000LL + ts.nsec / 1000000) - rec.written_ms;
+    long long p = rec.position_us + (strcmp(rec.status, "Playing") ? 0 : elapsed * 1000LL);
+    return rec.length_us && p > rec.length_us ? rec.length_us : p;
 }
 
-/* Reads the record if its text changed since the last read (the payload renames a whole file into
- * place, so a read sees one record or the next). 1 when a new record is in `rec`. */
+/* Reads the record into rec: 2 when its track changed, 1 its status or position alone, 0 none. */
 static int bm_read(void) {
-    static char last[RECORD_MAX];
-    int fd;
-    do fd = open(record_path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
-    while (fd < 0 && errno == EINTR);
+    char text[RECORD_MAX];
+    int fd = open(RECORD_PATH, O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
     if (fd < 0) return 0;
-    char text[RECORD_MAX + 1];
-    int n = 0, bytes;
-    while (n < RECORD_MAX) {
-        bytes = read(fd, text + n, RECORD_MAX - (unsigned)n);
-        if (bytes < 0 && errno == EINTR) continue;
-        if (bytes < 0) {
-            close(fd);
-            _exit(1);
-        }
-        if (!bytes) break;
-        n += bytes;
-    }
+    int n = read(fd, text, sizeof text - 1);
     close(fd);
-    if (n <= 0 || n >= RECORD_MAX || memchr(text, 0, (unsigned)n)) return 0;
+    if (n <= 0) return 0;
     text[n] = 0;
-    if (!strcmp(text, last)) return 0;
     typeof(rec) was = rec;
     if (!bm_parse(text)) return 0;
-    memcpy(last, text, (unsigned)n + 1);
-    /* Generation can repeat after demo restarts; compare the complete metadata. */
     int same = !strcmp(was.title, rec.title) && !strcmp(was.artist, rec.artist) &&
                !strcmp(was.album, rec.album) && !strcmp(was.genre, rec.genre) &&
                was.length_us == rec.length_us && was.track == rec.track;
-    return !same || !was.generation ? 2 : 1; /* 2: metadata; 1: status/position */
+    return !same || !was.status[0] ? 2 : 1;
 }
 
 /* Registration and change signals share the property writer. */
@@ -369,8 +278,8 @@ static void append_metadata_value(DBusMessageIter *dict) {
     append_entry(dict, "mpris:length", "x", &length);
     append_entry(dict, "xesam:trackNumber", "i", &track);
 }
-/* BlueZ resets position when Metadata arrives, so it must precede Position.
- * No CanControl/CanPlay/etc: stock's existing uinput button route stays in charge. */
+/* BlueZ resets the position when Metadata arrives, so Metadata precedes Position. No
+ * CanControl/CanPlay: stock's own route keeps the buttons. */
 static const char *const property_names[] = { "Identity", "Metadata", "PlaybackStatus",
                                               "LoopStatus", "Position" };
 static void append_property(DBusMessageIter *iter, unsigned property) {
@@ -387,45 +296,10 @@ static void append_properties(DBusMessageIter *dict, int with_metadata) {
 
 static DBusConnection *conn;
 
-static void bm_changed(int track_changed);
-static int bm_register_attempt(void) {
-    if (registered) return 0;
-    bm_read(); /* Recovery registration must carry the latest snapshot, even while paused. */
-    if (!rec.generation || stopping || !bluez_up) return 0;
-    DBusMessage *m =
-        dbus_message_new_method_call(bluez_name, adapter_path, MEDIA_IFACE, "RegisterPlayer");
-    DBusMessageIter args, dict;
-    const char *path = PLAYER_PATH;
-    dbus_message_iter_init_append(m, &args);
-    dbus_message_iter_append_basic(&args, DBUS_TYPE_OBJECT_PATH, &path);
-    dbus_message_iter_open_container(&args, DBUS_TYPE_ARRAY, "{sv}", &dict);
-    append_properties(&dict, 1);
-    dbus_message_iter_close_container(&args, &dict);
-    DBusError err;
-    dbus_error_init(&err);
-    DBusMessage *reply = dbus_connection_send_with_reply_and_block(conn, m, 2000, &err);
-    dbus_message_unref(m);
-    if (!reply) {
-        /* The pinned Media1 keys this error by adapter + our unique bus sender
-         * + PLAYER_PATH. A delayed owner-up may have cleared local success after
-         * that same daemon registered us. Its error did not parse these properties. */
-        if (dbus_error_has_name(&err, "org.bluez.Error.AlreadyExists")) {
-            dbus_error_free(&err);
-            registered = 1;
-            bm_changed(1); /* Send the full current record, which the error did not carry. */
-            return 1;
-        }
-        dbus_error_free(&err);
-        return 0;
-    }
-    dbus_message_unref(reply);
-    registered = 1;
-    return 1;
-}
 /* PropertiesChanged(interface, changed a{sv}, invalidated as): the track's properties when the
  * track changed, else the status and position alone. */
 static void bm_changed(int track_changed) {
-    if (!registered || stopping) return;
+    if (!registered) return;
     DBusMessage *s =
         dbus_message_new_signal(PLAYER_PATH, DBUS_INTERFACE_PROPERTIES, "PropertiesChanged");
     DBusMessageIter args, dict, invalidated;
@@ -440,56 +314,48 @@ static void bm_changed(int track_changed) {
     dbus_connection_send(conn, s, 0);
     dbus_message_unref(s);
 }
+static void bm_register(void) {
+    bm_read(); /* a registration carries the latest record, even while paused */
+    if (!rec.status[0] || !bluez_up) return;
+    DBusMessage *m = dbus_message_new_method_call(BLUEZ, ADAPTER, MEDIA_IFACE, "RegisterPlayer");
+    DBusMessageIter args, dict;
+    const char *path = PLAYER_PATH;
+    dbus_message_iter_init_append(m, &args);
+    dbus_message_iter_append_basic(&args, DBUS_TYPE_OBJECT_PATH, &path);
+    dbus_message_iter_open_container(&args, DBUS_TYPE_ARRAY, "{sv}", &dict);
+    append_properties(&dict, 1);
+    dbus_message_iter_close_container(&args, &dict);
+    DBusError err;
+    dbus_error_init(&err);
+    DBusMessage *reply = dbus_connection_send_with_reply_and_block(conn, m, 2000, &err);
+    dbus_message_unref(m);
+    if (reply) {
+        dbus_message_unref(reply);
+        registered = 1;
+    } else if (dbus_error_has_name(&err, "org.bluez.Error.AlreadyExists")) {
+        /* this bluetoothd has us already (an owner-up signal arriving after the registration
+         * cleared it here), from an older record: send the current one */
+        registered = 1;
+        bm_changed(1);
+    }
+    dbus_error_free(&err);
+}
 
 /* BlueZ owns the properties supplied at registration and through change signals. */
-static DBusHandlerResult send_reply(DBusConnection *c, DBusMessage *reply) {
-    dbus_connection_send(c, reply, 0);
-    dbus_message_unref(reply);
-    return DBUS_HANDLER_RESULT_HANDLED;
-}
 static DBusHandlerResult on_message(DBusConnection *c, DBusMessage *m, void *user) {
     (void)user;
     if (!dbus_message_is_method_call(m, PLAYER_IFACE, "Release"))
         return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
     registered = 0;
     register_pending = bluez_up;
-    return send_reply(c, dbus_message_new_method_return(m));
+    DBusMessage *reply = dbus_message_new_method_return(m);
+    dbus_connection_send(c, reply, 0);
+    dbus_message_unref(reply);
+    return DBUS_HANDLER_RESULT_HANDLED;
 }
 static const DBusObjectPathVTable vtable = { .message_function = on_message };
 
-/* A renamed record preserves the directory watch; overflow rereads the current file. */
-static int notify_fd;
-#define IN_CLOSE_WRITE 0x00000008
-#define IN_MOVED_TO 0x00000080
-#define IN_DELETE_SELF 0x00000400
-#define IN_MOVE_SELF 0x00000800
-#define IN_Q_OVERFLOW 0x00004000
-#define IN_IGNORED 0x00008000
-static int read_notifications(void) {
-    struct event {
-        int wd;
-        unsigned mask, cookie, len;
-    };
-    union {
-        unsigned alignment;
-        char bytes[4096];
-    } buffer;
-    int changed = 0, n;
-    while ((n = read(notify_fd, buffer.bytes, sizeof buffer.bytes)) > 0) {
-        for (unsigned at = 0; at + sizeof(struct event) <= (unsigned)n;) {
-            struct event *e = (void *)(buffer.bytes + at);
-            if (e->len > (unsigned)n - at - sizeof *e) return -1;
-            if (e->mask & (IN_DELETE_SELF | IN_MOVE_SELF | IN_IGNORED)) return -1;
-            if (e->mask & IN_Q_OVERFLOW) changed = 1;
-            if (e->len && memchr(e + 1, 0, e->len) && !strcmp((char *)(e + 1), record_leaf))
-                changed = 1;
-            at += sizeof *e + e->len;
-        }
-    }
-    return n < 0 && errno != EAGAIN && errno != EINTR ? -1 : changed;
-}
-
-/* org.bluez coming and going: bluetoothd restarts at every Bluetooth off/on. */
+/* 1 when an InterfacesAdded/InterfacesRemoved signal names the adapter's Media1. */
 static int media_interface_signal(DBusMessage *m, int added) {
     DBusMessageIter args, interfaces;
     const char *path = 0;
@@ -497,7 +363,7 @@ static int media_interface_signal(DBusMessage *m, int added) {
         dbus_message_iter_get_arg_type(&args) != DBUS_TYPE_OBJECT_PATH)
         return 0;
     dbus_message_iter_get_basic(&args, &path);
-    if (strcmp(path, adapter_path) || !dbus_message_iter_next(&args) ||
+    if (strcmp(path, ADAPTER) || !dbus_message_iter_next(&args) ||
         dbus_message_iter_get_arg_type(&args) != DBUS_TYPE_ARRAY)
         return 0;
     dbus_message_iter_recurse(&args, &interfaces);
@@ -515,6 +381,7 @@ static int media_interface_signal(DBusMessage *m, int added) {
     }
     return 0;
 }
+/* org.bluez and its adapter coming and going: bluetoothd restarts at every Bluetooth off/on. */
 static DBusHandlerResult on_signal(DBusConnection *c, DBusMessage *m, void *user) {
     (void)c;
     (void)user;
@@ -533,20 +400,21 @@ static DBusHandlerResult on_signal(DBusConnection *c, DBusMessage *m, void *user
         return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
     const char *name = 0, *old = 0, *new = 0;
     if (!dbus_message_get_args(m, 0, DBUS_TYPE_STRING, &name, DBUS_TYPE_STRING, &old,
-                               DBUS_TYPE_STRING, &new, DBUS_TYPE_INVALID))
+                               DBUS_TYPE_STRING, &new, DBUS_TYPE_INVALID) ||
+        strcmp(name, BLUEZ))
         return DBUS_HANDLER_RESULT_HANDLED;
-    if (strcmp(name, bluez_name)) return DBUS_HANDLER_RESULT_HANDLED;
     registered = 0; /* whatever was registered went with the old bluetoothd */
     bluez_up = *new != 0;
     register_pending = bluez_up;
     return DBUS_HANDLER_RESULT_HANDLED;
 }
 
-/* ponytail: a full bus failure ends metadata until the next demo run; no restart service. */
-static int bm_connect(void) {
+/* ponytail: a failed bus connection, or the bus going, ends metadata until the next demo run;
+ * there is no restart. */
+static void bm_connect(void) {
     DBusError err;
     dbus_error_init(&err);
-    conn = dbus_bus_get_private(bus_type, &err);
+    conn = dbus_bus_get_private(DBUS_BUS_SYSTEM, &err);
     if (!conn) _exit(1);
     dbus_connection_set_exit_on_disconnect(conn, FALSE);
     if (!dbus_connection_register_object_path(conn, PLAYER_PATH, &vtable, 0)) _exit(1);
@@ -560,63 +428,49 @@ static int bm_connect(void) {
         if (dbus_error_is_set(&err)) _exit(1);
     }
     if (!dbus_connection_add_filter(conn, on_signal, 0, 0)) _exit(1);
-    bluez_up = dbus_bus_name_has_owner(conn, bluez_name, &err);
+    bluez_up = dbus_bus_name_has_owner(conn, BLUEZ, &err);
     if (dbus_error_is_set(&err)) _exit(1);
     register_pending = bluez_up;
-    return 1;
 }
 
-/* Block SIGTERM across the stop check and ppoll: no signal can be lost before sleep.
- * Outside that atomic wait, a signal interrupts work and only sets the flag. */
 int main(void) {
-    sigset_t blocked, prior;
-    /* Authentication may block without a player to withdraw. Keep termination immediate. */
+    /* SIGTERM ends the helper at once until there is a player to withdraw (a bus connection's
+     * authentication can block). */
     signal(SIGTERM, 0);
-    notify_fd = inotify_init1(O_CLOEXEC | O_NONBLOCK);
-    if (notify_fd < 0 ||
-        inotify_add_watch(notify_fd, record_dir,
-                          IN_MOVED_TO | IN_CLOSE_WRITE | IN_DELETE_SELF | IN_MOVE_SELF) < 0)
-        return 1;
+    int notify_fd = inotify_init1(O_CLOEXEC | O_NONBLOCK), bus_fd;
+    if (notify_fd < 0 || inotify_add_watch(notify_fd, RECORD_DIR, IN_MOVED_TO) < 0) return 1;
     bm_read();
     bm_connect();
-    int bus_fd;
     if (!dbus_connection_get_unix_fd(conn, &bus_fd)) return 1;
-    sigemptyset(&blocked);
-    sigaddset(&blocked, SIGTERM);
-    if (sigprocmask(SIG_BLOCK, &blocked, &prior)) return 1;
+    /* Then SIGTERM is blocked but inside ppoll: one sent while the loop works ends its next
+     * wait, so none is lost between the stopping check and the sleep. S90play waits for this
+     * exit before an app takes over. */
+    sigset_t term, unblocked;
+    sigemptyset(&term);
+    sigaddset(&term, SIGTERM);
+    sigprocmask(SIG_BLOCK, &term, &unblocked);
     signal(SIGTERM, stop);
-    if (sigprocmask(SIG_SETMASK, &prior, 0)) return 1;
     while (!stopping) {
-        /* A synchronous reply may already have consumed the socket's readiness. */
+        /* a blocking reply may already have taken the socket's readiness */
         do {
             if (!dbus_connection_read_write_dispatch(conn, 0)) goto done;
         } while (dbus_connection_get_dispatch_status(conn) == DBUS_DISPATCH_DATA_REMAINS);
-        if (stopping) break;
         if (register_pending) {
             register_pending = 0;
-            bm_register_attempt();
+            bm_register();
             continue;
         }
         dbus_connection_flush(conn);
         struct bm_pollfd fds[] = { { notify_fd, POLLIN, 0 }, { bus_fd, POLLIN, 0 } };
-        if (sigprocmask(SIG_BLOCK, &blocked, 0)) break;
-        if (stopping) {
-            sigprocmask(SIG_SETMASK, &prior, 0);
-            break;
-        }
-        int ready = ppoll(fds, 2, 0, &prior);
-        int error = errno;
-        if (sigprocmask(SIG_SETMASK, &prior, 0)) break;
-        if (stopping) break;
-        if (ready < 0) {
-            if (error == EINTR) continue;
+        if (ppoll(fds, 2, 0, &unblocked) < 0) {
+            if (errno == EINTR) continue;
             break;
         }
         if ((fds[0].revents | fds[1].revents) & (POLLERR | POLLHUP | POLLNVAL)) break;
         if (fds[0].revents & POLLIN) {
-            int event = read_notifications();
-            if (event < 0) break;
-            int changed = event ? bm_read() : 0;
+            char events[1024]; /* each one is a new record renamed into place */
+            while (read(notify_fd, events, sizeof events) > 0) continue;
+            int changed = bm_read();
             if (changed && registered)
                 bm_changed(changed == 2);
             else if (changed)
@@ -624,19 +478,15 @@ int main(void) {
         }
     }
 done:
-    /* A successful reply proves removal before S90play's wait lets Rockbox start.
-     * Even a timeout releases the owning connection; no stale helper can restart. */
+    /* A reply proves the player is gone before S90play's wait lets an app take over; a timeout
+     * still ends this connection, and the player with it. */
     if (registered && dbus_connection_get_is_connected(conn)) {
         DBusMessage *m =
-            dbus_message_new_method_call(bluez_name, adapter_path, MEDIA_IFACE, "UnregisterPlayer");
+            dbus_message_new_method_call(BLUEZ, ADAPTER, MEDIA_IFACE, "UnregisterPlayer");
         const char *path = PLAYER_PATH;
         dbus_message_append_args(m, DBUS_TYPE_OBJECT_PATH, &path, DBUS_TYPE_INVALID);
         DBusMessage *reply = dbus_connection_send_with_reply_and_block(conn, m, 2000, 0);
         if (reply) dbus_message_unref(reply);
-        dbus_message_unref(m);
     }
-    dbus_connection_close(conn);
-    dbus_connection_unref(conn);
-    close(notify_fd);
     return 0;
 }

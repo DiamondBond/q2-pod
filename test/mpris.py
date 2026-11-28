@@ -44,12 +44,12 @@ def event(proc, kind, timeout=3):
     return props
 
 
-def record(path, generation, status='Playing', position=1000):
-    text = (f'v=1\nstatus={status}\ntitle=日本語\nartist=Someone\nalbum=Album\ngenre=Pop\n'
-            f'duration=200000\ntrack=3\ntracks=12\nposition={position}\ngen={generation}\n'
-            f'now={int(time.monotonic()*1000) & 0xffffffff}\n')
+def record(path, status='Playing', position=1000, title='日本語'.encode()):
+    """A record as patch/btmeta.c writes it (test/fw/test_btmeta.py), renamed into place."""
+    text = (b'status=%s\ntitle=%s\nartist=Someone\nalbum=Album\ngenre=Pop\nduration=200000\ntrack=3\n'
+            b'position=%d\nnow=%d\n' % (status.encode(), title, position, int(time.monotonic()*1000) & 0xffffffff))
     tmp = path.with_suffix('.tmp')
-    tmp.write_text(text)
+    tmp.write_bytes(text)
     tmp.replace(path)
 
 
@@ -77,16 +77,16 @@ def main():
                 event(fake, 'ready')
                 helper = subprocess.Popen([str(d/'helper')], env=env)
                 assert not select.select([fake.stdout], [], [], .1)[0]
-                record(path, 1)
+                record(path)
                 props = event(fake, 'register')
                 assert props['Metadata']['xesam:title'] == '日本語'
-                record(path, 2, 'Paused', 2000)
+                record(path, 'Paused', 2000)
                 props = event(fake, 'change')
                 assert props['PlaybackStatus'] == 'Paused' and props['Position'] == 2000000
                 assert 'Metadata' not in props
-                path.write_bytes(path.read_bytes().replace('日本語'.encode(), b'bad\xff'))
+                record(path, 'Paused', 2500, b'bad\xff')
                 assert not select.select([fake.stdout], [], [], .1)[0]
-                record(path, 3, 'Paused', 3000)
+                record(path, 'Paused', 3000)
                 assert event(fake, 'change')['Position'] == 3000000
                 fake.kill(); fake.wait()
                 fake = subprocess.Popen([sys.executable, '-c', FAKE], env=env,

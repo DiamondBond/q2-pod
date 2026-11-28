@@ -1,50 +1,30 @@
-/* Bluetooth track info for the car: the now-playing record for q2mpris (patch/mpris.c).
- *
- * The stock player store needs an explicit publisher for AVRCP track information.
- *
- * Each UI pass with Bluetooth on (at most four times a second) reads what stock reads for its own
- * send: the play status, the playing record's index and count, g_play_id3_info's title, artist,
- * album and genre (the file's name when the title is empty, as stock sends it), and the play time.
- * A change of any of those, or a jump in the position (a seek), makes a new record, formatted here
- * in RAM and writes it whole, then renames it on the existing /tmp tmpfs. No worker or new timer.
- * These change-only filesystem calls can still delay the UI under memory pressure;
- * tmpfs avoids card I/O, not all scheduling/allocation latency. The position goes out only with
- * a new record; media.c keeps its own
- * clock between them, so the car's timeline runs on its own while playing. */
+/* Bluetooth track information (docs/internals.md#bluetooth-track-information): the record q2mpris
+ * (patch/mpris.c) sends to bluetoothd. With Bluetooth on, each UI pass, at most four a second,
+ * reads what stock's own send reads: the play status, g_play_id3_info's tags (the file's name for
+ * an empty title), the queue place and the play time. A change, or a position away from the one
+ * expected (a seek), writes the record whole. Between records q2mpris runs the clock on from the
+ * record's CLOCK_MONOTONIC stamp. */
 #include "navigation.h"
 
-#define RECORD_PATH "/tmp/q2-bt/nowplaying"
-#define RECORD_TMP "/tmp/q2-bt/nowplaying.tmp"
-#define O_SAVE 0xa0301 /* MIPS O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW */
+#define RECORD "/tmp/q2-bt/nowplaying" /* S90play makes the folder (tools/build.py BOOT_HOOK) */
 #define ID3_GENRE 0x604
 #define SEEK_S 3 /* a position this far from the one expected is a seek */
 #define FIELD 200
 
-/* glibc 2.28 o32 timespec, also used by stock's clock_gettime import. */
-struct bm_stamp {
-    long sec, nsec;
-};
-#ifdef __mips__
-_Static_assert(sizeof(struct bm_stamp) == 8, "o32 timespec");
-#endif
+static struct {
+    unsigned key, at;    /* fnv of the last record without its position, 0 none; when it went */
+    int sec, playing;    /* the position it gave, and whether it was playing */
+    unsigned seek_track; /* np_track() at a seek, 0 none */
+    int seek_to, seek_pending, seek_paused;
+} bm;
 
-#define RECORD 2048 /* five 200-byte fields, the numbers and the keys fit with room to spare */
-static unsigned bm_gen;
-static int bm_active;
-static char bm_key[RECORD]; /* UI: the last record without its position */
-static int bm_pub_sec;
-static unsigned bm_pub_at; /* UI: the position published, and when */
-static int bm_playing;
-static unsigned bm_seek_track;
-static int bm_seek_target, bm_seek_pending, bm_seek_paused;
-
-/* Stock reports the old clock until Play. Remember only the explicit paused target;
- * Play or a different track retires it, without a settling timer. */
+/* Stock reports the old position until Play: a seek while paused gives its target until then, or
+ * until another track. */
 void btmeta_seek(int target) {
-    bm_seek_track = np_track();
-    bm_seek_paused = mclGetPlayStatus() == 3;
-    bm_seek_target = target;
-    bm_seek_pending = 1;
+    bm.seek_track = np_track();
+    bm.seek_paused = mclGetPlayStatus() == 3;
+    bm.seek_to = target;
+    bm.seek_pending = 1;
 }
 
 /* A tag as one line: control characters become spaces, and a cut falls on a UTF-8 character
@@ -57,84 +37,52 @@ static void bm_field(char *out, const char *in) {
     out[n] = 0;
 }
 
-static const char *bm_id3(int field) { return (const char *)g_play_id3_info + field; }
-
-/* Each UI pass (playback_poll), with Bluetooth on. */
+/* Each UI pass (playback_poll). */
 void btmeta_poll(void) {
     static unsigned next;
-    unsigned t = time_now_ms();
+    unsigned t = time_now_ms(), at, n;
     if (!(g_bluetoothflag || bt_linkstatus)) {
-        bm_active = 0;
-        bm_seek_pending = 0;
+        bm.key = 0;
+        bm.seek_pending = 0;
         return;
     }
     if ((int)(t - next) < 0) return;
     next = t + 250;
     int status = mclGetPlayStatus(); /* 1 stopped, 2 playing, 3 paused */
-    const char *state = status == 2 ? "Playing" : status == 3 ? "Paused" : "Stopped";
-    void *queue = *(void *const *)mcl_pdeqplaylist;
-    unsigned n = queue ? deque_size(queue) : 0;
-    int pos = mclGetPlayPos(), sec = 0, total = 0;
-    char title[FIELD], artist[FIELD], album[FIELD], genre[FIELD], file[FIELD] = "";
-    bm_field(title, bm_id3(ID3_TITLE));
-    bm_field(artist, bm_id3(ID3_ARTIST));
-    bm_field(album, bm_id3(ID3_ALBUM));
-    bm_field(genre, bm_id3(ID3_GENRE));
-    if (queue && pos >= 0 && (unsigned)pos < n) {
-        const char *record = deque_at(queue, (unsigned)pos);
-        const char *path = record ? *(const char *const *)(record + 8) : 0;
-        if (path) {
-            const char *slash = strrchr(path, '/');
-            bm_field(file, slash ? slash + 1 : path);
-        }
-    }
+    const char *id3 = (const char *)g_play_id3_info, *name = 0;
+    void *r = queue_now(&at, &n);
+    if (r) name = P(r, REC_NAME);
+    char title[FIELD], artist[FIELD], album[FIELD], genre[FIELD];
+    bm_field(title, id3[ID3_TITLE] || !name ? id3 + ID3_TITLE : name);
+    bm_field(artist, id3 + ID3_ARTIST);
+    bm_field(album, id3 + ID3_ALBUM);
+    bm_field(genre, id3 + ID3_GENRE);
+    int sec = 0, total = 0;
     if (player_playtime_and_length(&sec, &total) < 0 || status == 1) sec = total = 0;
-    if (bm_seek_track && (status == 1 || np_track() != bm_seek_track)) {
-        bm_seek_track = 0;
-        bm_seek_pending = bm_seek_paused = 0;
+    if (bm.seek_track && (status == 1 || np_track() != bm.seek_track)) {
+        bm.seek_track = 0;
+        bm.seek_pending = bm.seek_paused = 0;
     }
-    if (status != 3) bm_seek_paused = 0;
-    if (bm_seek_pending || bm_seek_paused) sec = bm_seek_target;
-    char key[sizeof bm_key];
-    int k = tk_snprintf(key, sizeof key,
-                        "v=1\nstatus=%s\ntitle=%s\nartist=%s\nalbum=%s\ngenre=%s\nduration=%"
-                        "d\ntrack=%d\ntracks=%u\nfile=%s\n",
-                        state, title[0] ? title : file, artist, album, genre, total * 1000, pos + 1,
-                        n, file);
-    if (k <= 0 || (unsigned)k >= sizeof key - 64)
-        return; /* cannot happen with the field bounds; never a torn record */
-    /* The position expected now from the last one published; a seek is a jump away from it. */
-    int expected = bm_playing ? bm_pub_sec + (int)((t - bm_pub_at) / 1000) : bm_pub_sec;
-    int seek = sec > expected + SEEK_S || sec + SEEK_S < expected;
-    if (bm_active && !tk_strcmp(key, bm_key) && !seek && !bm_seek_pending) return;
-    struct bm_stamp stamp;
-    if (clock_gettime(1 /* CLOCK_MONOTONIC */, &stamp) || stamp.sec < 0 || stamp.nsec < 0 ||
-        stamp.nsec >= 1000000000)
-        return; /* no invented timestamp; retry next poll */
-    unsigned written = (unsigned)stamp.sec * 1000u + (unsigned)stamp.nsec / 1000000u;
-    unsigned fs[32]; /* o32 statfs starts with f_type; the full structure fits. */
-    if (statfs("/tmp/q2-bt", fs) || fs[0] != 0x01021994u /* TMPFS_MAGIC */) return;
-    /* The helper uses absolute CLOCK_MONOTONIC. Toolkit time_now_ms has its own origin,
-     * so only the local throttle/seek bookkeeping above uses it. Wire now wraps at 32 bits. */
-    int tail = tk_snprintf(key + k, sizeof key - (unsigned)k, "now=%u\nposition=%d\ngen=%u\n",
-                           written, sec * 1000, bm_gen + 1);
-    if (tail <= 0 || (unsigned)tail >= sizeof key - (unsigned)k) return;
-    int r = k + tail;
-    int fd = open(RECORD_TMP, O_SAVE, 0600);
-    if (fd < 0) return;
-    int ok = write(fd, key, (unsigned)r) == r;
-    if (close(fd)) ok = 0;
-    if (!ok || rename(RECORD_TMP, RECORD_PATH)) {
-        unlink(RECORD_TMP);
-        return; /* Includes short/interrupted writes: retry the complete change next eligible pass.
-                 */
-    }
-    bm_gen++;
-    bm_seek_pending = 0;
-    bm_active = 1;
-    key[k] = 0;
-    tk_snprintf(bm_key, sizeof bm_key, "%s", key);
-    bm_pub_sec = sec;
-    bm_pub_at = t;
-    bm_playing = status == 2;
+    if (status != 3) bm.seek_paused = 0;
+    if (bm.seek_pending || bm.seek_paused) sec = bm.seek_to;
+    char text[2048]; /* mpris.c RECORD_MAX: four fields and the numbers fit with room to spare */
+    int k =
+        tk_snprintf(text, sizeof text,
+                    "status=%s\ntitle=%s\nartist=%s\nalbum=%s\ngenre=%s\nduration=%d\ntrack=%u\n",
+                    status == 2   ? "Playing"
+                    : status == 3 ? "Paused"
+                                  : "Stopped",
+                    title, artist, album, genre, total * 1000, at + 1);
+    unsigned key = fnv(FNV_SEED, (const unsigned char *)text);
+    int expected = bm.sec + (bm.playing ? (int)((t - bm.at) / 1000) : 0);
+    if (key == bm.key && sec <= expected + SEEK_S && sec + SEEK_S >= expected && !bm.seek_pending)
+        return;
+    tk_snprintf(text + k, sizeof text - (unsigned)k, "position=%d\nnow=%u\n", sec * 1000,
+                (unsigned)(now_ns() / 1000000));
+    if (!blob_io(RECORD, RECORD ".tmp", text, strlen(text), 1)) return; /* again next pass */
+    bm.key = key;
+    bm.seek_pending = 0;
+    bm.sec = sec;
+    bm.at = t;
+    bm.playing = status == 2;
 }

@@ -175,7 +175,6 @@ class Machine:
         for name in ('slide_menu_item_width','slide_menu_on_scroll_done','canvas_get_vgcanvas',
                      'widget_animator_scroll_set_params','slide_menu_set_value','toolsTimeItoa','on_wm_keyup_fun','table_client_get_virtual_h',
                      'mclGetPlayType','networkGetConnectStatus','wifi_switch',  # Smart Wi-Fi's: stock's, as before it named them
-                     'mclGetPlayPos',  # the metadata import must keep stock's position getter
                      'bitmap_get_physical_line_length','bitmap_get_physical_height',  # the flush's: stock's, as before it named them
                      'get_albumcover_listsize','local_songercover_task','local_albumsmallcover_task',  # Search's kept rows': stock's, as before it named them
                      'tk_sha256_init','tk_sha256_hash','tk_sha256_done'):  # Network Update's read-back: stock's own SHA-256
@@ -186,7 +185,7 @@ class Machine:
             for name in ('paint','dispatch','paint_bg'):
                 self.handlers[int(manifest['patch_symbols']['stock_'+name+'_trampoline'],16)]='stock_'+name
         self.mock('pthread_create@GLIBC_2.2','pthread_detach@GLIBC_2.0','pthread_self@GLIBC_2.0')  # pthread_self: playback_poll's UI thread
-        self.mock('clock_gettime@GLIBC_2.2','statfs@GLIBC_2.0')  # metadata's clock and filesystem boundary
+        self.mock('clock_gettime@GLIBC_2.2')  # btmeta.c's record stamp (peq.c now_ns)
         self.mock('reset_poweroptions_timer','screen_action','enable_fb','usleep@GLIBC_2.0','sprintf@GLIBC_2.0','snprintf@GLIBC_2.0',
                   'airplayGetFlag','playpause_quick_click','time@GLIBC_2.0','localtime@GLIBC_2.0','tzset@GLIBC_2.0',
                   'strlen@GLIBC_2.0','strncpy@GLIBC_2.0','strrchr@GLIBC_2.0','strcasecmp@GLIBC_2.0','strncasecmp@GLIBC_2.0','strncmp@GLIBC_2.0',
@@ -400,7 +399,6 @@ class Machine:
         elif name=='atoi@GLIBC_2.0': ret=int(re.match(r'[+-]?\d+',self.text(a))[0]) if re.match(r'[+-]?\d+',self.text(a)) else 0
         elif name=='access@GLIBC_2.0': ret=0 if self.text(a) in self.present else -1
         elif name=='open@GLIBC_2.0': ret=0xffffffff  # no /dev/jz_watchdog here: the watchdog stays off
-        elif name=='statfs@GLIBC_2.0': ret=-1  # producer fixtures can supply their own verified tmpfs
         elif name=='calloc@GLIBC_2.0':
             ret=0 if getattr(self,'fail_calloc',False) else self.alloc(a*b)
             self.sized[ret]=a*b
@@ -576,9 +574,7 @@ class Machine:
         elif name=='pointer_event_init':
             self.word(a,b); self.word(a+0x10,c); self.word(a+O['EVENT_X'],d); self.word(a+O['EVENT_Y'],self.get(u.reg_read(UC_MIPS_REG_SP)+16)); ret=a
         elif name=='time_now_ms': ret=self.now & 0xffffffff
-        elif name=='clock_gettime@GLIBC_2.2':
-            assert a==1
-            self.word(b,self.now//1000); self.word(b+4,self.now%1000*1000000); ret=0
+        elif name=='clock_gettime@GLIBC_2.2': self.word(b,self.now//1000); self.word(b+4,self.now%1000*1000000); ret=0
         elif name=='timer_add':
             ret=0 if self.timer_fail else self.next_timer
             if ret:
