@@ -8912,13 +8912,14 @@ int ringnav_mainscheduling(void) {
 /* Cover Flow's thumb, every UI loop pass before lyric_poll, so a wheel handed between them ends up
  * the lyrics' or, rewritten next pass, the covers'. The gates ticks have, for raw travel: stock's
  * lockout after Centre or Return, as ringnav keeps it; Return's stop; no frame in WHEEL_FRESH_MS.
- * No key event comes, so a turn times the loop's idle and the screen's timeout itself. */
+ * No key event comes, so a turn times the loop's idle and the screen's timeout itself. The rating
+ * picker over the covers (the hold menu's Rate Album) takes the wheel back as ticks (rate_key). */
 static void thumb_poll(void) {
     if (!coverflow_wheel_live()) return;
     unsigned now = (unsigned)time_now_ms();
     int gated = *(volatile signed char *)KEY_LOCKOUT > 8 - LOCKOUT_KEEP || wheel_mute ||
                 (int)(now - wheel_frame_at) >= WHEEL_FRESH_MS;
-    int r = coverflow_wheel_poll(usable(), gated);
+    int r = coverflow_wheel_poll(usable() && !st.rate_on, gated);
     if (r) st.last_input = now;
     if (r & THUMB_TURNED) reset_poweroptions_timer(1, 1, 1);
     if (r & THUMB_CLICK) buzzeer_switch(1);
