@@ -933,7 +933,7 @@ TOKEN=12345678-1234-1234-1234-123456789abc</pre>
   <pre>python3 lastfm_key.py /path/to/card/.scrobble.ini</pre>
   <p>Approve access in your browser, then press Enter in the terminal. If the browser does not open, use the printed link. The helper saves <code>SESSION_KEY</code> and removes any old Last.fm password from the file. If you lose the card, revoke the app in <b>Settings → Applications</b> on Last.fm. A password previously stored on the card may still be recoverable.</p>
   </div>
-  <div class="note important"><p><span class="label">Caution:</span> Keep the card safe. <code>.scrobble.ini</code> contains your credentials in plain text. If you install an app that keeps logins, <b>Upload Scrobbles</b> moves them into the app and asks if it can remove them from the card.</p></div>
+  <div class="note important"><p><span class="label">Caution:</span> Keep the card safe. <code>.scrobble.ini</code> contains your credentials in plain text. If you install an app that keeps logins, <b>Upload Scrobbles</b> moves your password, session key and token into the app and asks if it can remove them from the card. Your API key and secret stay in the file.</p></div>
   </div>
 
 </section>

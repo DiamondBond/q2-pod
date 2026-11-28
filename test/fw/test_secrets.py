@@ -24,7 +24,7 @@ class App:
         self.copy, self.mode, self.uid, self.up, self.requests, self.now = copy, mode, uid, up, [], 0
         if listed:
             ap = fw.var('addon__ap', Ap)
-            ap.n, ap.a[0].id, ap.a[0].name, ap.a[0].present, ap.a[0].secrets = 1, b'vault', b'Vault', 1, 1
+            ap.n, ap.a[0].id, ap.a[0].name, ap.a[0].present, ap.a[0].secrets, ap.a[0].root = 1, b'vault', b'Vault', 1, 1, 1
         self.req = b''
         self.out: bytes | None = b''
         fw.mock('fw___lxstat', self.stat)
@@ -98,8 +98,8 @@ def strip(fw):
 
 
 FILE = b'[LISTENBRAINZ]\nTOKEN=tok\n\n[LASTFM]\nUSER=u\nPASSWORD=p&w\nAPI_KEY=key\nAPI_SECRET=sec\n[SCROBBLE]\nAUTO=1\n'
-COPY = b'TOKEN=tok\nUSER=u\nAPI_KEY=key\nAPI_SECRET=sec\nSESSION_KEY=SK123\n'
-STRIPPED = b'[LISTENBRAINZ]\nSECRETS=1\n\n[LASTFM]\nSECRETS=1\nUSER=u\n[SCROBBLE]\nAUTO=1\n'
+COPY = b'TOKEN=tok\nUSER=u\nSESSION_KEY=SK123\n'
+STRIPPED = b'[LISTENBRAINZ]\nSECRETS=1\n\n[LASTFM]\nSECRETS=1\nUSER=u\nAPI_KEY=key\nAPI_SECRET=sec\n[SCROBBLE]\nAUTO=1\n'
 
 
 # Without a secrets app: main's upload.
@@ -127,16 +127,16 @@ def secrets_app(fw, scan_first=True, **apps):
     return found(id, name, 0), id.value, name.value
 
 
-def test_only_an_app_whose_q2app_says_secrets_1_is_one(fw):
-    assert secrets_app(fw, plain=b'name=Plain\n', zero=b'secrets=0\nname=Zero\n') == (0, b'', b'')
+def test_only_a_root_app_whose_q2app_says_secrets_1_is_one(fw):
+    assert secrets_app(fw, plain=b'name=Plain\n', zero=b'secrets=0\nroot=1\n', user=b'secrets=1\n') == (0, b'', b'')
 
 
 def test_an_app_that_says_secrets_1_is_found(fw):
-    assert secrets_app(fw, plain=b'name=Plain\n', vault=b'name=Vault\nsecrets=1\r\n') == (1, b'vault', b'Vault')
+    assert secrets_app(fw, plain=b'name=Plain\n', user=b'secrets=1\n', vault=b'name=Vault\nsecrets=1\r\nroot=1\n') == (1, b'vault', b'Vault')
 
 
 def test_no_scan_yet_reads_no_card(fw):
-    assert secrets_app(fw, scan_first=False, vault=b'secrets=1\n') == (0, b'', b'')
+    assert secrets_app(fw, scan_first=False, vault=b'secrets=1\nroot=1\n') == (0, b'', b'')
     assert not fw.calls('fw_opendir')
 
 
@@ -183,10 +183,10 @@ def test_nothing_to_upload_moves_nothing(fw):
     assert result == (1, 1, 0) and not vault.requests
 
 
-@pytest.mark.parametrize('why', ['no app', 'none saved', 'not answering', "Last.fm's gone", 'another user'])
+@pytest.mark.parametrize('why', ['no app', 'none saved', 'not answering', "Last.fm's gone", 'another user', 'no API pair'])
 def test_a_marked_section_left_without_its_logins_sends_nothing(fw, why):
     """Nothing goes, not even to ListenBrainz with its token in the file, so no listen leaves the log for one service."""
-    file = {'another user': STRIPPED.replace(b'USER=u', b'USER=v'),
+    file = {'another user': STRIPPED.replace(b'USER=u', b'USER=v'), 'no API pair': STRIPPED.replace(b'API_KEY=key\n', b''),
             "Last.fm's gone": STRIPPED.replace(b'[LISTENBRAINZ]\nSECRETS=1', b'[LISTENBRAINZ]\nTOKEN=tok')}.get(why, STRIPPED)
     copy = None if why in ('none saved', "Last.fm's gone") else COPY
     result, card, net, vault = run(fw, file, copy=copy, listed=why != 'no app', up=why != 'not answering')
@@ -197,9 +197,9 @@ def test_a_marked_section_left_without_its_logins_sends_nothing(fw, why):
 
 
 def test_a_session_key_link_last_fm_saved_wins_and_moves_in(fw):
-    """Link Last.fm writes SESSION_KEY into the file (with the pair it read there): the file's lines win over the copy's,
-    go into the app, and come off the card at Remove."""
-    file = STRIPPED.replace(b'USER=u\n', b'USER=u\nAPI_KEY=key\nAPI_SECRET=sec\nSESSION_KEY=NEW\n')
+    """Link Last.fm, whose row stays (the API pair stays in the file), writes SESSION_KEY there: the file's key wins over
+    the copy's, goes into the app, and comes off the card at Remove."""
+    file = STRIPPED.replace(b'API_SECRET=sec\n', b'API_SECRET=sec\nSESSION_KEY=NEW\n')
     result, card, net, vault = run(fw, file, copy=COPY)
     assert result == (1, 1, 1) and net.forms()[-1]['sk'] == 'NEW' and b'SESSION_KEY=NEW' in vault.copy
     assert strip(fw) == 1 and card.files[INI] == STRIPPED
@@ -223,7 +223,8 @@ def test_remove_takes_every_line_stock_reads_off_the_card(fw, file):
     result, card, net, vault = run(fw, file)
     assert result == (1, 1, 1) and strip(fw) == 1
     left = card.files[INI]
-    assert b'tok' not in left and b'p&w' not in left and b'key' not in left and b'sec' not in left
+    assert b'tok' not in left and b'p&w' not in left and b'SK123' not in left
+    assert b'key' in left and b'sec' in left  # the API pair stays
     assert left.count(b'SECRETS=1') == 2 and b'u' in left
 
 
@@ -246,6 +247,39 @@ def test_remove_fails_when_stock_still_reads_a_login_there(fw):
     card.files = Leaky(real)
     ini(fw, card)
     assert strip(fw) == 0 and card.files[INI] == FILE and INI + '.tmp' not in card.files
+
+
+def test_remove_fails_when_a_section_isn_t_marked(fw):
+    result, card, net, vault = run(fw, FILE)
+    real = card.files
+
+    class Unmarked(dict):
+        def get(self, path, default=None):
+            data = dict.get(self, path, default)
+            return data.replace(b'SECRETS=1', b'') if path == INI + '.tmp' and data is not None else data
+    card.files = Unmarked(real)
+    ini(fw, card)
+    assert strip(fw) == 0 and card.files[INI] == FILE and INI + '.tmp' not in card.files
+
+
+def test_remove_with_nothing_to_offer_changes_nothing(fw):
+    """An automatic upload that started under the prompt cleared ask."""
+    result, card, net, vault = run(fw, FILE)
+    fw.var('scrobble__up', Up).ask = 0
+    assert strip(fw) == 0 and card.files[INI] == FILE and not [p for p, m in card.opened if 'w' in m and 'scrobble.ini' in p]
+
+
+def test_the_app_is_woken_on_the_ui_thread(fw):
+    """scrobble_start wakes it, before the upload's thread exists; the thread only waits for its socket."""
+    card = Card(fw, {INI: STRIPPED, LOG: HEADER + line(), '/mnt/mmc/.vault/q2-vault': b'ELF'})
+    ini(fw, card)
+    App(fw, COPY)
+    ap = fw.var('addon__ap', Ap)
+    ap.a[0].bin, ap.a[0].run, ap.a[0].pid = b'/mnt/mmc/.vault/q2-vault', b'/bin/sh /mnt/mmc/.vault/run', b'/tmp/q2-vault'
+    fw.mock('fw_system', lambda *_: 0)
+    assert fw.fn('scrobble_start', C.c_int)() == 1
+    names = [n for n, _ in fw.calls() if n in ('fw_system', 'fw_pthread_create')]
+    assert names == ['fw_system', 'fw_pthread_create']
 
 
 def test_only_sections_the_app_keeps_come_off(fw):

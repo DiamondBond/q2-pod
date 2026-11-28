@@ -53,11 +53,10 @@ static int ask(const char *app, const char *op, const char *body, unsigned len, 
     return r;
 }
 
-/* The app's copy into out: started first (addon_wake) when it doesn't answer. */
+/* The app's copy into out, waiting for an app scrobble_start woke. */
 int secrets_get(const char *app, char *out, unsigned max) {
     int r = -1;
     for (int i = 0; i < SECRETS_TRIES && (r = ask(app, "get", "", 0, out, max)) < 0; i++) {
-        if (!i) addon_wake(app);
         if (i + 1 < SECRETS_TRIES) usleep(250000);
     }
     return r;

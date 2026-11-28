@@ -321,12 +321,13 @@ int addon_scan(void) {
     return ap.cnt[ROW_STREAMING];
 }
 
-/* scrobble.c's scrobble_start, on the UI thread: the slots as the last scan left them, so no card
+/* The first present app with secrets=1 and root=1 (a uid 1000 app can't shadow it), for
+ * scrobble.c's scrobble_start, on the UI thread: the slots as the last scan left them, so no card
  * read unless scan and none has run (an automatic upload before Home's first). */
 int addon_secrets(char *id, char *name, int scan) {
     if (scan && !ap.n) slots_read();
     for (int i = 0; i < ap.n; ++i)
-        if (ap.a[i].present && ap.a[i].secrets) {
+        if (ap.a[i].present && ap.a[i].secrets && ap.a[i].root) {
             tk_snprintf(id, APP_ID, "%s", ap.a[i].id);
             tk_snprintf(name, 32, "%s", ap.a[i].name);
             return 1;

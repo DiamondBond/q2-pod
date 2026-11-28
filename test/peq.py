@@ -2531,6 +2531,7 @@ def scrobble_check(tmp):
             # addon.c and secrets.c aren't built here: no secrets app on the card (test/fw has the rest)
             '__attribute__((weak)) int addon_secrets(char *id, char *name, int scan) { (void)id, (void)name, (void)scan; return 0; }',
             '__attribute__((weak)) int secrets_get(const char *app, char *out, unsigned max) { (void)app, (void)out, (void)max; return -1; }',
+            '__attribute__((weak)) int addon_wake(const char *id) { (void)id; return 0; }',
             '__attribute__((weak)) int secrets_put(const char *app, const char *body, unsigned len) { (void)app, (void)body, (void)len; return 0; }']
     shim += [f'{PROTOTYPES[n][0]} {n}({PROTOTYPES[n][1]});' for n in PROTOTYPES if n.startswith(('curl_', 'MD5_', 'toolsReadConfig'))]
     (tmp/'scrobble_shim.h').write_text('\n'.join(shim) + '\n')

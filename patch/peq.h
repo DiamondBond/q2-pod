@@ -602,8 +602,8 @@ int spot_exchange(const char *path, unsigned wait_ms, unsigned max, char *buf, u
 enum { SPOT_OK, SPOT_NOSOCK, SPOT_FAIL }; /* spot_exchange's results */
 /* secrets.c: a secrets app's copy of Q2 Pod's logins, on a worker thread only. secrets_get 1 the
  * copy in out, 0 none saved, -1 no answer; secrets_put 1 once read back as put. addon.c: the first
- * app on the card whose q2app says secrets=1, its id and name copied (scan: the card read first
- * when no scan has run yet), else 0. */
+ * app on the card whose q2app says secrets=1 and root=1, its id and name copied (scan: the card
+ * read first when no scan has run yet), else 0. */
 #define SECRETS_MAX 2048 /* a copy's bytes: six logins of 255 and their keys */
 int secrets_get(const char *app, char *out, unsigned max);
 int secrets_put(const char *app, const char *body, unsigned len);
